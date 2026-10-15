@@ -130,6 +130,9 @@ export class ApiClient {
         /* Untrusted error body is optional. */
       }
       const upgradeHints: Record<string, string> = {
+        DEVICE_GROUP_SIZE_LIMIT:
+          "每个设备组最多包含 1000 台设备，请缩小选择范围。",
+        EMPTY_TAG_SELECTION: "请选择设备和标签。",
         ACCESS_NAME_EXISTS: "该账号、角色或用户组名称已存在",
         ACCESS_REVISION_CONFLICT:
           "ACCESS_REVISION_CONFLICT：配置已被其他操作修改，请刷新后重新编辑",

@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "device_groups": [
+    {
+      "id": "device-group-1",
+      "name": "生产组",
+      "description": "",
+      "revision": 1,
+      "device_ids": ["device-1"]
+    }
+  ]
+}

@@ -647,6 +647,69 @@ export function registerAccessControl(
       device_ids: references("devices", ids(b.device_ids, 1000)),
     };
   }
+  app.get("/api/v1/device-groups", async (req) => {
+    d.admin(req);
+    return {
+      v: 1,
+      device_groups: db
+        .prepare("SELECT * FROM device_groups ORDER BY name")
+        .all()
+        .map(deviceGroupView),
+    };
+  });
+  app.post("/api/v1/device-groups/batch", async (req) =>
+    mutate(req, "access.device_tags_updated", () => {
+      const b = object(req.body);
+      keys(b, ["v", "operation", "device_ids", "group_ids"]);
+      version(b);
+      if (b.operation !== "add" && b.operation !== "remove")
+        fail(400, "INVALID_TAG_OPERATION");
+      const devices = references("devices", ids(b.device_ids, 1000)),
+        groups = references("device_groups", ids(b.group_ids, 100));
+      if (!devices.length || !groups.length) fail(400, "EMPTY_TAG_SELECTION");
+      const devicesJson = canonical(devices);
+      let count = 0;
+      for (const group of groups) {
+        if (b.operation === "add") {
+          const total = db
+            .prepare(
+              "SELECT COUNT(*) AS n FROM (SELECT device_id FROM device_group_members WHERE group_id=? UNION SELECT value FROM json_each(?))",
+            )
+            .get(group, devicesJson) as any;
+          if (total.n > 1000) fail(409, "DEVICE_GROUP_SIZE_LIMIT");
+          count += Number(
+            db
+              .prepare(
+                "INSERT OR IGNORE INTO device_group_members(device_id,group_id) SELECT value,? FROM json_each(?)",
+              )
+              .run(group, devicesJson).changes,
+          );
+        } else {
+          count += Number(
+            db
+              .prepare(
+                "DELETE FROM device_group_members WHERE group_id=? AND device_id IN (SELECT value FROM json_each(?))",
+              )
+              .run(group, devicesJson).changes,
+          );
+        }
+        db.prepare("UPDATE device_groups SET updated_at=? WHERE id=?").run(
+          Date.now(),
+          group,
+        );
+      }
+      return {
+        target: randomUUID(),
+        revision: 0,
+        changes: {
+          operation: b.operation,
+          device_ids: devices,
+          group_ids: groups,
+        },
+        result: { v: 1, changed_count: count },
+      };
+    }),
+  );
   app.post("/api/v1/device-groups", async (req) =>
     mutate(req, "access.device_group_created", () => {
       const b = object(req.body);

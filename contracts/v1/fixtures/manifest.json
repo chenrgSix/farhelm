@@ -1178,5 +1178,35 @@
     "path": "valid/access-device-group-audit.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/device-groups-response.json",
+    "schema": "device-groups-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-tags-batch.json",
+    "schema": "device-tags-batch.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-tags-batch-response.json",
+    "schema": "device-tags-batch-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/device-tags-empty.json",
+    "schema": "device-tags-batch.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/device-tags-duplicate.json",
+    "schema": "device-tags-batch.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/device-tags-audit.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

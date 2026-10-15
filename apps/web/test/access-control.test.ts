@@ -140,39 +140,14 @@ it("edits user groups with members, role grants and concrete devices and optimis
   });
   wrapper.unmount();
 });
-it("device tags can be empty and overlapping, with no protected default group or implicit device moves", async () => {
-  const { wrapper, request } = await setup();
-  await wrapper.get('[role="tab"]:nth-child(4)').trigger("click");
-  expect(wrapper.text()).not.toContain("默认设备组");
-  expect(wrapper.find('[aria-label="删除设备组 生产组"]').exists()).toBe(true);
-  await wrapper.get('[aria-label="编辑设备组 公共组"]').trigger("click");
-  await wrapper.get('[aria-label="组内设备 Linux-1"]').setValue(true);
-  await wrapper.get("form").trigger("submit");
-  await flushPromises();
-  expect(request).toHaveBeenCalledWith("/device-groups/other", {
-    method: "PUT",
-    body: {
-      v: 1,
-      revision: 0,
-      name: "公共组",
-      description: "",
-      device_ids: ["one"],
-    },
-  });
-  await wrapper.get('[aria-label="编辑设备组 生产组"]').trigger("click");
-  await wrapper.get('[aria-label="组内设备 Linux-1"]').setValue(false);
-  await wrapper.get("form").trigger("submit");
-  await flushPromises();
-  expect(request).toHaveBeenCalledWith("/device-groups/production", {
-    method: "PUT",
-    body: {
-      v: 1,
-      revision: 1,
-      name: "生产组",
-      description: "可选标签",
-      device_ids: [],
-    },
-  });
+it("keeps device-group management out of account management", async () => {
+  const { wrapper } = await setup();
+  expect(wrapper.findAll('[role="tab"]').map((t) => t.text())).toEqual([
+    "用户 1",
+    "角色 1",
+    "用户组 1",
+  ]);
+  expect(wrapper.text()).not.toContain("创建设备组");
   wrapper.unmount();
 });
 it("stale saves cannot overwrite newer permissions; role permission dependencies are included", async () => {

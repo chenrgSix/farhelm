@@ -119,15 +119,75 @@ try {
   const admin = await adminContext.newPage();
   admin.on("pageerror", (e) => errors.push(e.message));
   await login(admin, "admin");
+  const manager = () => admin.getByRole("dialog");
+  async function saveGroup() {
+    await manager()
+      .getByRole("button", { name: "保存设备组", exact: true })
+      .click();
+    await expect(
+      manager().getByRole("heading", { name: "设备组管理", exact: true }),
+    ).toBeVisible();
+  }
+  async function batch(operation: "添加" | "移除", name: string) {
+    await admin
+      .getByRole("button", { name: operation + "标签", exact: true })
+      .click();
+    await manager()
+      .getByLabel("批量标签 " + name, { exact: true })
+      .check();
+    await manager()
+      .getByRole("button", { name: "确认" + operation, exact: true })
+      .click();
+    await expect(manager()).toHaveCount(0);
+    await expect(admin.getByRole("status")).toContainText("关联发生变化");
+  }
+  await admin.getByRole("button", { name: "管理设备组", exact: true }).click();
+  for (const name of ["生产组", "地区组", "空组"]) {
+    await manager()
+      .getByRole("button", { name: "创建设备组", exact: true })
+      .click();
+    await manager().getByLabel("设备组名称", { exact: true }).fill(name);
+    if (name !== "空组")
+      await manager()
+        .getByLabel("组内设备 生产 Linux", { exact: true })
+        .check();
+    await saveGroup();
+  }
+  await manager()
+    .getByRole("button", { name: "关闭设备组窗口", exact: true })
+    .click();
+  const filter = admin.getByLabel("按设备组筛选", { exact: true });
+  await filter.selectOption({ label: "生产组" });
+  await expect(admin.getByText("默认 Linux", { exact: true })).toHaveCount(0);
+  await admin.getByLabel("选择当前筛选的全部设备", { exact: true }).check();
+  await filter.selectOption({ label: "未分组" });
+  await expect(admin.getByText("生产 Linux", { exact: true })).toHaveCount(0);
+  await admin.getByLabel("选择设备 默认 Linux", { exact: true }).check();
+  await expect(admin.getByText("已选 2 台", { exact: false })).toContainText(
+    "1 台在当前筛选外",
+  );
+  await batch("添加", "地区组");
+  await filter.selectOption({ label: "地区组" });
+  await expect(admin.getByText("生产 Linux", { exact: true })).toBeVisible();
+  await expect(admin.getByText("默认 Linux", { exact: true })).toBeVisible();
+  await batch("移除", "生产组");
+  await expect(admin.getByText("默认 Linux", { exact: true })).toBeVisible();
+  await expect(admin.getByText("生产 Linux", { exact: true })).toBeVisible();
+  await batch("移除", "地区组");
+  await filter.selectOption({ label: "未分组" });
+  await expect(admin.getByText("默认 Linux", { exact: true })).toBeVisible();
+  await expect(admin.getByText("生产 Linux", { exact: true })).toBeVisible();
+  await admin.getByRole("button", { name: "清空选择", exact: true }).click();
+  await admin.getByLabel("选择设备 生产 Linux", { exact: true }).check();
+  await batch("添加", "生产组");
+  await filter.selectOption({ label: "全部设备" });
+  await admin.screenshot({
+    path: join(output, "device-tags-browser.png"),
+    fullPage: true,
+  });
+  await admin.getByRole("button", { name: "清空选择", exact: true }).click();
   await admin.getByRole("button", { name: "用户与权限", exact: true }).click();
-  await admin.getByRole("tab", { name: /设备组/ }).click();
-  await expect(
-    admin.getByText("没有匹配的设备组", { exact: true }),
-  ).toBeVisible();
-  await admin.getByRole("button", { name: "创建设备组", exact: true }).click();
-  await admin.getByLabel("设备组名称", { exact: true }).fill("生产组");
-  await admin.getByLabel("组内设备 生产 Linux", { exact: true }).check();
-  await save(admin);
+  await expect(admin.getByRole("tab", { name: /设备组/ })).toHaveCount(0);
   await admin.getByRole("tab", { name: /角色/ }).click();
   await admin.getByRole("button", { name: "创建角色", exact: true }).click();
   await admin.getByLabel("角色名称", { exact: true }).fill("终端专员");
@@ -159,6 +219,9 @@ try {
   user.on("pageerror", (e) => errors.push(e.message));
   await login(user, "operator");
   await expect(user.getByText("生产 Linux", { exact: true })).toBeVisible();
+  await expect(
+    user.getByRole("button", { name: "管理设备组", exact: true }),
+  ).toHaveCount(0);
   await expect(user.getByText("默认 Linux", { exact: true })).toHaveCount(0);
   for (const name of ["用户与权限", "任务中心", "操作审计", "终端会话"])
     await expect(user.getByRole("button", { name, exact: true })).toHaveCount(
@@ -171,12 +234,17 @@ try {
   await expect(user.locator(".xterm-rows")).toContainText(
     "ACCESS_BROWSER_READY",
   );
-  await admin.getByRole("tab", { name: /设备组/ }).click();
-  await admin
+  await admin.getByRole("button", { name: "设备总览", exact: true }).click();
+  await admin.getByRole("button", { name: "管理设备组", exact: true }).click();
+  await manager()
     .getByRole("button", { name: "编辑设备组 生产组", exact: true })
     .click();
-  await admin.getByLabel("组内设备 生产 Linux", { exact: true }).uncheck();
-  await save(admin);
+  await manager().getByLabel("组内设备 生产 Linux", { exact: true }).uncheck();
+  await saveGroup();
+  await manager()
+    .getByRole("button", { name: "关闭设备组窗口", exact: true })
+    .click();
+  await admin.getByRole("button", { name: "用户与权限", exact: true }).click();
   assert.equal(closed.length, 0);
   assert.equal(
     (
@@ -221,9 +289,10 @@ try {
     fullPage: true,
   });
   await admin.getByRole("button", { name: "关闭表单", exact: true }).click();
+  await admin.getByRole("button", { name: "设备总览", exact: true }).click();
   await admin.setViewportSize({ width: 390, height: 844 });
-  await admin.getByRole("tab", { name: /设备组/ }).click();
-  await admin
+  await admin.getByRole("button", { name: "管理设备组", exact: true }).click();
+  await manager()
     .getByRole("button", { name: "编辑设备组 生产组", exact: true })
     .click();
   await expect(admin.getByRole("dialog")).toBeVisible();
@@ -241,7 +310,9 @@ try {
     ok: true,
     checks: [
       "UI creates custom role, user group, device group and account",
-      "New and existing devices can be ungrouped",
+      "Group filters including ungrouped, visible select-all and selections across filters",
+      "Atomic multi-device tag add/remove preserves other labels and supports empty and overlapping groups",
+      "Device-group management lives on devices page; readers can filter but cannot manage",
       "Inherited grant restricts device list and UI operations",
       "Changing device tags leaves authorization and terminals intact; removing user-group scope closes terminals and revokes login",
       "Group grant update takes effect after login",

@@ -28,6 +28,7 @@ import AddDevicePanel from "./components/AddDevicePanel.vue";
 import AgentInstallPanel from "./components/AgentInstallPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
+import DeviceGroupTools from "./components/DeviceGroupTools.vue";
 import AccessManagementPanel from "./components/AccessManagementPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
@@ -55,6 +56,9 @@ const terminalTarget = ref<{
   recording?: TerminalSession;
 } | null>(null);
 const devices = ref<Device[]>([]);
+const deviceGroupFilter = ref("");
+const selectedDeviceIds = ref<string[]>([]);
+let tagRefreshPending = false;
 const sshTarget = ref<Device | null>(null);
 const networkTarget = ref<Device | null>(null);
 const healthTarget = ref<Device | null>(null);
@@ -102,7 +106,7 @@ const navigation = computed(
     ] as const,
 );
 const titles = {
-  access: ["用户与权限", "管理账号、角色、用户组授权与设备分类"],
+  access: ["用户与权限", "管理账号、角色与用户组授权"],
   devices: ["设备总览", "连接状态清晰可见，每一次操作都有记录"],
   tasks: ["任务中心", "从授权到真实结果，追踪每条命令的生命周期"],
   audit: ["操作审计", "平台内操作、授权与输出查看的持久化记录"],
@@ -111,12 +115,40 @@ const titles = {
   upgrades: ["Agent 升级", "批量更新，跟踪每台设备的真实升级结果"],
 };
 const filteredDevices = computed(() =>
-  devices.value.filter((d) =>
-    `${d.name} ${d.id} ${d.device_groups?.map((g) => g.name).join(" ") ?? ""} ${d.agent_version ?? ""} ${(d.ip_addresses ?? []).join(" ")}`
-      .toLowerCase()
-      .includes(search.value.toLowerCase()),
-  ),
+  devices.value.filter((d) => {
+    const groupMatches =
+      !deviceGroupFilter.value ||
+      (deviceGroupFilter.value === "__ungrouped__"
+        ? !d.device_groups?.length
+        : d.device_groups?.some((g) => g.id === deviceGroupFilter.value));
+    return (
+      groupMatches &&
+      `${d.name} ${d.id} ${d.device_groups?.map((g) => g.name).join(" ") ?? ""} ${d.agent_version ?? ""} ${(d.ip_addresses ?? []).join(" ")}`
+        .toLowerCase()
+        .includes(search.value.toLowerCase())
+    );
+  }),
 );
+const visibleDeviceIds = computed(() => filteredDevices.value.map((d) => d.id));
+const allVisibleSelected = computed(
+  () =>
+    visibleDeviceIds.value.length > 0 &&
+    visibleDeviceIds.value.every((id) => selectedDeviceIds.value.includes(id)),
+);
+const someVisibleSelected = computed(() =>
+  visibleDeviceIds.value.some((id) => selectedDeviceIds.value.includes(id)),
+);
+function toggleVisibleDevices(selected: boolean) {
+  selectedDeviceIds.value = selected
+    ? [...new Set([...selectedDeviceIds.value, ...visibleDeviceIds.value])]
+    : selectedDeviceIds.value.filter(
+        (id) => !visibleDeviceIds.value.includes(id),
+      );
+}
+function refreshDeviceTags() {
+  if (refreshing.value) tagRefreshPending = true;
+  else void refresh();
+}
 const filteredTasks = computed(() =>
   tasks.value.filter((t) =>
     `${t.task_id} ${t.device_id} ${t.actor_id} ${t.argv.join(" ")} ${t.status}`
@@ -157,6 +189,9 @@ function logout(message = "") {
   view.value = "devices";
   password.value = "";
   devices.value = [];
+  selectedDeviceIds.value = [];
+  deviceGroupFilter.value = "";
+  tagRefreshPending = false;
   tasks.value = [];
   audit.value = [];
   selectedTask.value = null;
@@ -266,6 +301,9 @@ async function refresh() {
     )
       throw new Error("API 列表响应格式错误");
     devices.value = deviceResponse.devices;
+    selectedDeviceIds.value = selectedDeviceIds.value.filter((id) =>
+      devices.value.some((d) => d.id === id),
+    );
     tasks.value = taskResponse.tasks;
     audit.value = auditResponse.audit;
     terminalSessions.value = terminalResponse.sessions;
@@ -279,7 +317,13 @@ async function refresh() {
       error.value = e instanceof Error ? e.message : "刷新失败";
     }
   } finally {
-    if (generation === sessionGeneration) refreshing.value = false;
+    if (generation === sessionGeneration) {
+      refreshing.value = false;
+      if (tagRefreshPending && user.value) {
+        tagRefreshPending = false;
+        void refresh();
+      }
+    }
   }
 }
 async function selectTask(id: string, quiet = false) {
@@ -623,6 +667,15 @@ onBeforeUnmount(() => {
                     aria-label="筛选当前列表"
                 /></label>
               </div>
+              <DeviceGroupTools
+                v-if="view === 'devices'"
+                :devices="devices"
+                :admin="user.role === 'admin'"
+                v-model:filter="deviceGroupFilter"
+                v-model:selected-ids="selectedDeviceIds"
+                :visible-ids="visibleDeviceIds"
+                @changed="refreshDeviceTags"
+              />
               <div v-if="!lastUpdated" class="empty-state">
                 <span class="empty-icon">◌</span>
                 <h3>{{ refreshing ? "正在连接服务端" : "尚未读取到数据" }}</h3>
@@ -637,11 +690,17 @@ onBeforeUnmount(() => {
               <template v-else-if="view === 'devices'"
                 ><div v-if="!filteredDevices.length" class="empty-state">
                   <span class="empty-icon">▦</span>
-                  <h3>{{ search ? "没有匹配的设备" : "还没有已授权设备" }}</h3>
+                  <h3>
+                    {{
+                      search || deviceGroupFilter
+                        ? "没有匹配的设备"
+                        : "还没有已授权设备"
+                    }}
+                  </h3>
                   <p>
                     {{
-                      search
-                        ? "尝试其他名称或设备 ID"
+                      search || deviceGroupFilter
+                        ? "尝试其他设备组、名称或设备 ID"
                         : user.role === "admin"
                           ? "点击“添加设备”，选择 SSH 或 Agent 接入"
                           : "请联系管理员完成设备注册与范围授权"
@@ -652,6 +711,24 @@ onBeforeUnmount(() => {
                   <table>
                     <thead>
                       <tr>
+                        <th
+                          v-if="user.role === 'admin'"
+                          class="device-selection"
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label="选择当前筛选的全部设备"
+                            :checked="allVisibleSelected"
+                            :indeterminate="
+                              someVisibleSelected && !allVisibleSelected
+                            "
+                            @change="
+                              toggleVisibleDevices(
+                                ($event.target as HTMLInputElement).checked,
+                              )
+                            "
+                          />
+                        </th>
                         <th>设备</th>
                         <th>连接状态</th>
                         <th>私网数据</th>
@@ -662,6 +739,17 @@ onBeforeUnmount(() => {
                     </thead>
                     <tbody>
                       <tr v-for="device in filteredDevices" :key="device.id">
+                        <td
+                          v-if="user.role === 'admin'"
+                          class="device-selection"
+                        >
+                          <input
+                            v-model="selectedDeviceIds"
+                            type="checkbox"
+                            :value="device.id"
+                            :aria-label="`选择设备 ${device.name}`"
+                          />
+                        </td>
                         <td>
                           <div class="device-name">
                             <span class="device-icon" aria-hidden="true"
@@ -1196,3 +1284,18 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.device-selection {
+  width: 42px;
+  min-width: 42px;
+  padding-right: 4px;
+}
+.device-selection input {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+</style>

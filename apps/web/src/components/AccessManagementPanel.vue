@@ -12,15 +12,13 @@ import type {
 } from "../api/types";
 const props = defineProps<{ currentUserId: string; devices: Device[] }>();
 const data = ref<AccessManagement>();
-const tab = ref<"users" | "roles" | "groups" | "device_groups">("users");
+const tab = ref<"users" | "roles" | "groups">("users");
 const search = ref("");
 const loading = ref(false),
   saving = ref(false),
   error = ref(""),
   notice = ref("");
-const mode = ref<
-  "user" | "role" | "group" | "device_group" | "password" | null
->(null);
+const mode = ref<"user" | "role" | "group" | "password" | null>(null);
 const editing = ref<{ id: string; revision: number; builtin?: boolean }>();
 const formError = ref(""),
   uncertain = ref(false);
@@ -43,12 +41,11 @@ const labels = {
   users: "用户",
   roles: "角色",
   groups: "用户组",
-  device_groups: "设备组",
 };
 const title = computed(() =>
   mode.value === "password"
     ? "重置密码"
-    : `${editing.value ? (editing.value.builtin ? "查看" : "编辑") : "创建"}${mode.value === "user" ? "用户" : mode.value === "role" ? "角色" : mode.value === "device_group" ? "设备组" : "用户组"}`,
+    : `${editing.value ? (editing.value.builtin ? "查看" : "编辑") : "创建"}${mode.value === "user" ? "用户" : mode.value === "role" ? "角色" : "用户组"}`,
 );
 const filteredUsers = computed(
   () =>
@@ -74,14 +71,6 @@ const filteredGroups = computed(
         .includes(search.value.toLowerCase()),
     ) ?? [],
 );
-const filteredDeviceGroups = computed(
-  () =>
-    data.value?.device_groups.filter((g) =>
-      `${g.name} ${g.description}`
-        .toLowerCase()
-        .includes(search.value.toLowerCase()),
-    ) ?? [],
-);
 const adminGrant = computed(
   () =>
     draft.value.role_ids.includes("admin") ||
@@ -92,7 +81,7 @@ const adminGrant = computed(
 );
 const scope = () =>
   draft.value.all_devices ? ("*" as const) : [...draft.value.device_ids];
-function names(ids: string[], kind: "roles" | "groups" | "device_groups") {
+function names(ids: string[], kind: "roles" | "groups") {
   return (
     ids
       .map((id) => data.value?.[kind].find((x) => x.id === id)?.name ?? id)
@@ -121,8 +110,8 @@ async function load() {
   }
 }
 function open(
-  kind: "user" | "role" | "group" | "device_group" | "password",
-  item?: ManagedUser | ManagedRole | ManagedGroup | ManagedDeviceGroup,
+  kind: "user" | "role" | "group" | "password",
+  item?: ManagedUser | ManagedRole | ManagedGroup,
 ) {
   if (saving.value || loading.value) return;
   mode.value = kind;
@@ -149,7 +138,6 @@ function open(
         name: item.name,
         description: item.description,
       });
-    if ("device_ids" in item) draft.value.device_ids = [...item.device_ids];
     if ("permissions" in item) draft.value.permissions = [...item.permissions];
     if ("member_ids" in item)
       Object.assign(draft.value, {
@@ -214,16 +202,6 @@ async function save() {
       description: draft.value.description.trim(),
       permissions: [...draft.value.permissions],
     };
-  } else if (kind === "device_group") {
-    path =
-      "/device-groups" +
-      (existing ? `/${encodeURIComponent(existing.id)}` : "");
-    body = {
-      ...common,
-      name: draft.value.name.trim(),
-      description: draft.value.description.trim(),
-      device_ids: [...draft.value.device_ids],
-    };
   } else {
     path = "/groups" + (existing ? `/${encodeURIComponent(existing.id)}` : "");
     body = {
@@ -244,7 +222,7 @@ async function save() {
     draft.value.password = "";
     mode.value = null;
     notice.value =
-      "已保存。修改账号、角色、用户组或密码的受影响用户需要重新登录，设备标签调整不影响登录。";
+      "已保存。修改账号、角色、用户组或密码的受影响用户需要重新登录。";
     await load();
   } catch (e) {
     if (disposed) return;
@@ -294,13 +272,13 @@ async function toggleUser(user: ManagedUser) {
   }
 }
 async function remove(
-  kind: "roles" | "groups" | "device_groups",
-  item: ManagedRole | ManagedGroup | ManagedDeviceGroup,
+  kind: "roles" | "groups",
+  item: ManagedRole | ManagedGroup,
 ) {
   if (saving.value || loading.value) return;
   if (
     !window.confirm(
-      `删除${labels[kind]}“${item.name}”？${kind === "groups" ? "组成员继承的角色和设备权限将被撤销，现有登录和终端连接会失效。" : kind === "device_groups" ? "只移除这个分类标签，不会删除设备或改变任何用户权限。" : "正在分配使用的角色不能删除。"}`,
+      `删除${labels[kind]}“${item.name}”？${kind === "groups" ? "组成员继承的角色和设备权限将被撤销，现有登录和终端连接会失效。" : "正在分配使用的角色不能删除。"}`,
     )
   )
     return;
@@ -308,10 +286,10 @@ async function remove(
   error.value = "";
   notice.value = "";
   try {
-    await api.request(
-      `/${kind === "device_groups" ? "device-groups" : kind}/${encodeURIComponent(item.id)}`,
-      { method: "DELETE", body: { v: 1, revision: item.revision } },
-    );
+    await api.request(`/${kind}/${encodeURIComponent(item.id)}`, {
+      method: "DELETE",
+      body: { v: 1, revision: item.revision },
+    });
     if (!disposed) {
       notice.value = "已删除。";
       await load();
@@ -350,7 +328,7 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <div class="access-tabs" role="tablist" aria-label="权限管理分类">
       <button
-        v-for="key in ['users', 'roles', 'groups', 'device_groups'] as const"
+        v-for="key in ['users', 'roles', 'groups'] as const"
         :key="key"
         role="tab"
         :aria-selected="tab === key"
@@ -374,15 +352,7 @@ onBeforeUnmount(() => {
         class="button primary"
         :disabled="loading || saving || !data"
         @click="
-          open(
-            tab === 'users'
-              ? 'user'
-              : tab === 'roles'
-                ? 'role'
-                : tab === 'device_groups'
-                  ? 'device_group'
-                  : 'group',
-          )
+          open(tab === 'users' ? 'user' : tab === 'roles' ? 'role' : 'group')
         "
       >
         创建{{ labels[tab] }}
@@ -556,52 +526,6 @@ onBeforeUnmount(() => {
           </tr>
         </tbody>
       </table>
-      <table v-else>
-        <thead>
-          <tr>
-            <th>设备组</th>
-            <th>设备</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in filteredDeviceGroups" :key="item.id">
-            <td>
-              <strong>{{ item.name }}</strong
-              ><small class="muted">{{ item.description }}</small>
-            </td>
-            <td>
-              {{ item.device_ids.length }} 台<small>{{
-                item.device_ids
-                  .map((id) => devices.find((d) => d.id === id)?.name ?? id)
-                  .join("、") || "暂无设备"
-              }}</small>
-            </td>
-            <td>
-              <div class="access-row-actions">
-                <button
-                  class="text-button"
-                  :disabled="saving"
-                  @click="open('device_group', item)"
-                  :aria-label="`编辑设备组 ${item.name}`"
-                >
-                  编辑</button
-                ><button
-                  class="text-button"
-                  :disabled="saving"
-                  @click="remove('device_groups', item)"
-                  :aria-label="`删除设备组 ${item.name}`"
-                >
-                  删除
-                </button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!filteredDeviceGroups.length">
-            <td colspan="3" class="muted">没有匹配的设备组</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
     <p class="access-note muted">
       用户直接分配和所属组的角色权限取并集；设备范围也取并集。所有生效权限均适用于合并后的设备范围。设备组仅作可选分类标签，用于批量选择设备；调整标签不会自动改变授权。设备可加入多个组，也可不加入任何组，新设备默认未分组。管理员可管理所有设备和平台设置。
@@ -669,18 +593,9 @@ onBeforeUnmount(() => {
                   />启用账号</label
                 >
               </template>
-              <template
-                v-if="
-                  mode === 'role' || mode === 'group' || mode === 'device_group'
-                "
-              >
+              <template v-if="mode === 'role' || mode === 'group'">
                 <label
-                  >{{
-                    mode === "role"
-                      ? "角色名称"
-                      : mode === "device_group"
-                        ? "设备组名称"
-                        : "用户组名称"
+                  >{{ mode === "role" ? "角色名称" : "用户组名称"
                   }}<input v-model="draft.name" required maxlength="64"
                 /></label>
                 <label
@@ -849,36 +764,8 @@ onBeforeUnmount(() => {
                   未选择设备时，仅保留其他来源的设备授权。组角色与直接角色合并后，可用于所有已授权设备。
                 </p>
               </fieldset>
-              <fieldset v-if="mode === 'device_group'" class="access-options">
-                <legend>组内设备</legend>
-                <p class="field-hint">
-                  设备组只是分类标签。设备可以同时加入多个组，也可以不加入任何组；新设备默认不入组。这里的修改不改变用户权限。
-                </p>
-                <label
-                  v-for="device in devices"
-                  :key="device.id"
-                  class="access-check"
-                  ><input
-                    v-model="draft.device_ids"
-                    type="checkbox"
-                    :value="device.id"
-                    :aria-label="`组内设备 ${device.name}`"
-                  />{{ device.name }}
-                  <small
-                    >标签：{{
-                      data?.device_groups
-                        .filter((g) => g.device_ids.includes(device.id))
-                        .map((g) => g.name)
-                        .join("、") || "未分组"
-                    }}</small
-                  ></label
-                >
-              </fieldset>
             </fieldset>
-            <p
-              v-if="editing && !editing.builtin && mode !== 'device_group'"
-              class="field-hint"
-            >
+            <p v-if="editing && !editing.builtin" class="field-hint">
               修改用户、角色或用户组授权会使受影响用户的现有登录和终端连接失效；设备标签不影响权限。当前管理员不能停用自己或移除自己的管理员权限。
             </p>
             <div class="access-form-actions">

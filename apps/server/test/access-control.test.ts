@@ -629,3 +629,171 @@ test("bootstrap environment cannot resurrect renamed or disabled accounts after 
     await s.close();
   }
 });
+
+test("batch tags are admin-only, atomic and idempotent, preserve other tags and sessions, and invalidate stale group edits", async () => {
+  const f = await fixture();
+  try {
+    f.device("one");
+    f.device("two");
+    f.device("three");
+    const make = async (name: string, device_ids: string[]) => {
+      const r = await f.api("POST", "/device-groups", {
+        v: 1,
+        name,
+        description: "",
+        device_ids,
+      });
+      assert.equal(r.status, 200);
+      return r.body.device_group;
+    };
+    const group = await make("生产", ["one"]),
+      other = await make("地区", ["one", "three"]);
+    const u = await f.user("tag-reader", {
+        role_ids: ["business"],
+        device_scope: ["one"],
+      }),
+      auth = (await f.login(u.username)).body.access_token;
+    const body = {
+      v: 1,
+      operation: "add",
+      device_ids: ["one", "two"],
+      group_ids: [group.id, other.id],
+    };
+    for (const token of [auth, ""]) {
+      assert.equal(
+        (await f.api("GET", "/device-groups", undefined, token)).status,
+        token ? 403 : 401,
+      );
+      assert.equal(
+        (await f.api("POST", "/device-groups/batch", body, token)).status,
+        token ? 403 : 401,
+      );
+    }
+    const result = await f.api("POST", "/device-groups/batch", body);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.changed_count, 2);
+    assertValid("device-tags-batch-response", result.body);
+    assert.equal(
+      (await f.api("POST", "/device-groups/batch", body)).body.changed_count,
+      0,
+    );
+    const list = await f.api("GET", "/device-groups");
+    assertValid("device-groups-response", list.body);
+    assert.deepEqual(
+      list.body.device_groups.find((g: any) => g.id === other.id).device_ids,
+      ["one", "three", "two"],
+    );
+    assert.equal(
+      (
+        await f.api("PUT", "/device-groups/" + group.id, {
+          v: 1,
+          revision: group.revision,
+          name: group.name,
+          description: "",
+          device_ids: ["one"],
+        })
+      ).body.error,
+      "ACCESS_REVISION_CONFLICT",
+    );
+    assert.equal(
+      (
+        await f.api("POST", "/device-groups/batch", {
+          ...body,
+          operation: "remove",
+          group_ids: [group.id],
+        })
+      ).body.changed_count,
+      2,
+    );
+    assert.equal(
+      (
+        await f.api("POST", "/device-groups/batch", {
+          ...body,
+          device_ids: ["one", "missing"],
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.api("POST", "/device-groups/batch", {
+          ...body,
+          group_ids: [group.id, "missing"],
+        })
+      ).status,
+      400,
+    );
+    const current = (await f.api("GET", "/device-groups")).body.device_groups;
+    assert.deepEqual(
+      current.find((g: any) => g.id === group.id).device_ids,
+      [],
+    );
+    assert.deepEqual(current.find((g: any) => g.id === other.id).device_ids, [
+      "one",
+      "three",
+      "two",
+    ]);
+    assert.deepEqual(
+      (await f.api("GET", "/me", undefined, auth)).body.device_scope,
+      ["one"],
+    );
+    f.store.db.exec(
+      "CREATE TRIGGER fail_tag_audit BEFORE INSERT ON audit WHEN NEW.action='access.device_tags_updated' BEGIN SELECT RAISE(ABORT,'test audit failure'); END",
+    );
+    assert.equal(
+      (await f.api("POST", "/device-groups/batch", body)).status,
+      500,
+    );
+    assert.deepEqual(
+      (await f.api("GET", "/device-groups")).body.device_groups.find(
+        (g: any) => g.id === group.id,
+      ).device_ids,
+      [],
+    );
+    f.store.db.exec("DROP TRIGGER fail_tag_audit");
+    for (const a of (await f.api("GET", "/audit")).body.audit)
+      assertValid("audit", a);
+  } finally {
+    await f.close();
+  }
+});
+
+test("batch group size limits leave no partial tag changes", async () => {
+  const f = await fixture();
+  try {
+    for (let i = 0; i < 1001; i++) f.device("limit-" + i);
+    const ids = Array.from({ length: 1000 }, (_, i) => "limit-" + i);
+    const full = (
+      await f.api("POST", "/device-groups", {
+        v: 1,
+        name: "满组",
+        description: "",
+        device_ids: ids,
+      })
+    ).body.device_group;
+    const empty = (
+      await f.api("POST", "/device-groups", {
+        v: 1,
+        name: "空组",
+        description: "",
+        device_ids: [],
+      })
+    ).body.device_group;
+    const r = await f.api("POST", "/device-groups/batch", {
+      v: 1,
+      operation: "add",
+      device_ids: ["limit-1000"],
+      group_ids: [empty.id, full.id],
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error, "DEVICE_GROUP_SIZE_LIMIT");
+    const list = (await f.api("GET", "/device-groups")).body.device_groups;
+    assert.equal(
+      list.find((g: any) => g.id === full.id).device_ids.length,
+      1000,
+    );
+    assert.deepEqual(list.find((g: any) => g.id === empty.id).device_ids, []);
+  } finally {
+    await f.close();
+  }
+});

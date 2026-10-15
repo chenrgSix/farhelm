@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "operation": "add",
+  "device_ids": ["one", "two"],
+  "group_ids": ["group"]
+}

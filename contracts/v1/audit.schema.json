@@ -88,7 +88,8 @@
         "access.group_deleted",
         "access.device_group_created",
         "access.device_group_updated",
-        "access.device_group_deleted"
+        "access.device_group_deleted",
+        "access.device_tags_updated"
       ]
     },
     "detail": {
@@ -701,6 +702,9 @@
                   },
                   "uniqueItems": true,
                   "maxItems": 1000
+                },
+                "operation": {
+                  "enum": ["add", "remove"]
                 }
               },
               "required": []
@@ -1663,7 +1667,8 @@
               "access.group_deleted",
               "access.device_group_created",
               "access.device_group_updated",
-              "access.device_group_deleted"
+              "access.device_group_deleted",
+              "access.device_tags_updated"
             ]
           }
         }
@@ -1768,6 +1773,9 @@
                     },
                     "uniqueItems": true,
                     "maxItems": 1000
+                  },
+                  "operation": {
+                    "enum": ["add", "remove"]
                   }
                 },
                 "required": []

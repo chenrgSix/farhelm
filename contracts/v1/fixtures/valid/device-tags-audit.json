@@ -1,0 +1,17 @@
+{
+  "id": 100,
+  "at": 1700000000000,
+  "actor_id": "admin",
+  "device_id": null,
+  "task_id": null,
+  "action": "access.device_tags_updated",
+  "detail": {
+    "target_id": "batch",
+    "revision": 0,
+    "changes": {
+      "operation": "remove",
+      "device_ids": ["one"],
+      "group_ids": ["group"]
+    }
+  }
+}
