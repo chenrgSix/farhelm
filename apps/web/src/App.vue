@@ -14,6 +14,7 @@ import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
 import TaskDetail from "./components/TaskDetail.vue";
 import HealthChecksPanel from "./components/HealthChecksPanel.vue";
+import SessionDuration from "./components/SessionDuration.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -851,6 +852,7 @@ onBeforeUnmount(() => {
                         <th>设备 / 会话</th>
                         <th>操作人</th>
                         <th>连接时间</th>
+                        <th>录制时长</th>
                         <th>状态</th>
                         <th>操作</th>
                       </tr>
@@ -866,6 +868,9 @@ onBeforeUnmount(() => {
                         <td class="mono small">{{ session.actor_id }}</td>
                         <td class="small muted">
                           {{ formatTime(session.created_at) }}
+                        </td>
+                        <td class="small">
+                          <SessionDuration :session="session" />
                         </td>
                         <td>
                           <span

@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../api/client";
 import type { TerminalSession } from "../api/types";
+import SessionDuration from "./SessionDuration.vue";
 
 const props = defineProps<{
   deviceId: string;
@@ -363,6 +364,9 @@ onBeforeUnmount(() => {
       <footer class="terminal-footer">
         <span v-if="!recording">Ctrl-C 中断 · Tab 补全 · 输入 exit 退出</span>
         <span v-else>按录制顺序回放，长时间停顿压缩至 2 秒</span>
+        <span v-if="recording"
+          >录制时长 <SessionDuration :session="recording"
+        /></span>
         <span>{{
           recording
             ? recording.audit_complete
