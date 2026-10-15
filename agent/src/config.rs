@@ -17,6 +17,7 @@ pub struct Config {
     pub enrollment_token: Option<String>,
     pub name: String,
     pub execution_enabled: bool,
+    pub terminal_allow_privilege_escalation: bool,
     pub heartbeat_ms: u64,
     pub fault: Option<String>,
 }
@@ -51,6 +52,18 @@ impl Config {
             }
             _ => bail!("unsupported execution backend"),
         };
+        let terminal_allow_privilege_escalation =
+            match env::var("FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION").as_deref() {
+                Err(env::VarError::NotPresent) | Ok("0") => false,
+                Ok("1") => true,
+                _ => bail!("FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION must be 0 or 1"),
+            };
+        if terminal_allow_privilege_escalation {
+            ensure!(
+                unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) } == 0,
+                "terminal privilege escalation cannot override inherited no_new_privs"
+            );
+        }
         let fault = env::var("FLEET_TEST_FAULT").ok();
         if let Some(point) = &fault {
             ensure!(
@@ -90,6 +103,7 @@ impl Config {
             enrollment_token: env::var("FLEET_ENROLLMENT_TOKEN").ok(),
             name: env::var("FLEET_DEVICE_NAME").unwrap_or_else(|_| "fleet-device".into()),
             execution_enabled,
+            terminal_allow_privilege_escalation,
             heartbeat_ms,
             fault,
         })
@@ -203,6 +217,7 @@ mod tests {
             enrollment_token: None,
             name: "test".into(),
             execution_enabled: false,
+            terminal_allow_privilege_escalation: false,
             heartbeat_ms: 2000,
             fault: None,
         }

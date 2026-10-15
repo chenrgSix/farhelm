@@ -26,6 +26,8 @@ Existing state directories must be owned by the running UID and have no group/ot
 
 `FLEET_EXECUTION_BACKEND=same-uid` is the default, per the user's explicit single-account decision. `disabled` allows identity/control testing without command execution. `development-same-uid` remains an alias. Execution as UID 0 is rejected. No account, sudo rule, privileged helper, systemd service, or host permission is installed or changed.
 
+Interactive PTYs also default to `no_new_privs`. An operator can explicitly set `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=1` to permit the host's existing sudo/setuid policy in terminals. This does not change the Exec backend's mandatory `no_new_privs`, and cannot override an inherited `no_new_privs` flag. The local development Docker image installs sudo and grants fleet passwordless sudo inside that container; the Agent itself never configures sudoers on a real host. See [terminal configuration](../docs/terminal.md).
+
 ## Important security boundary
 
 The chosen single Linux UID executes commands and owns Agent state. An arbitrary command under that UID can read the Agent key, change its local journal, and interfere with the process. Mode 0600 protects against other ordinary UIDs; it is not isolation from that account's own commands. Central records already received are separately persisted, but the server cannot prove an endpoint has provided untampered or complete evidence. This implementation must not be described as endpoint tamper-proof or production-hardened.

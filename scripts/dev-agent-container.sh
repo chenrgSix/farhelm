@@ -26,11 +26,12 @@ if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
   docker stop "$CONTAINER"
   docker rm "$CONTAINER"
 fi
-docker run --detach --name "$CONTAINER" --hostname local-linux --restart unless-stopped \
+docker run --detach --init --name "$CONTAINER" --hostname local-linux --restart unless-stopped \
   --env-file "$DEV/agent.env" \
+  --env FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=1 \
   --mount "type=bind,source=$DEV/agent,target=/state" \
   --mount "type=bind,source=$DEV/agent-home,target=/home/fleet" \
   --mount "type=bind,source=$BINARY,target=/usr/local/bin/fleet-agent,readonly" \
   --mount "type=bind,source=$DEV/tls/ca.crt,target=/etc/fleet/ca.crt,readonly" \
   "$IMAGE"
-printf 'Local Agent: %s; user: fleet; writable home: /home/fleet (persisted at %s/agent-home).\n' "$CONTAINER" "$DEV"
+printf 'Local Agent: %s; user: fleet; sudo enabled inside this development container; writable home: /home/fleet (persisted at %s/agent-home).\n' "$CONTAINER" "$DEV"

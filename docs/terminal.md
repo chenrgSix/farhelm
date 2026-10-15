@@ -10,6 +10,10 @@ Bash 提示符显示真实用户名、主机名和当前目录，例如 `fleet@l
 
 本地容器使用 `deploy/dev/Dockerfile.agent` 中的普通用户 `fleet`，UID/GID 与启动者一致；HOME 和初始工作目录为 `/home/fleet`。该目录绑定到项目 `.dev/agent-home/`，可以直接 `touch t.txt`、编辑文件和创建目录，重建容器后文件保留。设备身份与 journal 仍保存在独立的 `.dev/agent/`。系统目录按正常 Linux 账号权限管理。
 
+本地开发镜像安装 sudo，并为 `fleet` 配置免密 sudo。开发启动脚本显式设置 `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=1`，允许终端中的 `sudo -i` 进入容器内 root；Agent 自身仍以 `fleet` 运行，容器未启用 privileged，并通过 Docker `--init` 回收退出后的孤儿进程。`exit` 返回 fleet。容器内安装的软件及 `/root` 文件不在持久化 home 目录中，重建容器后不会保留。
+
+其他环境默认 `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=0`，PTY 设置 `no_new_privs`，禁止通过 setuid/文件 capabilities 提权。显式配置为 1 后，终端可以使用系统已授予的 sudo 权限；Agent 不自动为真实主机安装 sudo 或配置 sudoers。该选项只影响交互终端，命令任务仍强制 `no_new_privs`。若父进程已设置 `no_new_privs`，不能通过该选项解除，启动会明确报错。
+
 已有本地服务端、`.dev/agent.env`、开发 CA 和 Linux Agent 二进制时，执行 `npm run dev:agent:container` 可以构建并更新本地容器。默认二进制路径为 `.dev/linux-target/debug/fleet-agent`，可用 `FLEET_AGENT_BIN` 覆盖。该命令会结束当前本地终端会话，更新后重新连接。它核对现有容器的状态目录，不覆盖其他项目的容器。
 
 ## 授权和录制
@@ -23,12 +27,16 @@ Bash 提示符显示真实用户名、主机名和当前目录，例如 `fleet@l
 
 同 UID Shell 能够读取 Agent 身份和本地文件，不能宣称端点防篡改。关闭时清理同一 Linux session 下的普通前台/后台进程；主动 `setsid` 脱离的进程不在此范围，仍受 ADR-006 的边界约束。服务端重启只标记旧会话中断，不恢复或重放旧 Shell。
 
+启用终端提权后，非 root Agent 不能直接向 root 子进程发送信号；普通 root 交互 Shell 通过 PTY 挂断结束。忽略挂断或转入后台的高权限进程可能继续运行，不保证 root 进程树强制清理。
+
 ## 验证方式
 
 `npm run test:terminal` 使用真实 Rust Agent、TLS/WSS 和 SQLite，验证双用户独立会话、工作目录保持、Ctrl-C、窗口变化、中文跨帧、隐藏密码、录制和短期凭据不断线续期。先运行服务端构建和 Agent 构建。macOS 上可用已编译的 Linux Agent 配合 `FLEET_AGENT_DOCKER_IMAGE` 与 `FLEET_AGENT_BIN` 执行同一测试。
 
 `npm run test:terminal:browser` 连接已经运行的本地开发实例，使用显式的 `FLEET_ADMIN_USER`/`FLEET_ADMIN_PASSWORD` 或 `FLEET_CREDENTIALS_FILE`，验证真实浏览器登录、连接、Tab、`cd`、Ctrl-C、中文、交互式 `top`、缩放、退出、回放与导出。需要 Playwright Chromium；`FLEET_CHROMIUM_BIN` 可指定已有浏览器。结果与截图写入忽略提交的 `.test-output/`。
 
+对启用 sudo 的本地开发容器，可添加 `FLEET_TEST_TERMINAL_SUDO=1`，验证真实的 `sudo -i`、UID 0、`/root` 文件操作及 `exit` 返回 fleet。
+
 本次在 macOS + OrbStack Linux arm64、Node 24、Rust 1.99 上验证。不是 CI 或生产验收。完整 P2 仍需验证 `vim`、真实存储/网络故障与压力；本地镜像没有安装 `vim`，不宣称已验证。
 
-本次本地结果：服务端 8/8、前端 30/30、协议 131/131、Rust 24/24（22 个单元/实际进程测试和 2 个契约测试）通过；Rust clippy、格式检查和前后端构建通过。原有真实 Rust Exec 端到端 22/22 通过，新增终端端到端及 Chromium 操作、回放/导出通过。`.test-output/terminal-e2e.json`、`terminal-browser.json`、`terminal-rust-final.log` 和终端截图保留本地证据，不随 Git 提交私有运行状态。
+本次本地结果：服务端 8/8、前端 30/30、协议 131/131、Rust 25/25（23 个单元/实际进程测试和 2 个契约测试）通过；Rust clippy、格式检查和前后端构建通过。原有真实 Rust Exec 端到端 22/22 通过，新增终端端到端及 Chromium 操作、回放/导出通过。`.test-output/terminal-e2e.json`、`terminal-browser.json`、`terminal-sudo-rust.log` 和终端截图保留本地证据，不随 Git 提交私有运行状态。

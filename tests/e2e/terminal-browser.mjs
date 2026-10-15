@@ -14,6 +14,7 @@ assert.ok(
   "Supply FLEET_CREDENTIALS_FILE or explicit administrator credentials for the local development instance",
 );
 const url = process.env.FLEET_CONSOLE_URL || "http://127.0.0.1:5173";
+const testSudo = process.env.FLEET_TEST_TERMINAL_SUDO === "1";
 const output = resolve(import.meta.dirname, "../../.test-output");
 mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({
@@ -69,6 +70,25 @@ try {
     `touch ${probe} && printf 'file-write-check' > ${probe} && grep -q '^file-write-check$' ${probe} && rm ${probe} && printf '__FILE_WRITE_%s__\\n' OK\r`,
   );
   await waitText("__FILE_WRITE_OK__");
+  if (testSudo) {
+    await page.keyboard.type("sudo -i\r");
+    await page.waitForFunction(() => {
+      const lines = Array.from(document.querySelectorAll(".xterm-rows > div"))
+        .map((e) => e.textContent.trim())
+        .filter(Boolean);
+      return /^root@[^:\s]+:.*#\s*$/.test(lines.at(-1) || "");
+    });
+    const rootProbe = `/root/.fleet-sudo-browser-${process.pid}`;
+    await page.keyboard.type(
+      `stty -echo;printf '__SUDO_UID_%s__\\n' "$(id -u)";touch ${rootProbe} && test -f ${rootProbe} && rm ${rootProbe} && printf '__SUDO_WRITE_%s__\\n' OK\r`,
+    );
+    await waitText("__SUDO_UID_0__");
+    await waitText("__SUDO_WRITE_OK__");
+    await page.keyboard.type("exit\r");
+    await waitPrompt("~");
+    await page.keyboard.type("printf '__RETURN_USER_%s__\\n' \"$(id -un)\"\r");
+    await waitText("__RETURN_USER_fleet__");
+  }
   await page.keyboard.type("cd /tm");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
@@ -140,6 +160,9 @@ try {
           "connect actual Linux PTY",
           "create, write, read and remove a file in the initial directory",
           "username/hostname prompt follows the current directory",
+          ...(testSudo
+            ? ["sudo -i reaches UID 0, writes /root and returns to fleet"]
+            : []),
           "Tab completion and persistent cd/pwd",
           "Ctrl-C",
           "Chinese output",

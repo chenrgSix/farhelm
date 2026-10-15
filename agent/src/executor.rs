@@ -491,6 +491,7 @@ mod execution_tests {
             enrollment_token: None,
             name: "test".into(),
             execution_enabled: true,
+            terminal_allow_privilege_escalation: false,
             heartbeat_ms: 2000,
             fault: None,
         };
@@ -552,7 +553,9 @@ mod execution_tests {
     }
     #[tokio::test]
     async fn child_cannot_gain_new_privileges() {
-        let (_d, cfg, j, mut t) = setup();
+        let (_d, mut cfg, j, mut t) = setup();
+        // A terminal-only opt-in must never relax the persistent Exec backend.
+        cfg.terminal_allow_privilege_escalation = true;
         t.argv = vec![
             "/bin/sh".into(),
             "-c".into(),

@@ -2,9 +2,15 @@ FROM rust:bookworm
 
 ARG FLEET_UID=1000
 ARG FLEET_GID=1000
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends sudo \
+    && rm -rf /var/lib/apt/lists/*
 RUN test "$FLEET_UID" -ne 0 \
     && (getent group "$FLEET_GID" >/dev/null || groupadd --gid "$FLEET_GID" fleet) \
     && useradd --uid "$FLEET_UID" --gid "$FLEET_GID" --create-home --shell /bin/bash fleet
+RUN printf 'fleet ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/fleet-local-dev \
+    && chmod 0440 /etc/sudoers.d/fleet-local-dev \
+    && visudo --check --file /etc/sudoers.d/fleet-local-dev
 
 ENV HOME=/home/fleet
 WORKDIR /home/fleet

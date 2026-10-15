@@ -103,8 +103,9 @@ impl Terminals {
             let id = open.session_id.clone();
             let (input, receiver) = mpsc::channel(32);
             let output = self.output.clone();
+            let allow_privilege_escalation = self.cfg.terminal_allow_privilege_escalation;
             let task = tokio::spawn(async move {
-                let reason = run(&open, receiver, output.clone())
+                let reason = run(&open, receiver, output.clone(), allow_privilege_escalation)
                     .await
                     .unwrap_or("PTY_FAILURE");
                 let _ = output
@@ -206,7 +207,7 @@ impl Drop for Pty {
         let _ = self.child.start_kill();
     }
 }
-fn spawn(cols: u16, rows: u16) -> Result<Pty> {
+fn spawn(cols: u16, rows: u16, allow_privilege_escalation: bool) -> Result<Pty> {
     ensure!(
         unsafe { libc::geteuid() } != 0,
         "terminal as root forbidden"
@@ -283,10 +284,11 @@ fn spawn(cols: u16, rows: u16) -> Result<Pty> {
         .stderr(Stdio::from(slave))
         .kill_on_drop(true);
     unsafe {
-        command.as_std_mut().pre_exec(|| {
+        command.as_std_mut().pre_exec(move || {
             if libc::setsid() == -1
                 || libc::ioctl(0, libc::TIOCSCTTY, 0) == -1
-                || libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1
+                || (!allow_privilege_escalation
+                    && libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1)
             {
                 return Err(io::Error::last_os_error());
             }
@@ -338,8 +340,9 @@ async fn run(
     open: &Open,
     mut input: mpsc::Receiver<Control>,
     output: mpsc::Sender<Output>,
+    allow_privilege_escalation: bool,
 ) -> Result<&'static str> {
-    let pty = spawn(open.cols, open.rows)?;
+    let pty = spawn(open.cols, open.rows, allow_privilege_escalation)?;
     output
         .send((
             "terminal.opened".into(),
@@ -443,6 +446,7 @@ mod tests {
             enrollment_token: None,
             name: "pty-test".into(),
             execution_enabled: true,
+            terminal_allow_privilege_escalation: false,
             heartbeat_ms: 2000,
             fault: None,
         };
@@ -514,5 +518,49 @@ mod tests {
         .unwrap();
         assert_eq!(kind, "terminal.closed");
         assert_eq!(body["reason"], "SHELL_EXIT");
+    }
+    #[tokio::test]
+    async fn explicit_terminal_opt_in_allows_existing_sudo_policy() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            server: url::Url::parse("https://localhost:8443").unwrap(),
+            state: temp.path().into(),
+            ca_pem: None,
+            enrollment_token: None,
+            name: "sudo-pty-test".into(),
+            execution_enabled: true,
+            terminal_allow_privilege_escalation: true,
+            heartbeat_ms: 2000,
+            fault: None,
+        };
+        let (output, mut events) = mpsc::channel(32);
+        let mut manager = Terminals::new(cfg, output);
+        let id = uuid::Uuid::new_v4().to_string();
+        manager
+            .receive(
+                "terminal.open",
+                json!({"session_id":id,"cols":80,"rows":24}),
+            )
+            .await
+            .unwrap();
+        input(
+            &mut manager,
+            &id,
+            "stty -echo;printf '\\136READY\\136\\n'\r",
+        )
+        .await;
+        until(&mut manager, &mut events, "^READY^").await;
+        input(
+            &mut manager,
+            &id,
+            "grep '^NoNewPrivs:' /proc/self/status;printf '\\136SUDO_POLICY\\136\\n'\r",
+        )
+        .await;
+        let result = until(&mut manager, &mut events, "^SUDO_POLICY^").await;
+        assert!(result.contains("NoNewPrivs:\t0"), "{result}");
+        manager
+            .receive("terminal.close", json!({"session_id":id}))
+            .await
+            .unwrap();
     }
 }
