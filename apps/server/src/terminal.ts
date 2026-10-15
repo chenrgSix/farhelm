@@ -118,7 +118,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         db.prepare(
           "UPDATE terminal_sessions SET status=?,ended_at=?,reason=?,audit_complete=? WHERE id=?",
         ).run(
-          complete ? "CLOSED" : "INTERRUPTED",
+          complete || reason === "USER_DISCONNECTED" ? "CLOSED" : "INTERRUPTED",
           Date.now(),
           reason,
           Number(complete),

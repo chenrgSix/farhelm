@@ -187,8 +187,11 @@ async function connect() {
         } else if (message.type === "terminal.output")
           output(message.body.data);
         else if (message.type === "terminal.closed") {
-          state.value =
-            message.body.reason === "SHELL_EXIT" ? "会话已结束" : "连接已断开";
+          state.value = ["SHELL_EXIT", "USER_DISCONNECTED"].includes(
+            message.body.reason,
+          )
+            ? "会话已结束"
+            : "连接已断开";
           if (
             !["SHELL_EXIT", "USER_DISCONNECTED"].includes(message.body.reason)
           )
@@ -364,7 +367,7 @@ onBeforeUnmount(() => {
           recording
             ? recording.audit_complete
               ? "会话记录完整"
-              : "会话中断，仅展示已保存部分"
+              : "录制可能不完整，仅展示已保存部分"
             : "会话输出自动记录"
         }}</span>
       </footer>

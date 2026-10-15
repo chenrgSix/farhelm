@@ -8,6 +8,7 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 import { buildServer } from "../src/server.js";
 import { hash, token } from "../src/util.js";
+import { Store } from "../src/store.js";
 
 const root = mkdtempSync(join(tmpdir(), "fleet-terminal-test-"));
 execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
@@ -281,5 +282,155 @@ test("terminal recording failure stops the PTY without displaying or acknowledgi
     );
   } finally {
     await f.close();
+  }
+});
+test("intentional terminal close ends the session without claiming a complete recording; transport loss stays interrupted", async () => {
+  const f = await fixture();
+  try {
+    for (const path of ["websocket", "api"]) {
+      const { browser, id } = await f.open();
+      if (path === "websocket") browser.send("terminal.close", {});
+      else
+        assert.equal(
+          (
+            await f.api(
+              "POST",
+              `/api/v1/terminal-sessions/${id}/close`,
+              { v: 1 },
+              f.admin,
+            )
+          ).status,
+          200,
+        );
+      const closed = await browser.wait("terminal.closed");
+      assert.equal(closed.reason, "USER_DISCONNECTED");
+      assert.equal(closed.audit_complete, false);
+      await f.agent.wait("terminal.close");
+      const row = f.store.db
+        .prepare("SELECT * FROM terminal_sessions WHERE id=?")
+        .get(id) as any;
+      assert.equal(row.status, "CLOSED");
+      assert.equal(row.audit_complete, 0);
+      assert.ok(row.ended_at);
+      const recording = await f.api(
+        "GET",
+        `/api/v1/terminal-sessions/${id}/recording`,
+        undefined,
+        f.admin,
+      );
+      assert.deepEqual(recording.body.events.at(-1).data, {
+        reason: "USER_DISCONNECTED",
+        audit_complete: false,
+      });
+      // A late Agent reply and the unmount's HTTP close must not overwrite the result.
+      f.agent.send("terminal.closed", {
+        session_id: id,
+        reason: "CONTROL_CLOSED",
+      });
+      await f.api(
+        "POST",
+        `/api/v1/terminal-sessions/${id}/close`,
+        { v: 1 },
+        f.admin,
+      );
+      assert.deepEqual(
+        f.store.db
+          .prepare("SELECT * FROM terminal_sessions WHERE id=?")
+          .get(id),
+        row,
+      );
+    }
+    const lost = await f.open();
+    lost.browser.ws.terminate();
+    await f.agent.wait("terminal.close");
+    const interrupted = f.store.db
+      .prepare("SELECT * FROM terminal_sessions WHERE id=?")
+      .get(lost.id) as any;
+    assert.equal(interrupted.status, "INTERRUPTED");
+    assert.equal(interrupted.reason, "BROWSER_DISCONNECTED");
+    assert.equal(interrupted.audit_complete, 0);
+    const normal = await f.open();
+    f.agent.send("terminal.closed", {
+      session_id: normal.id,
+      reason: "SHELL_EXIT",
+    });
+    assert.equal(
+      (await normal.browser.wait("terminal.closed")).audit_complete,
+      true,
+    );
+    const ended = f.store.db
+      .prepare("SELECT * FROM terminal_sessions WHERE id=?")
+      .get(normal.id) as any;
+    assert.equal(ended.status, "CLOSED");
+    assert.equal(ended.audit_complete, 1);
+  } finally {
+    await f.close();
+  }
+});
+test("startup reclassifies historical intentional closes without changing recording or audit evidence", () => {
+  const dir = mkdtempSync(join(root, "historical-"));
+  let store = new Store(dir);
+  try {
+    const actor = store.seedUser({
+      username: "admin",
+      password: "terminal-test-password",
+      role: "admin",
+      deviceScope: "*",
+    });
+    store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('device','key','test',1)",
+      )
+      .run();
+    for (const reason of ["USER_DISCONNECTED", "BROWSER_DISCONNECTED"]) {
+      store.db
+        .prepare(
+          "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,ended_at,reason,audit_complete) VALUES(?,'device',?,'INTERRUPTED',80,24,1,2,?,0)",
+        )
+        .run(reason, actor.id, reason);
+      store.db
+        .prepare(
+          "INSERT INTO terminal_recordings(session_id,seq,at,kind,data) VALUES(?,1,2,'close',?)",
+        )
+        .run(reason, JSON.stringify({ reason, audit_complete: false }));
+      store.audit("terminal.closed", actor.id, "device", null, {
+        session_id: reason,
+        reason,
+        audit_complete: false,
+      });
+    }
+    const before = store.db
+      .prepare("SELECT * FROM terminal_sessions ORDER BY id")
+      .all() as any[];
+    const recordings = store.db
+      .prepare("SELECT * FROM terminal_recordings ORDER BY session_id,seq")
+      .all();
+    const audit = store.db.prepare("SELECT * FROM audit ORDER BY id").all();
+    for (let i = 0; i < 2; i++) {
+      store.close();
+      store = new Store(dir);
+      assert.deepEqual(
+        store.db
+          .prepare("SELECT * FROM terminal_sessions ORDER BY id")
+          .all()
+          .map((row) => ({ ...row })),
+        before.map((row) => ({
+          ...row,
+          status: row.reason === "USER_DISCONNECTED" ? "CLOSED" : "INTERRUPTED",
+        })),
+      );
+      assert.deepEqual(
+        store.db
+          .prepare("SELECT * FROM terminal_recordings ORDER BY session_id,seq")
+          .all(),
+        recordings,
+      );
+      assert.deepEqual(
+        store.db.prepare("SELECT * FROM audit ORDER BY id").all(),
+        audit,
+      );
+    }
+  } finally {
+    store.close();
   }
 });

@@ -177,6 +177,7 @@ try {
   await dialog.getByRole("button", { name: "关闭终端", exact: true }).click();
   await page.getByRole("button", { name: "终端会话", exact: true }).click();
   const latest = page.locator("tbody tr").first();
+  await latest.getByText("已结束", { exact: true }).waitFor();
   await latest.getByRole("button", { name: "查看回放", exact: true }).click();
   const replay = page.getByRole("dialog");
   await waitText("__CTRL_C_OK__");
@@ -197,6 +198,39 @@ try {
     path: resolve(output, "terminal-mobile.png"),
     fullPage: true,
   });
+  await page.setViewportSize({ width: 1100, height: 820 });
+  await replay.getByRole("button", { name: "关闭终端", exact: true }).click();
+  await page.getByRole("button", { name: "设备总览", exact: true }).click();
+  const createdResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/terminal-sessions" &&
+      response.request().method() === "POST",
+  );
+  await row.getByRole("button", { name: "连接终端", exact: true }).click();
+  const closedSessionId = (await (await createdResponse).json()).session_id;
+  await dialog.getByText("已连接", { exact: true }).waitFor();
+  await waitPrompt("~");
+  await keyboard.focus();
+  await page.keyboard.type("printf '__CLOSE_%s__\\n' READY;sleep 30\r");
+  await waitText("__CLOSE_READY__");
+  const disconnect = dialog.getByRole("button", {
+    name: "关闭终端",
+    exact: true,
+  });
+  assert.equal((await disconnect.textContent()).trim(), "断开并关闭");
+  await disconnect.click();
+  await dialog.waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "终端会话", exact: true }).click();
+  const manuallyClosed = page.locator("tbody tr").filter({
+    hasText: closedSessionId.slice(0, 12),
+  });
+  await manuallyClosed.getByText("已结束", { exact: true }).waitFor();
+  await manuallyClosed
+    .getByRole("button", { name: "查看回放", exact: true })
+    .click();
+  await dialog
+    .getByText("录制可能不完整，仅展示已保存部分", { exact: true })
+    .waitFor();
   assert.deepEqual(errors, []);
   writeFileSync(
     resolve(output, "terminal-browser.json"),
@@ -219,6 +253,7 @@ try {
           "viewport resize",
           "last row stays fully visible after scrolling and desktop/mobile resizing",
           "exit",
+          "disconnect button ends a running session; recording completeness stays independent",
           "recording replay",
           "audited export",
           "mobile layout",
