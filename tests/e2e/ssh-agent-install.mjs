@@ -163,6 +163,7 @@ export async function installOnSshDevice(c) {
     "agent-install-response",
     await response.json(),
   );
+  if (c.expectedEntry) assert.equal(installation.server_url, c.expectedEntry);
   writeFileSync(join(temp, "install-command.sh"), installation.command + "\n", {
     mode: 0o600,
   });
@@ -255,6 +256,8 @@ export async function installOnSshDevice(c) {
       .click();
   }
   await terminalCheck("agent", "ADOPTED_AGENT", "farhelm");
+  if (c.frontend)
+    await c.frontend.terminal(device.id, token, "agent", "farhelm");
   const stopped = await run([
     "exec",
     "--user",
@@ -270,6 +273,12 @@ export async function installOnSshDevice(c) {
     "Agent loss falls back to SSH",
   );
   await terminalCheck("ssh", "FALLBACK_SSH", "terminal");
+  if (c.frontend) {
+    await c.frontend.terminal(device.id, token, "ssh", "terminal");
+    steps.push(
+      "HTTPS frontend: authenticated terminal creation, public Origin WebSocket validation and recordings work through the same public entry for both Agent and SSH backends",
+    );
+  }
   steps.push(
     "New web terminals prefer the real Agent and record its PTY; stopping Agent causes new terminals to use the same device's original SSH with recording",
   );

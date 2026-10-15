@@ -17,6 +17,35 @@ const busy = ref(false);
 const error = ref("");
 const message = ref("");
 const conflict = ref(false);
+const pageOrigin = window.location.origin;
+const pageUsesHttps = window.location.protocol === "https:";
+const normalizedUrl = computed(() => {
+  try {
+    return platformEntry(serverUrl.value);
+  } catch {
+    return "";
+  }
+});
+function platformEntry(value: string) {
+  const input = value.trim();
+  if (!input || /[\x00-\x20\x7f]/.test(input))
+    throw new Error("INVALID_PLATFORM_ADDRESS");
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error("INVALID_PLATFORM_ADDRESS");
+  }
+  if (url.protocol !== "https:") throw new Error("PLATFORM_HTTPS_REQUIRED");
+  if (url.username || url.password) throw new Error("INVALID_PLATFORM_ADDRESS");
+  return url.origin;
+}
+function usePageAddress() {
+  if (busy.value || !pageUsesHttps) return;
+  serverUrl.value = pageOrigin;
+  error.value = "";
+  message.value = "";
+}
 let disposed = false;
 const dirty = computed(
   () => serverUrl.value.trim() !== settings.value?.platform_server_url,
@@ -45,12 +74,13 @@ async function save() {
   error.value = "";
   message.value = "";
   try {
+    const address = platformEntry(serverUrl.value);
     const result = await api.request<Settings>("/settings", {
       method: "PUT",
       body: {
         v: 1,
         revision: settings.value.revision,
-        platform_server_url: serverUrl.value.trim(),
+        platform_server_url: address,
       },
     });
     if (disposed) return;
@@ -67,10 +97,14 @@ async function save() {
         "配置已被其他管理员修改。请重新加载配置后再编辑，避免覆盖他人的修改。";
     } else if (
       raw.includes("INVALID_AGENT_SERVER_URL") ||
-      raw.includes("INVALID_STRING")
+      raw.includes("INVALID_STRING") ||
+      raw.includes("INVALID_PLATFORM_ADDRESS")
     ) {
       error.value =
-        "请输入有效的 HTTPS 地址，例如 https://fleet.example.com:8443，不包含账号、路径或查询参数。";
+        "请输入有效的 HTTPS 平台网页地址，例如 https://fleet.example.com，不能包含账号或密码。";
+    } else if (raw.includes("PLATFORM_HTTPS_REQUIRED")) {
+      error.value =
+        "Agent 需要 HTTPS 入口。请使用已启用 HTTPS 的平台网页地址，HTTP 开发地址不能用于 Agent 接入。";
     } else if (e instanceof ApiError && e.status === 0) {
       conflict.value = true;
       error.value = "保存结果尚未确认，请重新加载配置核对后再操作。";
@@ -93,7 +127,7 @@ onBeforeUnmount(() => {
     <div class="panel-heading">
       <div>
         <h2 id="platform-settings-title">Agent 接入设置</h2>
-        <p class="muted">统一管理 Agent 连接平台的地址</p>
+        <p class="muted">网页控制台与 Agent 共用同一个对外入口</p>
       </div>
     </div>
     <form @submit.prevent="save">
@@ -102,19 +136,41 @@ onBeforeUnmount(() => {
       <p v-if="!settings && busy" class="muted">正在读取系统设置…</p>
       <fieldset v-if="settings" :disabled="busy">
         <label
-          >平台服务端地址<input
+          >平台访问地址<input
             v-model="serverUrl"
             type="url"
             required
             maxlength="2048"
-            placeholder="https://fleet.example.com:8443"
+            placeholder="https://fleet.example.com"
             spellcheck="false"
             autocomplete="off"
             @input="message = ''"
         /></label>
+        <div class="settings-address-actions">
+          <button
+            type="button"
+            class="button secondary small"
+            :disabled="busy || !pageUsesHttps"
+            @click="usePageAddress"
+          >
+            使用当前网页地址
+          </button>
+          <span class="field-hint">{{ pageOrigin }}</span>
+        </div>
         <p class="field-hint">
-          填写目标服务器能够访问的 HTTPS 地址，证书须包含该主机名。添加 Agent
-          时会自动带入。
+          直接粘贴浏览器中的 HTTPS
+          平台地址即可，自动保留域名和端口。网页服务需已接通 Agent
+          转发，目标服务器也需能够访问这个地址；添加 Agent 时自动带入。
+        </p>
+        <p
+          v-if="normalizedUrl && normalizedUrl !== serverUrl.trim()"
+          class="field-hint"
+        >
+          将使用：{{ normalizedUrl }}（已去除页面路径和参数）
+        </p>
+        <p v-if="!pageUsesHttps" class="notice settings-scope">
+          当前网页使用 HTTP，不能直接作为 Agent 入口。请填写已启用 HTTPS
+          的平台网页地址。
         </p>
         <div class="notice settings-scope">
           保存后立即用于新生成的安装命令，并自动同步到支持此功能的
@@ -202,6 +258,12 @@ p {
 }
 .settings-success {
   color: #19705c;
+}
+.settings-address-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .settings-actions {
   display: flex;

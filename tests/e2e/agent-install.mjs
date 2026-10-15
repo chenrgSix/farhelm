@@ -131,7 +131,7 @@ try {
   await page.getByRole("button", { name: "系统设置", exact: false }).click();
   const settingsForm = page.locator(".settings-panel");
   await settingsForm
-    .getByLabel("平台服务端地址", { exact: true })
+    .getByLabel("平台访问地址", { exact: true })
     .fill(`https://host.docker.internal:${port}`);
   await settingsForm
     .getByRole("button", { name: "保存设置", exact: true })
@@ -200,7 +200,7 @@ try {
         .click();
       const form = page.getByRole("dialog");
       await form.getByLabel("设备名称", { exact: true }).fill("安装验证 ARM64");
-      const platformAddress = form.getByLabel("平台服务端地址", {
+      const platformAddress = form.getByLabel("平台访问地址", {
         exact: true,
       });
       assert.equal(
@@ -551,12 +551,11 @@ try {
   await page.getByRole("button", { name: "重新加载配置", exact: true }).click();
   await until(
     async () =>
-      (await page
-        .getByLabel("平台服务端地址", { exact: true })
-        .inputValue()) !== nextUrl,
+      (await page.getByLabel("平台访问地址", { exact: true }).inputValue()) !==
+      nextUrl,
     "load latest revision",
   );
-  await page.getByLabel("平台服务端地址", { exact: true }).fill(initialUrl);
+  await page.getByLabel("平台访问地址", { exact: true }).fill(initialUrl);
   await page.getByRole("button", { name: "保存设置", exact: true }).click();
   await page.locator(".settings-panel").getByRole("status").waitFor();
   await until(async () => {

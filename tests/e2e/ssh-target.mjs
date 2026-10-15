@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { startFrontendEntry } from "./platform-entry.mjs";
 import { installOnSshDevice } from "./ssh-agent-install.mjs";
 import { chromium } from "@playwright/test";
 import { spawn, execFileSync } from "node:child_process";
@@ -10,13 +11,16 @@ import { join, resolve } from "node:path";
 import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 
+const frontendMode = process.env.FLEET_TEST_FRONTEND_PROXY;
 const backupMode = process.env.FLEET_TEST_BACKUP_SSH === "1";
 const installMode = process.env.FLEET_TEST_SSH_AGENT_INSTALL === "1";
-const evidencePrefix = installMode
-  ? "ssh-agent-install"
-  : backupMode
-    ? "agent-ssh-backup"
-    : "dual-access";
+const evidencePrefix = frontendMode
+  ? `platform-entry-${frontendMode}`
+  : installMode
+    ? "ssh-agent-install"
+    : backupMode
+      ? "agent-ssh-backup"
+      : "dual-access";
 const deviceName = backupMode
   ? "Linux with Agent backup"
   : "Linux without Agent";
@@ -56,7 +60,7 @@ await new Promise((r) => probe.listen(0, "127.0.0.1", r));
 const webPort = probe.address().port;
 await new Promise((r) => probe.close(r));
 const origin = `http://127.0.0.1:${webPort}`;
-let server, browser, vite, cli;
+let server, browser, vite, cli, frontend;
 const steps = [];
 async function until(fn, label, ms = 15000) {
   const end = Date.now() + ms;
@@ -117,6 +121,14 @@ try {
   });
   await server.app.listen({ host: "127.0.0.1", port: apiPort });
   const port = server.app.server.address().port;
+  if (frontendMode)
+    frontend = await startFrontendEntry({
+      mode: frontendMode,
+      root,
+      temp,
+      tls,
+      apiPort: port,
+    });
   if (backupMode)
     server.store.db
       .prepare(
@@ -176,6 +188,29 @@ try {
     assert.equal(r.status(), 200);
     return r.json();
   };
+  if (frontend) {
+    await page.getByRole("button", { name: "系统设置", exact: false }).click();
+    const form = page.locator(".settings-panel");
+    assert.ok(
+      await form
+        .getByRole("button", { name: "使用当前网页地址", exact: true })
+        .isDisabled(),
+    );
+    await form
+      .getByLabel("平台访问地址", { exact: true })
+      .fill(frontend.origin + "/devices?filter=online#row");
+    await form.getByText("将使用：", { exact: false }).waitFor();
+    await form.getByRole("button", { name: "保存设置", exact: true }).click();
+    await form.getByRole("status").waitFor();
+    assert.equal((await api("/settings")).platform_server_url, frontend.origin);
+    await page.screenshot({
+      path: join(out, `${evidencePrefix}-settings.png`),
+    });
+    await page.getByRole("button", { name: "设备总览", exact: false }).click();
+    steps.push(
+      `${frontendMode}: HTTPS frontend serves the console, forwards authenticated API and Agent paths with TLS verification; pasted browser page URL saves only its origin`,
+    );
+  }
   if (backupMode) {
     await page
       .locator("tbody tr")
@@ -416,6 +451,8 @@ try {
       temp,
       out,
       steps,
+      frontend,
+      expectedEntry: frontend?.origin,
       recordingId: web.id,
       recording,
       text,
@@ -465,6 +502,7 @@ try {
     vite.kill();
     await exited;
   }
+  await frontend?.close();
   await server?.close();
   try {
     execFileSync("docker", ["rm", "-f", container], { stdio: "ignore" });

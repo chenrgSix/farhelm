@@ -38,7 +38,7 @@ it("generates once on explicit form submit, copies the command and reports real 
   expect(wrapper.get<HTMLInputElement>("input[readonly]").element.value).toBe(
     options.server_url,
   );
-  expect(wrapper.text()).toContain("平台服务端地址");
+  expect(wrapper.text()).toContain("平台访问地址");
   await wrapper.get("input").setValue("new-linux");
   await wrapper.get("form").trigger("submit");
   await wrapper.get("form").trigger("submit");

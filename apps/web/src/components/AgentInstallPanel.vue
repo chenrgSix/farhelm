@@ -52,7 +52,7 @@ function message(e: unknown) {
   if (raw.includes("AGENT_PACKAGES_UNAVAILABLE"))
     return "平台尚未准备 Agent 安装包，请联系管理员。";
   if (raw.includes("INVALID_AGENT_SERVER_URL"))
-    return "平台服务端地址配置无效，请在系统设置中配置有效的 HTTPS 地址。";
+    return "平台访问地址配置无效，请在系统设置中配置有效的 HTTPS 地址。";
   if (raw.includes("AGENT_SERVER_URL_UNCONFIGURED"))
     return "平台尚未配置服务端地址，请先在系统设置中保存。";
   if (raw.includes("INVALID_AGENT_USER"))
@@ -223,13 +223,14 @@ onBeforeUnmount(() => {
                 autocomplete="off"
             /></label>
             <label
-              >平台服务端地址<input
+              >平台访问地址<input
                 :value="serverUrl"
                 readonly
                 placeholder="平台尚未配置"
             /></label>
             <p class="field-hint">
-              由系统设置统一配置并自动带入，Agent 安装后会连接此地址。
+              由系统设置统一配置，可与网页地址共用入口；Agent
+              安装后会连接此地址。
               <button
                 type="button"
                 class="text-button"

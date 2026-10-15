@@ -14,7 +14,7 @@ NODE_EXTRA_CA_CERTS=/absolute/path/dev-ca.pem \
 FLEET_DEV_API_TARGET=https://localhost:8443 npm run dev
 ```
 
-浏览器访问终端显示的 `http://127.0.0.1:5173`。仅本机开发允许 HTTP；远程控制台登录必须使用 HTTPS。Vite 到 API 的 TLS 始终校验，禁止 `secure:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0`。未配置 API 代理时 API 缺失会显示明确错误，不会伪造数据。
+浏览器访问终端显示的 `http://127.0.0.1:5173`。可同时设置 `FLEET_DEV_WEB_TLS_CERT` 和 `FLEET_DEV_WEB_TLS_KEY` 启用 HTTPS，详见[统一平台入口](../../docs/platform-entry.md)。代理涵盖 `/api/`、`/agent/` 和 `/healthz`，包括 Agent 的安装下载与 WSS 控制连接。仅本机开发允许 HTTP；远程控制台登录必须使用 HTTPS。Vite 到 API 的 TLS 始终校验，禁止 `secure:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0`。未配置 API 代理时 API 缺失会显示明确错误，不会伪造数据。
 
 ## 已实现
 
