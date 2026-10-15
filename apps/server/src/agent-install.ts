@@ -74,11 +74,20 @@ export function registerAgentInstall(
       fail(401, "ENROLLMENT_INVALID");
     const row = db
       .prepare(
-        "SELECT i.*,e.expires_at,e.redeemed_device_id FROM agent_installations i JOIN enrollment_tokens e ON e.token_hash=i.token_hash WHERE i.token_hash=? AND e.expires_at>?",
+        "SELECT i.*,e.expires_at,e.redeemed_device_id,e.target_device_id FROM agent_installations i JOIN enrollment_tokens e ON e.token_hash=i.token_hash WHERE i.token_hash=? AND e.expires_at>?",
       )
       .get(hash(auth.slice(7)), Date.now()) as any;
     if (!row || (unredeemed && row.redeemed_device_id))
       fail(401, "ENROLLMENT_INVALID");
+    if (
+      row.target_device_id &&
+      (
+        db
+          .prepare("SELECT revoked_at FROM devices WHERE id=?")
+          .get(row.target_device_id) as any
+      )?.revoked_at
+    )
+      fail(401, "DEVICE_REVOKED");
     return {
       ...row,
       secret: auth.slice(7),
@@ -86,19 +95,25 @@ export function registerAgentInstall(
     };
   }
   function status(row: any) {
-    const device = row.redeemed_device_id
+    const id = row.target_device_id ?? row.redeemed_device_id;
+    const device = id
       ? (db
-          .prepare("SELECT id,revoked_at FROM devices WHERE id=?")
-          .get(row.redeemed_device_id) as any)
+          .prepare(
+            "SELECT id,revoked_at,connection_kind FROM devices WHERE id=?",
+          )
+          .get(id) as any)
       : undefined;
+    const registered = !!row.redeemed_device_id;
     return {
       v: 1,
       device_id: device?.id ?? null,
       status: device?.revoked_at
         ? "revoked"
-        : device && d.online(device.id)
+        : registered &&
+            device?.connection_kind === "agent" &&
+            d.online(device.id)
           ? "online"
-          : device
+          : registered
             ? "registered"
             : row.expires_at <= Date.now()
               ? "expired"
@@ -151,12 +166,25 @@ export function registerAgentInstall(
     keys(b, [
       "v",
       "name",
+      "device_id",
       "run_user",
       "ttl_seconds",
       "allow_sudo",
       "start_mode",
     ]);
-    const name = str(b.name, 1, 128).trim(),
+    const targetId =
+      b.device_id === undefined ? undefined : str(b.device_id, 1, 128);
+    const target = targetId
+      ? (db.prepare("SELECT * FROM devices WHERE id=?").get(targetId) as any)
+      : undefined;
+    if (targetId) {
+      if (!target) fail(404, "DEVICE_NOT_FOUND");
+      if (target.revoked_at !== null) fail(409, "DEVICE_REVOKED");
+      if (target.connection_kind !== "ssh") fail(409, "SSH_DEVICE_REQUIRED");
+      if (target.agent_pending_public_key)
+        fail(409, "AGENT_ALREADY_REGISTERED");
+    }
+    const name = target ? target.name : str(b.name, 1, 128).trim(),
       runUser = str(b.run_user ?? "farhelm", 1, 32);
     if (!name || /[\x00-\x1f\x7f]/.test(name)) fail(400, "INVALID_DEVICE_NAME");
     if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(runUser) || runUser === "root")
@@ -185,13 +213,17 @@ export function registerAgentInstall(
     // Download completely and verify before invoking a root shell. No secret is placed in a URL or curl argv.
     const bootstrap = `set -eu; umask 077; t=$(mktemp -d); trap 'rm -rf "$t"' EXIT; printf %s ${quote(b64(c.ca))} | base64 -d > "$t/ca.crt"; printf %s ${quote(b64("Authorization: Bearer " + secret + "\n"))} | base64 -d > "$t/auth"; curl --fail --silent --show-error --proto '=https' --connect-timeout 10 --max-time 120 ${c.ca ? '--cacert "$t/ca.crt" ' : ""}--header @"$t/auth" ${quote(c.server_url + "/api/agent/install.sh")} -o "$t/install.sh"; printf '%s  %s\\n' ${quote(hash(script))} "$t/install.sh" | sha256sum -c - >/dev/null; if [ "$(id -u)" -eq 0 ]; then bash "$t/install.sh"; else sudo bash "$t/install.sh"; fi`;
     d.store.transaction(() => {
+      if (targetId)
+        db.prepare(
+          "UPDATE enrollment_tokens SET expires_at=MIN(expires_at,?) WHERE target_device_id=? AND redeemed_device_id IS NULL",
+        ).run(Date.now(), targetId);
       db.prepare(
-        "INSERT INTO enrollment_tokens(token_hash,expires_at,created_by,name) VALUES(?,?,?,?)",
-      ).run(hash(secret), expires, user.id, name);
+        "INSERT INTO enrollment_tokens(token_hash,expires_at,created_by,name,target_device_id) VALUES(?,?,?,?,?)",
+      ).run(hash(secret), expires, user.id, name, targetId ?? null);
       db.prepare(
         "INSERT INTO agent_installations(id,token_hash,config_json) VALUES(?,?,?)",
       ).run(id, hash(secret), JSON.stringify(c));
-      d.store.audit("enrollment.created", user.id, null, null, {
+      d.store.audit("enrollment.created", user.id, targetId ?? null, null, {
         expires_at: expires,
         name,
       });
@@ -242,5 +274,60 @@ export function registerAgentInstall(
       return reply.type("application/octet-stream").send(file.bytes);
     },
   );
-  return { artifact };
+  function enrollTarget(enrollment: any, publicKey: string) {
+    if (!enrollment.target_device_id) return undefined;
+    const device = db
+      .prepare("SELECT * FROM devices WHERE id=?")
+      .get(enrollment.target_device_id) as any;
+    if (!device || device.revoked_at !== null) fail(401, "DEVICE_REVOKED");
+    if (enrollment.redeemed_device_id) {
+      if (
+        enrollment.redeemed_device_id !== device.id ||
+        ![device.public_key, device.agent_pending_public_key].includes(
+          publicKey,
+        )
+      )
+        fail(401, "ENROLLMENT_REDEEMED");
+      return device;
+    }
+    if (device.connection_kind !== "ssh") fail(409, "SSH_DEVICE_REQUIRED");
+    if (
+      device.agent_pending_public_key &&
+      device.agent_pending_public_key !== publicKey
+    )
+      fail(409, "AGENT_ALREADY_REGISTERED");
+    const other = db
+      .prepare(
+        "SELECT id FROM devices WHERE id<>? AND (public_key=? OR agent_pending_public_key=?)",
+      )
+      .get(device.id, publicKey, publicKey);
+    if (other) fail(409, "AGENT_IDENTITY_ALREADY_BOUND");
+    db.prepare("UPDATE devices SET agent_pending_public_key=? WHERE id=?").run(
+      publicKey,
+      device.id,
+    );
+    return device;
+  }
+  // Called inside the first valid hello transaction. Existing SSH sessions keep their backend.
+  function activate(id: string) {
+    const device = db
+      .prepare(
+        "SELECT * FROM devices WHERE id=? AND connection_kind='ssh' AND agent_pending_public_key IS NOT NULL",
+      )
+      .get(id) as any;
+    if (!device) return;
+    const enrollment = db
+      .prepare(
+        "SELECT e.created_by,i.id FROM enrollment_tokens e JOIN agent_installations i ON i.token_hash=e.token_hash WHERE e.target_device_id=? AND e.redeemed_device_id=? ORDER BY e.expires_at DESC LIMIT 1",
+      )
+      .get(id, id) as any;
+    if (!enrollment) fail(401, "ENROLLMENT_INVALID");
+    db.prepare(
+      "UPDATE devices SET public_key=agent_pending_public_key,agent_pending_public_key=NULL,connection_kind='agent' WHERE id=?",
+    ).run(id);
+    d.store.audit("device.agent_enabled", enrollment.created_by, id, null, {
+      installation_id: enrollment.id,
+    });
+  }
+  return { artifact, enrollTarget, activate };
 }

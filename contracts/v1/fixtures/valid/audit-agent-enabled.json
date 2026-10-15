@@ -1,0 +1,11 @@
+{
+  "id": 1,
+  "at": 1700000000000,
+  "action": "device.agent_enabled",
+  "actor_id": "admin",
+  "device_id": "ssh-device",
+  "task_id": null,
+  "detail": {
+    "installation_id": "17e5bc93-b1ab-4e68-9ae7-5a7c1d09c15e"
+  }
+}

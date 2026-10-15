@@ -89,7 +89,8 @@
         "access.device_group_created",
         "access.device_group_updated",
         "access.device_group_deleted",
-        "access.device_tags_updated"
+        "access.device_tags_updated",
+        "device.agent_enabled"
       ]
     },
     "detail": {
@@ -711,6 +712,16 @@
             }
           },
           "required": ["target_id", "revision", "changes"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "installation_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            }
+          },
+          "required": ["installation_id"]
         }
       ]
     }
@@ -1782,6 +1793,29 @@
               }
             },
             "required": ["target_id", "revision", "changes"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "device.agent_enabled"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "installation_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              }
+            },
+            "required": ["installation_id"]
           }
         }
       }

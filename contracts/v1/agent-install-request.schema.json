@@ -32,10 +32,30 @@
     },
     "allow_sudo": {
       "type": "boolean"
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id"
     }
   },
   "required": [
-    "v",
-    "name"
+    "v"
+  ],
+  "anyOf": [
+    {
+      "properties": {
+        "name": {}
+      },
+      "required": [
+        "name"
+      ]
+    },
+    {
+      "properties": {
+        "device_id": {}
+      },
+      "required": [
+        "device_id"
+      ]
+    }
   ]
 }

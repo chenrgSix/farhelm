@@ -26,7 +26,8 @@
     "test:agent:upgrade": "node tests/e2e/agent-upgrade.mjs",
     "test:agent:upgrade:groups": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/agent-upgrade-groups.ts",
     "test:agent:network": "node tests/e2e/agent-network.mjs",
-    "test:access:browser": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/access-management.ts"
+    "test:access:browser": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/access-management.ts",
+    "test:ssh:install-agent": "FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

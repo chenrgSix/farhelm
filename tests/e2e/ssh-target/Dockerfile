@@ -1,5 +1,5 @@
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server bash \
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server bash curl ca-certificates procps \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -s /bin/bash terminal \
     && passwd -d terminal \

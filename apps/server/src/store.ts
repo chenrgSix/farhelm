@@ -149,6 +149,20 @@ export class Store {
         ),
       );
     }
+    if (
+      !(
+        this.db.prepare("PRAGMA table_info(enrollment_tokens)").all() as any[]
+      ).some((c) => c.name === "target_device_id")
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL("../migrations/016_ssh_agent_install.sql", import.meta.url),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

@@ -1223,5 +1223,25 @@
     "path": "valid/terminal-ready-ssh.json",
     "schema": "terminal-envelope.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/agent-install-bound-request.json",
+    "schema": "agent-install-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/agent-install-no-target.json",
+    "schema": "agent-install-request.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/agent-install-bound-waiting.json",
+    "schema": "agent-install-status.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-agent-enabled.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

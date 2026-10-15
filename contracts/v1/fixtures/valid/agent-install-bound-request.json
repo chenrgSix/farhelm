@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "device_id": "ssh-device",
+  "run_user": "farhelm",
+  "start_mode": "auto"
+}

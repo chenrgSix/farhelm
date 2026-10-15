@@ -2,9 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { api } from "../api/client";
 import { formatTime } from "../model";
+import type { Device } from "../api/types";
 
+const props = defineProps<{ device?: Pick<Device, "id" | "name"> }>();
 const emit = defineEmits<{ close: []; added: []; settings: [] }>();
-const name = ref("");
+const name = ref(props.device?.name ?? "");
 const serverUrl = ref("");
 const runUser = ref("farhelm");
 const ttl = ref(3600);
@@ -26,8 +28,12 @@ const statusText = computed(
   () =>
     ({
       waiting: "等待目标服务器执行安装命令…",
-      registered: "设备已注册，等待 Agent 上线…",
-      online: "设备已注册并在线，可以关闭窗口后连接终端。",
+      registered: props.device
+        ? "Agent 身份已绑定，等待上线；原 SSH 仍可使用。"
+        : "设备已注册，等待 Agent 上线…",
+      online: props.device
+        ? "Agent 已上线，连接时优先 Agent，原 SSH 已保留为备用。"
+        : "设备已注册并在线，可以关闭窗口后连接终端。",
       expired: "安装命令已过期，请重新生成。",
       revoked: "设备已被撤销。",
     })[status.value],
@@ -51,6 +57,12 @@ function message(e: unknown) {
     return "平台尚未配置服务端地址，请先在系统设置中保存。";
   if (raw.includes("INVALID_AGENT_USER"))
     return "请输入普通 Linux 账号名，不能使用 root。";
+  if (raw.includes("AGENT_ALREADY_REGISTERED"))
+    return "Agent 已注册，正在等待上线。请检查目标服务器上的 Agent 服务并启动，无需重复安装；原 SSH 仍可使用。";
+  if (raw.includes("SSH_DEVICE_REQUIRED"))
+    return "该设备已启用 Agent，请关闭窗口并刷新设备列表。";
+  if (raw.includes("DEVICE_REVOKED")) return "设备已被撤销，无法安装 Agent。";
+  if (raw.includes("DEVICE_NOT_FOUND")) return "设备不存在，请刷新设备列表。";
   return raw;
 }
 async function load() {
@@ -109,7 +121,9 @@ async function generate() {
       method: "POST",
       body: {
         v: 1,
-        name: name.value.trim(),
+        ...(props.device
+          ? { device_id: props.device.id }
+          : { name: name.value.trim() }),
         run_user: runUser.value.trim(),
         ttl_seconds: ttl.value,
         start_mode: startMode.value,
@@ -155,8 +169,18 @@ onBeforeUnmount(() => {
     >
       <header class="panel-heading">
         <div>
-          <h2 id="agent-install-title">添加设备 · Agent 接入</h2>
-          <p class="muted">生成安装命令，在目标 Linux 服务器执行后自动注册。</p>
+          <h2 id="agent-install-title">
+            {{
+              device ? "安装 Agent · " + device.name : "添加设备 · Agent 接入"
+            }}
+          </h2>
+          <p class="muted">
+            {{
+              device
+                ? "安装命令绑定当前设备，保留设备 ID、分组、权限和历史录制。Agent 上线后优先使用，原 SSH 保留为备用；未上线或安装失败时继续使用 SSH。"
+                : "生成安装命令，在目标 Linux 服务器执行后自动注册。"
+            }}
+          </p>
         </div>
         <button
           class="icon-button"
@@ -192,6 +216,7 @@ onBeforeUnmount(() => {
               >设备名称<input
                 ref="firstField"
                 v-model="name"
+                :readonly="!!device"
                 required
                 maxlength="128"
                 placeholder="例如：生产服务器 / 华东"
@@ -419,7 +444,7 @@ textarea {
   flex-wrap: wrap;
   gap: 10px;
   position: sticky;
-  bottom: -24px;
+  bottom: 0;
   background: white;
   padding: 12px 0;
   border-top: 1px solid #e4ebef;
@@ -446,9 +471,6 @@ p {
   }
   .install-columns {
     grid-template-columns: 1fr;
-  }
-  .install-actions {
-    bottom: -16px;
   }
 }
 </style>

@@ -98,3 +98,56 @@ it("does not enable generation when packages are unavailable or continue polling
   expect(wrapper.text()).toContain("平台尚未准备 Agent 安装包");
   wrapper.unmount();
 });
+it("binds installation to an existing SSH device and reports promotion only after Agent is online", async () => {
+  vi.useFakeTimers();
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce(options)
+    .mockResolvedValueOnce({
+      id: "bound-install",
+      command: "bound-command",
+      expires_at: Date.now() + 60000,
+      server_url: options.server_url,
+    })
+    .mockResolvedValueOnce({ status: "registered" })
+    .mockResolvedValueOnce({ status: "online" });
+  const wrapper = mount(AgentInstallPanel, {
+    props: { device: { id: "existing-ssh", name: "Production" } },
+  });
+  await flushPromises();
+  expect(wrapper.text()).toContain("安装 Agent · Production");
+  expect(wrapper.get<HTMLInputElement>("input").element.value).toBe(
+    "Production",
+  );
+  expect(wrapper.get("input").attributes("readonly")).toBeDefined();
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls[1][1]?.body).toMatchObject({
+    device_id: "existing-ssh",
+  });
+  expect(request.mock.calls[1][1]?.body).not.toHaveProperty("name");
+  expect(wrapper.text()).toContain("原 SSH 仍可使用");
+  expect(wrapper.emitted("added")).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(wrapper.text()).toContain("原 SSH 已保留为备用");
+  expect(wrapper.emitted("added")).toHaveLength(1);
+  wrapper.unmount();
+});
+it("explains recovery for an already registered Agent without issuing a duplicate command", async () => {
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce(options)
+    .mockRejectedValueOnce(new Error("AGENT_ALREADY_REGISTERED"));
+  const wrapper = mount(AgentInstallPanel, {
+    props: { device: { id: "existing", name: "Server" } },
+  });
+  await flushPromises();
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toContain(
+    "无需重复安装；原 SSH 仍可使用",
+  );
+  expect(wrapper.find("textarea").exists()).toBe(false);
+  expect(request).toHaveBeenCalledTimes(2);
+  wrapper.unmount();
+});

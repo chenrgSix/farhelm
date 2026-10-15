@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { installOnSshDevice } from "./ssh-agent-install.mjs";
 import { chromium } from "@playwright/test";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
@@ -10,7 +11,12 @@ import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 
 const backupMode = process.env.FLEET_TEST_BACKUP_SSH === "1";
-const evidencePrefix = backupMode ? "agent-ssh-backup" : "dual-access";
+const installMode = process.env.FLEET_TEST_SSH_AGENT_INSTALL === "1";
+const evidencePrefix = installMode
+  ? "ssh-agent-install"
+  : backupMode
+    ? "agent-ssh-backup"
+    : "dual-access";
 const deviceName = backupMode
   ? "Linux with Agent backup"
   : "Linux without Agent";
@@ -86,6 +92,10 @@ try {
       .at(-1),
   );
   assert.ok(targetPort);
+  const apiProbe = createServer();
+  await new Promise((r) => apiProbe.listen(0, "127.0.0.1", r));
+  const apiPort = apiProbe.address().port;
+  await new Promise((r) => apiProbe.close(r));
   server = await buildServer({
     dataDir: join(temp, "server"),
     tlsCert: join(tls, "server.crt"),
@@ -94,8 +104,18 @@ try {
     adminPassword: password,
     consoleOrigin: origin,
     ssh: { host: "127.0.0.1", port: 0 },
+    ...(installMode
+      ? {
+          agentInstall: {
+            distDir:
+              process.env.FLEET_AGENT_DIST_DIR ?? join(root, ".dev/agent-dist"),
+            publicUrl: `https://host.docker.internal:${apiPort}`,
+            caCert: join(tls, "ca.crt"),
+          },
+        }
+      : {}),
   });
-  await server.app.listen({ host: "127.0.0.1", port: 0 });
+  await server.app.listen({ host: "127.0.0.1", port: apiPort });
   const port = server.app.server.address().port;
   if (backupMode)
     server.store.db
@@ -382,6 +402,24 @@ try {
   );
   cli.stdin.write("1\r");
   await until(() => output.includes("$ "), "OpenSSH target shell");
+  if (installMode)
+    await installOnSshDevice({
+      page,
+      server,
+      token,
+      device,
+      api,
+      cli,
+      output: () => output,
+      until,
+      container,
+      temp,
+      out,
+      steps,
+      recordingId: web.id,
+      recording,
+      text,
+    });
   cli.stdin.write(
     "stty -echo; printf '__OPENSSH_%s__\\n' \"$(id -un)\"; exit\r",
   );
@@ -406,11 +444,12 @@ try {
   steps.push(
     "System OpenSSH -> platform device menu -> real Linux sshd, recorded with normal exit",
   );
-  assert.equal(
-    server.store.db.prepare("SELECT COUNT(*) n FROM device_tokens").get().n,
-    0,
-    "No Agent authentication exists",
-  );
+  if (!installMode)
+    assert.equal(
+      server.store.db.prepare("SELECT COUNT(*) n FROM device_tokens").get().n,
+      0,
+      "No Agent authentication exists",
+    );
   assert.equal(errors.length, 0, JSON.stringify(errors));
   assertValid("audit-response", await api("/audit"));
   writeFileSync(

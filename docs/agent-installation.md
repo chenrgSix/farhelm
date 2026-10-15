@@ -10,6 +10,14 @@
 - 「允许终端使用该账号已有的 sudo 权限」只控制终端能否使用目标系统已有的提权策略，不创建 sudoers、不设置密码、不授予额外权限；命令任务仍强制 `no_new_privs`。设备上线后，管理员可以在接入配置中保管可选 sudo 密码。
 - 已有安装、配置或身份目录会导致安装停止，不覆盖、不升级、不重置设备身份。修复失败的已有安装应检查日志并重启，而不是反复生成新身份。
 
+## 已有 SSH 设备
+
+在 SSH 设备行点击「安装 Agent」，使用同样的弹窗表单。设备名称沿用原值且只读；生成的命令绑定当前设备 ID，必须复制到对应目标服务器执行。上线后原设备启用 Agent 优先、SSH 备用，设备 ID、设备组标签、用户组/角色授权、历史录制不变。已打开的 SSH 会话不受影响。
+
+注册时暂存 Agent 公钥，原设备仍为 SSH 接入；首次认证上线后才在事务内启用 Agent 并记录 `device.agent_enabled` 审计事件。命令过期、安装出错或 Agent 没有上线时，原 SSH 配置和接入方式不变。若前端提示「Agent 已注册，等待上线」，请检查目标的日志、网络及服务后启动现有 Agent；平台重启和注册命令过期不会清除已绑定身份。不要删除身份后重装。
+
+同设备重新生成命令会作废之前未使用的命令；不同密钥不能重复绑定或覆盖已有 Agent 身份。已启用 Agent 的设备不提供此按钮，后续更新使用「Agent 升级」。
+
 ## 平台准备
 
 构建两种架构的静态 Linux 安装包（需要 Docker，可在原生架构或 Docker 支持的仿真架构构建）：
@@ -63,7 +71,7 @@ API：
 - `GET /api/v1/settings`：管理员读取平台服务端地址、配置版本及上次保存时间。
 - `PUT /api/v1/settings`：管理员提交 `v: 1`、读取时的 `revision` 和 `platform_server_url`，成功后立即生效并记录 `settings.updated`；过期版本返回 409。
 - `GET /api/v1/agent-install/options`：管理员读取当前地址和可用架构。
-- `POST /api/v1/agent-installations`：管理员生成命令，返回命令实际使用的 `server_url`，沿用 `enrollment.created` 审计事件。
+- `POST /api/v1/agent-installations`：管理员生成命令；新设备传 `name`，已有 SSH 设备传 `device_id`（名称取原设备值）。返回命令实际使用的 `server_url`，沿用 `enrollment.created` 审计事件。绑定命令会在审计中记录原设备 ID。
 - `GET /api/v1/agent-installations/:id`：管理员读取本次注册进度。
 - `GET /api/agent/install.sh`、`GET /api/agent/packages/:machine`：安装凭据鉴权下载。
 - `GET /api/agent/install-status`：安装脚本确认该设备已上线。
@@ -81,3 +89,5 @@ API：
 ## 验证
 
 `npm run test:agent:install` 使用独立 TLS 服务、真实浏览器和两个隔离 Linux 容器验证前端保存平台地址后立即生效、在线地址同步/活动终端保护/错误平台拒绝/重启持久化/离线补同步、生成命令、双架构安装/注册/在线、普通账号、权限、凭据清理、拒绝覆盖、网页终端与录制。需要先构建服务端、两个安装包，以及 Playwright Chromium。此测试覆盖容器后台启动，不能等同于真实主机开机或 systemd 生命周期验收。
+
+`npm run test:ssh:install-agent` 验证 SSH 设备原地安装 Agent。本次在独立 Debian ARM64 容器、真实 Rust Agent、真实 sshd / OpenSSH 和 Chromium 上通过：过期命令失败不影响 SSH、前端绑定命令安装、保留同一设备 ID / 标签 / 用户组范围 / 加密凭据 / 历史录制、安装期间现有 SSH 会话不中断、新终端优先 Agent、停止 Agent 后新终端回退 SSH，两个通道均完成录制。桌面与手机宽度的表单均检查通过；该验证使用后台模式，不代表 systemd 或生产环境验收。

@@ -77,6 +77,7 @@ const loadingTask = ref(false);
 const execOpen = ref(false);
 const execDevice = ref("");
 const enrollOpen = ref(false);
+const installTarget = ref<Device>();
 const revokeBusy = ref<string | null>(null);
 let sessionGeneration = 0;
 let taskGeneration = 0;
@@ -204,6 +205,7 @@ function logout(message = "") {
   sshTarget.value = null;
   terminalSessions.value = [];
   enrollOpen.value = false;
+  installTarget.value = undefined;
   execOpen.value = false;
   apiReady.value = false;
   error.value = "";
@@ -364,6 +366,7 @@ function selectDeviceAccess(kind: "ssh" | "agent") {
     connectionTarget.value = undefined;
     connectionOpen.value = true;
   } else {
+    installTarget.value = undefined;
     enrollOpen.value = true;
   }
 }
@@ -866,6 +869,21 @@ onBeforeUnmount(() => {
                               接入配置
                             </button>
                             <button
+                              v-if="
+                                user.role === 'admin' &&
+                                device.connection_kind === 'ssh' &&
+                                !device.revoked_at
+                              "
+                              class="text-button"
+                              :disabled="!apiReady || enrollOpen"
+                              @click="
+                                installTarget = device;
+                                enrollOpen = true;
+                              "
+                            >
+                              安装 Agent
+                            </button>
+                            <button
                               v-if="device.connection_kind !== 'ssh'"
                               class="text-button"
                               :disabled="!apiReady || !!networkTarget"
@@ -1254,10 +1272,16 @@ onBeforeUnmount(() => {
       />
       <AgentInstallPanel
         v-if="enrollOpen && user?.role === 'admin'"
-        @close="enrollOpen = false"
+        :key="installTarget?.id ?? 'new'"
+        :device="installTarget"
+        @close="
+          enrollOpen = false;
+          installTarget = undefined;
+        "
         @added="refresh"
         @settings="
           enrollOpen = false;
+          installTarget = undefined;
           switchView('settings');
         "
       />

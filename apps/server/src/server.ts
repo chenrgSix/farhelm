@@ -248,7 +248,7 @@ export async function buildServer(config: ServerConfig) {
     const th = bearer(req);
     const row = db
       .prepare(
-        "SELECT d.id,t.expires_at FROM device_tokens t JOIN devices d ON d.id=t.device_id WHERE t.token_hash=? AND t.expires_at>? AND d.revoked_at IS NULL AND d.connection_kind='agent' AND t.scope=?",
+        "SELECT d.id,t.expires_at FROM device_tokens t JOIN devices d ON d.id=t.device_id WHERE t.token_hash=? AND t.expires_at>? AND d.revoked_at IS NULL AND (d.connection_kind='agent' OR d.agent_pending_public_key IS NOT NULL) AND t.scope=?",
       )
       .get(th, Date.now(), "agent-control-output") as any;
     if (!row) fail(401, "DEVICE_AUTH_INVALID");
@@ -364,7 +364,7 @@ export async function buildServer(config: ServerConfig) {
     distDir: config.agentInstall?.distDir,
     artifact: legacyArtifact,
   });
-  registerAgentInstall(app, {
+  const installations = registerAgentInstall(app, {
     releases,
     artifact: legacyArtifact,
     store,
@@ -739,7 +739,10 @@ export async function buildServer(config: ServerConfig) {
       if (!e) fail(401, "ENROLLMENT_INVALID");
       if (e.redeemed_device_id) {
         const d = requireDevice(e.redeemed_device_id);
-        if (d.public_key !== publicKey || d.revoked_at !== null)
+        if (
+          ![d.public_key, d.agent_pending_public_key].includes(publicKey) ||
+          d.revoked_at !== null
+        )
           fail(401, "ENROLLMENT_INVALID");
       }
     } else {
@@ -747,9 +750,9 @@ export async function buildServer(config: ServerConfig) {
         fail(400, "AUTH_ENROLLMENT_NOT_ALLOWED");
       const d = db
         .prepare(
-          "SELECT * FROM devices WHERE public_key=? AND revoked_at IS NULL",
+          "SELECT * FROM devices WHERE (public_key=? OR agent_pending_public_key=?) AND revoked_at IS NULL",
         )
-        .get(publicKey) as any;
+        .get(publicKey, publicKey) as any;
       if (
         !d ||
         (b.device_id !== undefined && str(b.device_id, 1, 128) !== d.id)
@@ -794,9 +797,18 @@ export async function buildServer(config: ServerConfig) {
         )
         .get(c.enrollment_hash, Date.now()) as any;
       if (!e) fail(401, "ENROLLMENT_INVALID");
-      let device = db
-        .prepare("SELECT * FROM devices WHERE public_key=?")
-        .get(c.public_key) as any;
+      let device = installations.enrollTarget(e, c.public_key);
+      if (!e.target_device_id) {
+        if (
+          db
+            .prepare("SELECT 1 FROM devices WHERE agent_pending_public_key=?")
+            .get(c.public_key)
+        )
+          fail(409, "AGENT_IDENTITY_ALREADY_BOUND");
+        device = db
+          .prepare("SELECT * FROM devices WHERE public_key=?")
+          .get(c.public_key) as any;
+      }
       if (
         e.redeemed_device_id &&
         (!device || e.redeemed_device_id !== device.id)
@@ -828,9 +840,9 @@ export async function buildServer(config: ServerConfig) {
     return store.transaction(() => {
       const d = db
         .prepare(
-          "SELECT * FROM devices WHERE public_key=? AND revoked_at IS NULL",
+          "SELECT * FROM devices WHERE (public_key=? OR agent_pending_public_key=?) AND revoked_at IS NULL",
         )
-        .get(c.public_key) as any;
+        .get(c.public_key, c.public_key) as any;
       if (!d || (c.device_id !== null && c.device_id !== d.id))
         fail(401, "DEVICE_AUTH_INVALID");
       db.prepare("UPDATE challenges SET used=1 WHERE id=? AND used=0").run(
@@ -1480,20 +1492,24 @@ export async function buildServer(config: ServerConfig) {
               );
             }
             const agentVersion = str(b.agent_version, 1, 128);
-            if (env.type === "agent.hello")
-              c.upgrade = upgrades.remember(
-                c.deviceId,
-                agentVersion,
-                b.runtime,
-                Array.isArray(b.capabilities) &&
-                  b.capabilities.includes("agent.upgrade.v1"),
-              );
             if (env.type === "agent.heartbeat" && !c.ready)
               fail(400, "HELLO_REQUIRED");
-            c.lastHeartbeat = Date.now();
-            db.prepare(
-              "UPDATE devices SET last_seen=?,agent_version=? WHERE id=?",
-            ).run(c.lastHeartbeat, agentVersion, c.deviceId);
+            store.transaction(() => {
+              if (env.type === "agent.hello") {
+                c.upgrade = upgrades.remember(
+                  c.deviceId,
+                  agentVersion,
+                  b.runtime,
+                  Array.isArray(b.capabilities) &&
+                    b.capabilities.includes("agent.upgrade.v1"),
+                );
+                installations.activate(c.deviceId);
+              }
+              c.lastHeartbeat = Date.now();
+              db.prepare(
+                "UPDATE devices SET last_seen=?,agent_version=? WHERE id=?",
+              ).run(c.lastHeartbeat, agentVersion, c.deviceId);
+            });
             if (!c.ready) {
               c.ready = true;
               if (c.address) {
