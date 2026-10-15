@@ -60,6 +60,11 @@ export function registerAgentInstall(
 ) {
   const { db } = d.store;
   const settings = d.config.agentInstall;
+  const publicUrl = settings?.publicUrl.trim();
+  function serverOrigin() {
+    if (!publicUrl) fail(503, "AGENT_SERVER_URL_UNCONFIGURED");
+    return origin(publicUrl);
+  }
   const ca = settings?.caCert ? readFileSync(settings.caCert, "utf8") : "";
   const template = readFileSync(
     new URL("../resources/agent-install.sh", import.meta.url),
@@ -167,7 +172,7 @@ export function registerAgentInstall(
     d.admin(req);
     return {
       v: 1,
-      server_url: settings ? origin(settings.publicUrl) : "",
+      server_url: publicUrl ? serverOrigin() : "",
       architectures: Object.keys(available()),
       private_ca: !!ca,
     };
@@ -179,7 +184,6 @@ export function registerAgentInstall(
     version(b);
     keys(b, [
       "v",
-      "server_url",
       "name",
       "run_user",
       "ttl_seconds",
@@ -199,7 +203,7 @@ export function registerAgentInstall(
     const artifacts = available();
     if (!Object.keys(artifacts).length) fail(503, "AGENT_PACKAGES_UNAVAILABLE");
     const c: InstallConfig = {
-      server_url: origin(b.server_url),
+      server_url: serverOrigin(),
       name,
       run_user: runUser,
       start_mode: mode,

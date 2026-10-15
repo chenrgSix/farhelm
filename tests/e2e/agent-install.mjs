@@ -48,6 +48,10 @@ try {
   await new Promise((r) => probe.listen(0, "127.0.0.1", r));
   const webPort = probe.address().port;
   await new Promise((r) => probe.close(r));
+  const apiProbe = createServer();
+  await new Promise((r) => apiProbe.listen(0, "127.0.0.1", r));
+  const port = apiProbe.address().port;
+  await new Promise((r) => apiProbe.close(r));
   server = await buildServer({
     dataDir: join(temp, "server"),
     tlsCert: join(tls, "server.crt"),
@@ -58,12 +62,11 @@ try {
     agentInstall: {
       distDir:
         process.env.FLEET_AGENT_DIST_DIR ?? join(root, ".dev/agent-dist"),
-      publicUrl: "https://localhost:8443",
+      publicUrl: `https://host.docker.internal:${port}`,
       caCert: join(tls, "ca.crt"),
     },
   });
-  await server.app.listen({ host: "127.0.0.1", port: 0 });
-  const port = server.app.server.address().port;
+  await server.app.listen({ host: "127.0.0.1", port });
   vite = spawn(
     process.execPath,
     [
@@ -157,9 +160,14 @@ try {
         .click();
       const form = page.getByRole("dialog");
       await form.getByLabel("设备名称", { exact: true }).fill("安装验证 ARM64");
-      await form
-        .getByLabel("平台地址", { exact: true })
-        .fill(`https://host.docker.internal:${port}`);
+      const platformAddress = form.getByLabel("平台服务端地址", {
+        exact: true,
+      });
+      assert.equal(
+        await platformAddress.inputValue(),
+        `https://host.docker.internal:${port}`,
+      );
+      assert.equal(await platformAddress.getAttribute("readonly"), "");
       await page.screenshot({
         path: join(out, "agent-install-form-desktop.png"),
         fullPage: true,
@@ -195,7 +203,6 @@ try {
         await api("POST", "/agent-installations", {
           v: 1,
           name: "安装验证 x86_64",
-          server_url: `https://host.docker.internal:${port}`,
           run_user: "farhelm",
           start_mode: "background",
           allow_sudo: false,
@@ -225,7 +232,6 @@ try {
     const newToken = await api("POST", "/agent-installations", {
       v: 1,
       name: "must-not-duplicate",
-      server_url: `https://host.docker.internal:${port}`,
     });
     writeFileSync(join(temp, `repeat-${arch}.sh`), newToken.command, {
       mode: 0o600,

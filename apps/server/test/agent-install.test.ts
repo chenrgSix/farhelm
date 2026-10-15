@@ -11,7 +11,10 @@ const root = mkdtempSync(join(tmpdir(), "farhelm-install-test-"));
 execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
   stdio: "ignore",
 });
-async function fixture(packages = true) {
+async function fixture(
+  packages = true,
+  publicUrl = "https://fleet.example.com",
+) {
   const dataDir = mkdtempSync(join(root, "data-")),
     distDir = join(dataDir, "packages");
   mkdirSync(distDir);
@@ -28,7 +31,7 @@ async function fixture(packages = true) {
     adminPassword: "installer-test-password",
     agentInstall: {
       distDir,
-      publicUrl: "https://fleet.example.com",
+      publicUrl,
       caCert: join(root, "tls/ca.crt"),
     },
   });
@@ -54,7 +57,6 @@ async function fixture(packages = true) {
   const body = {
     v: 1,
     name: "安装测试 $(touch /tmp/should-not-exist) `echo x` ' \\\" 中文",
-    server_url: "https://fleet.example.com",
     run_user: "farhelm",
     ttl_seconds: 600,
   };
@@ -100,6 +102,7 @@ test("installer is admin-only, validates HTTPS/account/options and reports missi
       "https://user:secret@fleet.example.com",
       "https://fleet.example.com/path",
       "https://fleet.example.com/?token=x",
+      "https://another.example.com",
     ]) {
       assert.equal(
         (
@@ -137,6 +140,13 @@ test("one-time install download pins scripts/packages, protects shell data and s
     const created = await f.api("POST", "/api/v1/agent-installations", f.body);
     assert.equal(created.statusCode, 200);
     const { id, command } = created.json();
+    assert.ok(
+      command.includes("https://fleet.example.com/api/agent/install.sh"),
+    );
+    assert.equal(
+      (await f.api("GET", "/api/v1/agent-install/options")).json().server_url,
+      "https://fleet.example.com",
+    );
     // Decode the header embedded in the generated command, without invoking the network or shell as root.
     const candidates = command.match(/[A-Za-z0-9+/=]{50,}/g) as string[];
     const auth = candidates
@@ -173,6 +183,11 @@ test("one-time install download pins scripts/packages, protects shell data and s
     const envEncoded = script.body.match(/^env_b64='([A-Za-z0-9+/=]+)'$/m)![1]!;
     const envPath = join(root, id + ".env");
     writeFileSync(envPath, Buffer.from(envEncoded, "base64"));
+    assert.ok(
+      readFileSync(envPath, "utf8").includes(
+        'FLEET_SERVER_URL="https://fleet.example.com"',
+      ),
+    );
     const name = execFileSync(
       "bash",
       ["-c", 'source "$1"; printf %s "$FLEET_DEVICE_NAME"', "test", envPath],
@@ -237,5 +252,36 @@ test("one-time install download pins scripts/packages, protects shell data and s
     );
   } finally {
     await f.close();
+  }
+});
+test("missing or invalid central address prevents issuing an installation command", async () => {
+  for (const publicUrl of [
+    "",
+    "http://fleet.example.com",
+    "https://user:password@fleet.example.com",
+    "https://fleet.example.com/path",
+  ]) {
+    const f = await fixture(true, publicUrl);
+    try {
+      const created = await f.api(
+        "POST",
+        "/api/v1/agent-installations",
+        f.body,
+      );
+      assert.equal(created.statusCode, publicUrl ? 400 : 503);
+      assert.equal(
+        f.store.db.prepare("SELECT COUNT(*) n FROM agent_installations").get()!
+          .n,
+        0,
+      );
+      if (!publicUrl)
+        assert.equal(
+          (await f.api("GET", "/api/v1/agent-install/options")).json()
+            .server_url,
+          "",
+        );
+    } finally {
+      await f.close();
+    }
   }
 });

@@ -815,7 +815,7 @@
     "valid": false
   },
   {
-    "path": "invalid/agent-install-http.json",
+    "path": "invalid/agent-install-url-override.json",
     "schema": "agent-install-request.schema.json",
     "valid": false
   },

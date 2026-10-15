@@ -46,7 +46,9 @@ function message(e: unknown) {
   if (raw.includes("AGENT_PACKAGES_UNAVAILABLE"))
     return "平台尚未准备 Agent 安装包，请联系管理员。";
   if (raw.includes("INVALID_AGENT_SERVER_URL"))
-    return "平台地址必须是 HTTPS 地址，不包含路径、账号或查询参数。";
+    return "平台服务端地址配置无效，请联系管理员在平台统一配置有效的 HTTPS 地址。";
+  if (raw.includes("AGENT_SERVER_URL_UNCONFIGURED"))
+    return "平台尚未配置服务端地址，请联系管理员完成统一配置。";
   if (raw.includes("INVALID_AGENT_USER"))
     return "请输入普通 Linux 账号名，不能使用 root。";
   return raw;
@@ -90,6 +92,7 @@ async function generate() {
   if (
     busy.value ||
     !loaded.value ||
+    !serverUrl.value ||
     !architectures.value.length ||
     result.value
   )
@@ -106,7 +109,6 @@ async function generate() {
       body: {
         v: 1,
         name: name.value.trim(),
-        server_url: serverUrl.value.trim(),
         run_user: runUser.value.trim(),
         ttl_seconds: ttl.value,
         start_mode: startMode.value,
@@ -186,19 +188,19 @@ onBeforeUnmount(() => {
                 autocomplete="off"
             /></label>
             <label
-              >平台地址<input
-                v-model="serverUrl"
-                type="url"
-                required
-                placeholder="https://fleet.example.com"
-                maxlength="2048"
+              >平台服务端地址<input
+                :value="serverUrl"
+                readonly
+                placeholder="平台尚未配置"
             /></label>
             <p class="field-hint">
-              填写目标服务器可访问的 HTTPS
-              地址，证书须包含该主机名。安装命令会自动携带平台配置的 CA。
+              由平台统一配置并自动带入，Agent 安装后会连接此地址。
+            </p>
+            <p v-if="!serverUrl" class="text-warning" role="alert">
+              平台尚未配置服务端地址，请联系管理员完成统一配置。
             </p>
             <p v-if="isLoopback" class="text-warning">
-              当前是本机地址。安装到其他服务器时，请改成目标服务器能够访问的平台地址。
+              平台当前配置为本机地址。如需接入其他服务器，请联系管理员统一配置目标服务器可访问的地址。
             </p>
             <div class="install-columns">
               <label
@@ -251,7 +253,7 @@ onBeforeUnmount(() => {
           <div class="install-actions">
             <button
               class="button primary"
-              :disabled="busy || !architectures.length"
+              :disabled="busy || !serverUrl || !architectures.length"
             >
               {{ busy ? "生成中…" : "生成安装命令" }}</button
             ><button

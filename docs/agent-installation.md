@@ -1,6 +1,6 @@
 # Agent 一键安装
 
-管理员点击「添加设备」→「Agent 接入」，在弹窗填写设备名称、目标服务器可访问的平台 HTTPS 地址、普通 Linux 运行账号、命令有效期和启动方式。点击「生成安装命令」，复制整条命令到目标 Linux 的 Bash 终端执行。安装需要 root，普通账号执行时自动调用 sudo。
+管理员点击「添加设备」→「Agent 接入」，在弹窗填写设备名称、普通 Linux 运行账号、命令有效期和启动方式。「平台服务端地址」由平台统一配置并自动带入，以只读方式展示，无需逐台填写。点击「生成安装命令」，复制整条命令到目标 Linux 的 Bash 终端执行。安装需要 root，普通账号执行时自动调用 sudo。
 
 安装程序识别 x86_64 / aarch64，下载平台提供的静态 Agent，校验 SHA-256，创建不存在的运行账号，写入私有配置和状态目录，启动 Agent，再等待平台确认注册且在线。前端同时显示等待、已注册、在线、过期或撤销状态。上线后可使用网页终端、SSH 统一入口、录制、任务和健康检查。
 
@@ -30,7 +30,7 @@ export FLEET_PUBLIC_URL=https://fleet.example.com
 export FLEET_AGENT_CA_CERT=/srv/farhelm/tls/ca.crt
 ```
 
-`FLEET_PUBLIC_URL` 是表单默认值，用户可以改成目标机器可访问且证书覆盖的地址。不要填前端 Vite 的 HTTP 地址；默认 localhost 只适用于目标和平台在同一机器。Docker Desktop / OrbStack 本地测试可用 `https://host.docker.internal:8443`，开发证书包含该主机名。实际远程 Linux 必须配置可达地址、HTTPS 证书及监听/防火墙，不能直接使用这个 Docker 专用名称。
+`FLEET_PUBLIC_URL` 是平台统一管理的「平台服务端地址」，由部署管理员配置后重启服务生效。添加 Agent 时前端只读展示，生成命令始终使用服务端配置，不接受请求覆盖。未配置时禁止生成安装命令。地址必须是目标机器可访问且证书覆盖的 HTTPS origin，不能使用前端 Vite 的 HTTP 地址；本地开发脚本默认 localhost，只适用于目标和平台在同一机器。Docker Desktop / OrbStack 本地测试可用 `https://host.docker.internal:8443`，开发证书包含该主机名。实际远程 Linux 必须配置可达地址、HTTPS 证书及监听/防火墙，不能直接使用这个 Docker 专用名称。
 
 未配置 `FLEET_AGENT_DIST_DIR` 时，独立服务默认读取 `./data/agent-dist`；`scripts/dev.sh` 读取 `.dev/agent-dist`。未找到支持架构的有效 ELF 安装包时，前端禁止生成命令；生成后更换安装包会使旧命令校验失败，应重新生成。
 

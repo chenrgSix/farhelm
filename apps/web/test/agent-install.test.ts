@@ -35,6 +35,10 @@ it("generates once on explicit form submit, copies the command and reports real 
     "添加设备 · Agent 接入",
   );
   expect(request).toHaveBeenCalledTimes(1);
+  expect(wrapper.get<HTMLInputElement>("input[readonly]").element.value).toBe(
+    options.server_url,
+  );
+  expect(wrapper.text()).toContain("平台服务端地址");
   await wrapper.get("input").setValue("new-linux");
   await wrapper.get("form").trigger("submit");
   await wrapper.get("form").trigger("submit");
@@ -45,6 +49,7 @@ it("generates once on explicit form submit, copies the command and reports real 
     start_mode: "auto",
     allow_sudo: false,
   });
+  expect(request.mock.calls[1][1]?.body).not.toHaveProperty("server_url");
   resolve({
     id: "install-id",
     command: "bash -c 'example-command'",
@@ -63,6 +68,21 @@ it("generates once on explicit form submit, copies the command and reports real 
   wrapper.unmount();
   await vi.advanceTimersByTimeAsync(10000);
   expect(request).toHaveBeenCalledTimes(4);
+});
+it("blocks generation until the platform has configured its server address", async () => {
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValue({ ...options, server_url: "" });
+  const wrapper = mount(AgentInstallPanel);
+  await flushPromises();
+  await wrapper.get("input").setValue("new-linux");
+  await wrapper.get("form").trigger("submit");
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(wrapper.text()).toContain("平台尚未配置服务端地址");
+  expect(
+    wrapper.get("button.button.primary").attributes("disabled"),
+  ).toBeDefined();
+  wrapper.unmount();
 });
 it("does not enable generation when packages are unavailable or continue polling after close", async () => {
   const request = vi

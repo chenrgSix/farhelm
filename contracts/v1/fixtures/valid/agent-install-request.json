@@ -1,7 +1,6 @@
 {
   "v": 1,
   "name": "生产设备",
-  "server_url": "https://fleet.example.com",
   "run_user": "farhelm",
   "ttl_seconds": 3600,
   "start_mode": "auto",
