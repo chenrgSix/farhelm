@@ -266,6 +266,14 @@ fn spawn(cols: u16, rows: u16) -> Result<Pty> {
         .env_clear()
         .env("HOME", &home)
         .env("SHELL", shell)
+        .env(
+            "PS1",
+            if shell == "/bin/bash" {
+                r"\u@\h:\w\$ "
+            } else {
+                "${PWD} $ "
+            },
+        )
         .env("PATH", "/usr/bin:/bin")
         .env("TERM", "xterm-256color")
         .env("LANG", "C.UTF-8")

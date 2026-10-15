@@ -51,6 +51,16 @@ try {
       text,
     );
   };
+  const waitPrompt = async (directory) => {
+    await page.waitForFunction((directory) => {
+      const lines = Array.from(document.querySelectorAll(".xterm-rows > div"))
+        .map((e) => e.textContent.trim())
+        .filter(Boolean);
+      const last = lines.at(-1) || "";
+      return /^[^@\s]+@[^:\s]+:/.test(last) && last.endsWith(`:${directory}$`);
+    }, directory);
+  };
+  await waitPrompt("~");
   await keyboard.focus();
   await page.keyboard.type("stty -echo;printf '__BROWSER_%s__\\n' READY\r");
   await waitText("__BROWSER_READY__");
@@ -67,6 +77,7 @@ try {
   assert.ok(
     (await dialog.locator(".xterm-rows").textContent()).includes("/tmp"),
   );
+  await waitPrompt("/tmp");
   await page.keyboard.type("printf '__WAIT_%s__\\n' START;sleep 30\r");
   await waitText("__WAIT_START__");
   await page.keyboard.press("Control+c");
@@ -82,12 +93,7 @@ try {
   await page.keyboard.press("q");
   // Wait until top returns control; sending the next command with q can let
   // top consume its first character in the same terminal read.
-  await page.waitForFunction(() => {
-    const lines = Array.from(document.querySelectorAll(".xterm-rows > div"))
-      .map((e) => e.textContent.trim())
-      .filter(Boolean);
-    return /bash.*\$\s*$/.test(lines.at(-1) || "");
-  });
+  await waitPrompt("/tmp");
   await page.keyboard.type("printf '__TOP_%s__\\n' OK\r");
   await waitText("__TOP_OK__");
   await page.setViewportSize({ width: 1100, height: 820 });
@@ -133,6 +139,7 @@ try {
           "login",
           "connect actual Linux PTY",
           "create, write, read and remove a file in the initial directory",
+          "username/hostname prompt follows the current directory",
           "Tab completion and persistent cd/pwd",
           "Ctrl-C",
           "Chinese output",
