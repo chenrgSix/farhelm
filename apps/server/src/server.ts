@@ -24,6 +24,7 @@ import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerHealth } from "./health.js";
 import { registerDeviceConnections } from "./device-connections.js";
 import { registerAgentInstall } from "./agent-install.js";
+import { registerSettings } from "./settings.js";
 import {
   ApiError,
   fail,
@@ -334,11 +335,17 @@ export async function buildServer(config: ServerConfig) {
       if (row.cancel_requested) send(c, "task.cancel", { task_id: row.id });
     }
   }
+  const settings = registerSettings(app, {
+    store,
+    admin,
+    initialServerUrl: config.agentInstall?.publicUrl,
+  });
   registerAgentInstall(app, {
     store,
     config,
     admin,
     rate,
+    serverUrl: () => settings.current().platform_server_url,
     online: (id) => !!connections.get(id)?.ready && live(connections.get(id)!),
   });
   const deviceConnections = registerDeviceConnections(app, {

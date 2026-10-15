@@ -231,7 +231,50 @@ describe("login and real-data-only console", () => {
     expect(wrapper.text()).toContain("还没有已授权设备");
     expect(wrapper.findComponent(ExecForm).exists()).toBe(false);
     expect(wrapper.find(".heading-actions").text()).not.toContain("执行命令");
+    expect(wrapper.find("nav").text()).not.toContain("系统设置");
     expect(localStorage.length).toBe(0);
+    wrapper.unmount();
+  });
+  it("shows system settings to admins and resets the page after signing out", async () => {
+    let loggedInUser = user;
+    vi.spyOn(api, "request").mockImplementation(async (path) => {
+      if (path === "/login")
+        return { access_token: "test-token", user: loggedInUser };
+      if (path === "/me") return loggedInUser;
+      if (path === "/devices") return { devices: [] };
+      if (path === "/tasks") return { tasks: [] };
+      if (path === "/terminal-sessions") return { sessions: [] };
+      if (path === "/settings")
+        return {
+          v: 1,
+          platform_server_url: "https://fleet.example.com",
+          revision: 1,
+          updated_at: 1700000000000,
+        };
+      return { audit: [] };
+    });
+    const wrapper = mount(App);
+    async function login() {
+      await wrapper
+        .get('input[name="username"]')
+        .setValue(loggedInUser.username);
+      await wrapper.get('input[name="password"]').setValue("test-password");
+      await wrapper.get("form").trigger("submit");
+      await flushPromises();
+    }
+    await login();
+    await wrapper
+      .findAll("nav button")
+      .find((b) => b.text().includes("系统设置"))!
+      .trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".settings-panel").text()).toContain("平台服务端地址");
+    await wrapper.get('[aria-label="退出登录"]').trigger("click");
+    loggedInUser = { ...user, role: "business" };
+    await login();
+    expect(wrapper.find("nav").text()).not.toContain("系统设置");
+    expect(wrapper.find(".settings-panel").exists()).toBe(false);
+    expect(wrapper.get("h1").text()).toBe("设备总览");
     wrapper.unmount();
   });
 });

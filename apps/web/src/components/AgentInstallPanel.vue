@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { api } from "../api/client";
 import { formatTime } from "../model";
 
-const emit = defineEmits<{ close: []; added: [] }>();
+const emit = defineEmits<{ close: []; added: []; settings: [] }>();
 const name = ref("");
 const serverUrl = ref("");
 const runUser = ref("farhelm");
@@ -46,9 +46,9 @@ function message(e: unknown) {
   if (raw.includes("AGENT_PACKAGES_UNAVAILABLE"))
     return "平台尚未准备 Agent 安装包，请联系管理员。";
   if (raw.includes("INVALID_AGENT_SERVER_URL"))
-    return "平台服务端地址配置无效，请联系管理员在平台统一配置有效的 HTTPS 地址。";
+    return "平台服务端地址配置无效，请在系统设置中配置有效的 HTTPS 地址。";
   if (raw.includes("AGENT_SERVER_URL_UNCONFIGURED"))
-    return "平台尚未配置服务端地址，请联系管理员完成统一配置。";
+    return "平台尚未配置服务端地址，请先在系统设置中保存。";
   if (raw.includes("INVALID_AGENT_USER"))
     return "请输入普通 Linux 账号名，不能使用 root。";
   return raw;
@@ -104,6 +104,7 @@ async function generate() {
       id: string;
       command: string;
       expires_at: number;
+      server_url: string;
     }>("/agent-installations", {
       method: "POST",
       body: {
@@ -117,6 +118,7 @@ async function generate() {
     });
     if (disposed) return;
     result.value = response;
+    serverUrl.value = response.server_url;
     status.value = "waiting";
     void poll();
   } catch (e) {
@@ -167,6 +169,14 @@ onBeforeUnmount(() => {
       </header>
       <form class="install-form" @submit.prevent="generate">
         <p v-if="error" class="text-warning" role="alert">{{ error }}</p>
+        <button
+          v-if="!loaded && error"
+          type="button"
+          class="text-button"
+          @click="emit('settings')"
+        >
+          前往系统设置
+        </button>
         <p v-if="!loaded && !error">正在读取安装配置…</p>
         <button
           v-if="!loaded && error"
@@ -194,13 +204,20 @@ onBeforeUnmount(() => {
                 placeholder="平台尚未配置"
             /></label>
             <p class="field-hint">
-              由平台统一配置并自动带入，Agent 安装后会连接此地址。
+              由系统设置统一配置并自动带入，Agent 安装后会连接此地址。
+              <button
+                type="button"
+                class="text-button"
+                @click="emit('settings')"
+              >
+                前往系统设置
+              </button>
             </p>
             <p v-if="!serverUrl" class="text-warning" role="alert">
-              平台尚未配置服务端地址，请联系管理员完成统一配置。
+              平台尚未配置服务端地址，请先在系统设置中保存。
             </p>
             <p v-if="isLoopback" class="text-warning">
-              平台当前配置为本机地址。如需接入其他服务器，请联系管理员统一配置目标服务器可访问的地址。
+              平台当前配置为本机地址。如需接入其他服务器，请在系统设置中改为目标服务器可访问的地址。
             </p>
             <div class="install-columns">
               <label

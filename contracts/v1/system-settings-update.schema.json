@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/system-settings-update.schema.json",
+  "title": "Farhelm v1 system-settings-update",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740990
+    },
+    "platform_server_url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s/@?#]+/?$"
+    }
+  },
+  "required": [
+    "v",
+    "revision",
+    "platform_server_url"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": 1,
+  "at": 1700000000000,
+  "actor_id": "admin",
+  "device_id": null,
+  "task_id": null,
+  "action": "settings.updated",
+  "detail": {
+    "revision": 1,
+    "platform_server_url": "https://fleet.example.com"
+  }
+}

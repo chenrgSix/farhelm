@@ -19,6 +19,7 @@ import SessionDuration from "./components/SessionDuration.vue";
 import DeviceConnectionPanel from "./components/DeviceConnectionPanel.vue";
 import AddDevicePanel from "./components/AddDevicePanel.vue";
 import AgentInstallPanel from "./components/AgentInstallPanel.vue";
+import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -28,7 +29,7 @@ const username = ref("");
 const password = ref("");
 const loginBusy = ref(false);
 const loginError = ref("");
-type View = "devices" | "tasks" | "audit" | "terminals";
+type View = "devices" | "tasks" | "audit" | "terminals" | "settings";
 const view = ref<View>("devices");
 const closingSession = ref<string | null>(null);
 const terminalSessions = ref<TerminalSession[]>([]);
@@ -59,17 +60,24 @@ const revokeBusy = ref<string | null>(null);
 let sessionGeneration = 0;
 let taskGeneration = 0;
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
-const navigation = [
-  { id: "devices", label: "设备总览", icon: "▦" },
-  { id: "terminals", label: "终端会话", icon: ">_" },
-  { id: "tasks", label: "任务中心", icon: "≡" },
-  { id: "audit", label: "操作审计", icon: "◷" },
-] as const;
+const navigation = computed(
+  () =>
+    [
+      { id: "devices", label: "设备总览", icon: "▦" },
+      { id: "terminals", label: "终端会话", icon: ">_" },
+      { id: "tasks", label: "任务中心", icon: "≡" },
+      { id: "audit", label: "操作审计", icon: "◷" },
+      ...(user.value?.role === "admin"
+        ? [{ id: "settings", label: "系统设置", icon: "⚙" } as const]
+        : []),
+    ] as const,
+);
 const titles = {
   devices: ["设备总览", "连接状态清晰可见，每一次操作都有记录"],
   tasks: ["任务中心", "从授权到真实结果，追踪每条命令的生命周期"],
   audit: ["操作审计", "平台内操作、授权与输出查看的持久化记录"],
   terminals: ["终端会话", "查看连接记录与会话回放"],
+  settings: ["系统设置", "管理平台配置，保存后立即生效"],
 };
 const filteredDevices = computed(() =>
   devices.value.filter((d) =>
@@ -115,6 +123,7 @@ function logout(message = "") {
   taskGeneration++;
   api.setToken(null);
   user.value = null;
+  view.value = "devices";
   password.value = "";
   devices.value = [];
   tasks.value = [];
@@ -257,6 +266,7 @@ async function onCreated(id: string) {
   await selectTask(id);
 }
 function switchView(id: View) {
+  if (id === "settings" && user.value?.role !== "admin") return;
   view.value = id;
   search.value = "";
 }
@@ -422,6 +432,7 @@ onBeforeUnmount(() => {
               lastUpdated ? `更新于 ${formatTime(lastUpdated)}` : "尚未获取数据"
             }}</span
           ><button
+            v-if="view !== 'settings'"
             class="button secondary small"
             :disabled="refreshing"
             @click="refresh"
@@ -496,7 +507,15 @@ onBeforeUnmount(() => {
             <p>UNKNOWN 不会自动重跑</p>
           </div>
         </section>
-        <div class="content-grid" :class="{ 'with-exec': execOpen }">
+        <SystemSettingsPanel
+          v-if="view === 'settings' && user.role === 'admin'"
+          @saved="refresh"
+        />
+        <div
+          v-if="view !== 'settings'"
+          class="content-grid"
+          :class="{ 'with-exec': execOpen }"
+        >
           <div class="content-primary">
             <section class="panel list-panel">
               <div class="list-toolbar">
@@ -1033,6 +1052,10 @@ onBeforeUnmount(() => {
         v-if="enrollOpen && user?.role === 'admin'"
         @close="enrollOpen = false"
         @added="refresh"
+        @settings="
+          enrollOpen = false;
+          switchView('settings');
+        "
       />
       <DeviceConnectionPanel
         v-if="connectionOpen && user?.role === 'admin'"

@@ -67,7 +67,8 @@
         "health.run_requested",
         "connection.configured",
         "connection.host_key_scanned",
-        "connection.tested"
+        "connection.tested",
+        "settings.updated"
       ]
     },
     "detail": {
@@ -389,6 +390,24 @@
             }
           },
           "required": ["revision"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "platform_server_url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "^https://[^\\s/@?#]+/?$"
+            }
+          },
+          "required": ["revision", "platform_server_url"]
         }
       ]
     }
@@ -1016,6 +1035,37 @@
               }
             },
             "required": ["revision"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "settings.updated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "platform_server_url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": "^https://[^\\s/@?#]+/?$"
+              }
+            },
+            "required": ["revision", "platform_server_url"]
           }
         }
       }

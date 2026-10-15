@@ -18,12 +18,19 @@
     },
     "expires_at": {
       "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "server_url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s/@?#]+/?$"
     }
   },
   "required": [
     "v",
     "id",
     "command",
-    "expires_at"
+    "expires_at",
+    "server_url"
   ]
 }

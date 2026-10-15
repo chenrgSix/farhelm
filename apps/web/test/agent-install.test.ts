@@ -54,9 +54,12 @@ it("generates once on explicit form submit, copies the command and reports real 
     id: "install-id",
     command: "bash -c 'example-command'",
     expires_at: Date.now() + 60000,
+    server_url: "https://updated.example.com",
   });
   await flushPromises();
   expect(wrapper.text()).toContain("设备已注册，等待 Agent 上线");
+  expect(wrapper.text()).toContain("https://updated.example.com");
+  expect(wrapper.text()).not.toContain(options.server_url);
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "复制安装命令")!

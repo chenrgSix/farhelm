@@ -823,5 +823,40 @@
     "path": "invalid/agent-install-command-injection.json",
     "schema": "agent-install-request.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/system-settings-update.json",
+    "schema": "system-settings-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/system-settings-response.json",
+    "schema": "system-settings-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/system-settings-unconfigured.json",
+    "schema": "system-settings-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/system-settings-http.json",
+    "schema": "system-settings-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/system-settings-credentials.json",
+    "schema": "system-settings-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/system-settings-missing-revision.json",
+    "schema": "system-settings-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/audit-settings-updated.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

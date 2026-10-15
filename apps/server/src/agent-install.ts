@@ -4,6 +4,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "./store.js";
 import type { ServerConfig, User } from "./types.js";
+import { platformServerUrl } from "./settings.js";
 import {
   fail,
   hash,
@@ -28,26 +29,6 @@ type InstallConfig = {
 };
 const quote = (s: string) => "'" + s.replaceAll("'", "'\"'\"'") + "'";
 const b64 = (s: string) => Buffer.from(s).toString("base64");
-function origin(value: unknown) {
-  const input = str(value, 1, 2048);
-  let url: URL;
-  try {
-    url = new URL(input);
-  } catch {
-    return fail(400, "INVALID_AGENT_SERVER_URL");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.pathname !== "/" ||
-    url.search ||
-    url.hash
-  )
-    fail(400, "INVALID_AGENT_SERVER_URL");
-  return url.origin;
-}
-
 export function registerAgentInstall(
   app: FastifyInstance,
   d: {
@@ -56,14 +37,15 @@ export function registerAgentInstall(
     admin: (req: FastifyRequest) => User;
     rate: RateLimiter;
     online: (id: string) => boolean;
+    serverUrl: () => string;
   },
 ) {
   const { db } = d.store;
   const settings = d.config.agentInstall;
-  const publicUrl = settings?.publicUrl.trim();
   function serverOrigin() {
+    const publicUrl = d.serverUrl();
     if (!publicUrl) fail(503, "AGENT_SERVER_URL_UNCONFIGURED");
-    return origin(publicUrl);
+    return platformServerUrl(publicUrl);
   }
   const ca = settings?.caCert ? readFileSync(settings.caCert, "utf8") : "";
   const template = readFileSync(
@@ -172,7 +154,7 @@ export function registerAgentInstall(
     d.admin(req);
     return {
       v: 1,
-      server_url: publicUrl ? serverOrigin() : "",
+      server_url: d.serverUrl() ? serverOrigin() : "",
       architectures: Object.keys(available()),
       private_ca: !!ca,
     };
@@ -235,6 +217,7 @@ export function registerAgentInstall(
       id,
       command: "bash -c " + quote(bootstrap),
       expires_at: expires,
+      server_url: c.server_url,
     };
   });
   app.get<{ Params: { id: string } }>(

@@ -62,7 +62,7 @@ try {
     agentInstall: {
       distDir:
         process.env.FLEET_AGENT_DIST_DIR ?? join(root, ".dev/agent-dist"),
-      publicUrl: `https://host.docker.internal:${port}`,
+      publicUrl: `https://localhost:${port}`,
       caCert: join(tls, "ca.crt"),
     },
   });
@@ -127,6 +127,45 @@ try {
     assert.equal(r.statusCode, 200);
     return r.json();
   }
+  await page.getByRole("button", { name: "系统设置", exact: false }).click();
+  const settingsForm = page.locator(".settings-panel");
+  await settingsForm
+    .getByLabel("平台服务端地址", { exact: true })
+    .fill(`https://host.docker.internal:${port}`);
+  await settingsForm
+    .getByRole("button", { name: "保存设置", exact: true })
+    .click();
+  await settingsForm.getByRole("status").waitFor();
+  const savedSettings = assertValid(
+    "system-settings-response",
+    await api("GET", "/settings"),
+  );
+  assert.equal(
+    savedSettings.platform_server_url,
+    `https://host.docker.internal:${port}`,
+  );
+  assert.equal(savedSettings.revision, 1);
+  await page.screenshot({
+    path: join(out, "system-settings-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(
+    await settingsForm.evaluate(
+      (el) =>
+        el.scrollWidth <= el.clientWidth + 1 &&
+        document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.screenshot({
+    path: join(out, "system-settings-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: "设备总览", exact: false }).click();
+  steps.push(
+    "System settings: admin saved a new address through the browser; Agent installation uses it immediately without restarting the server; desktop/mobile layout verified",
+  );
   assertValid(
     "agent-install-options",
     await api("GET", "/agent-install/options"),
@@ -305,6 +344,11 @@ try {
       );
     }
   }
+  const audit = assertValid("audit-response", await api("GET", "/audit"));
+  assert.equal(
+    audit.audit.filter((e) => e.action === "settings.updated").length,
+    1,
+  );
   assert.deepEqual(errors, []);
   writeFileSync(
     join(out, "agent-install-e2e.json"),

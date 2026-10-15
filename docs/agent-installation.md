@@ -1,6 +1,6 @@
 # Agent 一键安装
 
-管理员点击「添加设备」→「Agent 接入」，在弹窗填写设备名称、普通 Linux 运行账号、命令有效期和启动方式。「平台服务端地址」由平台统一配置并自动带入，以只读方式展示，无需逐台填写。点击「生成安装命令」，复制整条命令到目标 Linux 的 Bash 终端执行。安装需要 root，普通账号执行时自动调用 sudo。
+管理员点击「添加设备」→「Agent 接入」，在弹窗填写设备名称、普通 Linux 运行账号、命令有效期和启动方式。「平台服务端地址」由管理员在「系统设置」统一配置并自动带入，以只读方式展示，无需逐台填写。点击「生成安装命令」，复制整条命令到目标 Linux 的 Bash 终端执行。安装需要 root，普通账号执行时自动调用 sudo。
 
 安装程序识别 x86_64 / aarch64，下载平台提供的静态 Agent，校验 SHA-256，创建不存在的运行账号，写入私有配置和状态目录，启动 Agent，再等待平台确认注册且在线。前端同时显示等待、已注册、在线、过期或撤销状态。上线后可使用网页终端、SSH 统一入口、录制、任务和健康检查。
 
@@ -25,12 +25,15 @@ npm run build:agent:installers
 
 ```bash
 export FLEET_AGENT_DIST_DIR=/srv/farhelm/agent-dist
-export FLEET_PUBLIC_URL=https://fleet.example.com
 # 私有 CA 才需要；公共受信证书可以省略。
 export FLEET_AGENT_CA_CERT=/srv/farhelm/tls/ca.crt
 ```
 
-`FLEET_PUBLIC_URL` 是平台统一管理的「平台服务端地址」，由部署管理员配置后重启服务生效。添加 Agent 时前端只读展示，生成命令始终使用服务端配置，不接受请求覆盖。未配置时禁止生成安装命令。地址必须是目标机器可访问且证书覆盖的 HTTPS origin，不能使用前端 Vite 的 HTTP 地址；本地开发脚本默认 localhost，只适用于目标和平台在同一机器。Docker Desktop / OrbStack 本地测试可用 `https://host.docker.internal:8443`，开发证书包含该主机名。实际远程 Linux 必须配置可达地址、HTTPS 证书及监听/防火墙，不能直接使用这个 Docker 专用名称。
+管理员登录前端，进入「系统设置」，填写「平台服务端地址」并点击「保存设置」。配置写入平台数据库，立即用于新生成的安装命令，无需重启，平台重启后仍会保留。仅管理员可读取和修改，修改记录写入审计；多人同时编辑时，旧版本保存会被拒绝，请重新加载后再编辑。添加 Agent 时前端只读展示当前配置，不接受逐设备覆盖。未配置时禁止生成安装命令。
+
+`FLEET_PUBLIC_URL` 仅作为系统设置首次保存前的兼容默认值，可不设置；保存后数据库配置优先，之后无需修改环境变量。已生成的安装命令保留生成时的地址、脚本和包校验值；已有 Agent 不会自动迁移，需在目标服务器同步更新连接配置。
+
+地址必须是目标机器可访问且证书覆盖的 HTTPS origin，不能使用前端 Vite 的 HTTP 地址；本地开发脚本默认 localhost，只适用于目标和平台在同一机器。Docker Desktop / OrbStack 本地测试可用 `https://host.docker.internal:8443`，开发证书包含该主机名。实际远程 Linux 必须配置可达地址、HTTPS 证书及监听/防火墙，不能直接使用这个 Docker 专用名称。
 
 未配置 `FLEET_AGENT_DIST_DIR` 时，独立服务默认读取 `./data/agent-dist`；`scripts/dev.sh` 读取 `.dev/agent-dist`。未找到支持架构的有效 ELF 安装包时，前端禁止生成命令；生成后更换安装包会使旧命令校验失败，应重新生成。
 
@@ -44,8 +47,10 @@ export FLEET_AGENT_CA_CERT=/srv/farhelm/tls/ca.crt
 
 API：
 
-- `GET /api/v1/agent-install/options`：管理员读取默认地址和可用架构。
-- `POST /api/v1/agent-installations`：管理员生成命令，沿用 `enrollment.created` 审计事件。
+- `GET /api/v1/settings`：管理员读取平台服务端地址、配置版本及上次保存时间。
+- `PUT /api/v1/settings`：管理员提交 `v: 1`、读取时的 `revision` 和 `platform_server_url`，成功后立即生效并记录 `settings.updated`；过期版本返回 409。
+- `GET /api/v1/agent-install/options`：管理员读取当前地址和可用架构。
+- `POST /api/v1/agent-installations`：管理员生成命令，返回命令实际使用的 `server_url`，沿用 `enrollment.created` 审计事件。
 - `GET /api/v1/agent-installations/:id`：管理员读取本次注册进度。
 - `GET /api/agent/install.sh`、`GET /api/agent/packages/:machine`：安装凭据鉴权下载。
 - `GET /api/agent/install-status`：安装脚本确认该设备已上线。
@@ -62,4 +67,4 @@ API：
 
 ## 验证
 
-`npm run test:agent:install` 使用独立 TLS 服务、真实浏览器和两个隔离 Linux 容器验证生成命令、双架构安装/注册/在线、普通账号、权限、凭据清理、拒绝覆盖、网页终端与录制。需要先构建服务端、两个安装包，以及 Playwright Chromium。此测试覆盖容器后台启动，不能等同于真实主机开机或 systemd 生命周期验收。
+`npm run test:agent:install` 使用独立 TLS 服务、真实浏览器和两个隔离 Linux 容器验证前端保存平台地址后立即生效、生成命令、双架构安装/注册/在线、普通账号、权限、凭据清理、拒绝覆盖、网页终端与录制。需要先构建服务端、两个安装包，以及 Playwright Chromium。此测试覆盖容器后台启动，不能等同于真实主机开机或 systemd 生命周期验收。
