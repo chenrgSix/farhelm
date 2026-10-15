@@ -20,6 +20,7 @@
     "package:source": "python3 scripts/package-source.py",
     "test:ssh:browser": "node tests/e2e/ssh-browser.mjs",
     "test:ssh:target": "node tests/e2e/ssh-target.mjs",
+    "test:ssh:backup": "FLEET_TEST_BACKUP_SSH=1 node tests/e2e/ssh-target.mjs",
     "build:agent:installers": "bash scripts/build-agent-installers.sh",
     "test:agent:install": "node tests/e2e/agent-install.mjs",
     "test:agent:upgrade": "node tests/e2e/agent-upgrade.mjs",

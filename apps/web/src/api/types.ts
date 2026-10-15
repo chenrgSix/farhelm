@@ -14,6 +14,8 @@ export interface Device {
   connection_kind?: "agent" | "ssh";
   device_groups?: { id: string; name: string }[];
   terminal_available?: boolean;
+  terminal_backend?: "agent" | "ssh" | null;
+  ssh_configured?: boolean;
   ssh_status?: "unknown" | "connected" | "failed";
   ssh_checked_at?: number | null;
   id: string;

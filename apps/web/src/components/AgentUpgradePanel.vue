@@ -321,9 +321,9 @@ onBeforeUnmount(() => {
       暂无可用安装包，请在上方上传对应架构的安装包。
     </p>
     <p class="field-hint">
-      每批最多 100
-      台，选中设备后统一升级。开始升级后暂停新终端和命令，已有操作可继续完成；离线设备会排队。旧版
-      Agent 需先更新一次基础程序，之后可直接在此升级，无需 sudo 密码。
+      每批最多 100 台，选中设备后统一升级。开始升级后暂停新的 Agent
+      终端和命令，已有操作可继续完成；离线设备会排队。旧版 Agent
+      需先更新一次基础程序，之后可直接在此升级，无需 sudo 密码。
     </p>
     <form @submit.prevent="submit">
       <fieldset :disabled="busy || !!pending">

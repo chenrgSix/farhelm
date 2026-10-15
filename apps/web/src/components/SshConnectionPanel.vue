@@ -78,16 +78,29 @@ async function copy() {
           <p>首次连接时，请核对平台主机指纹：</p>
           <code class="ssh-fingerprint">{{ gateway.fingerprint }}</code>
           <p
-            v-if="device.connection_kind !== 'ssh' && !device.control_online"
+            v-if="
+              device.connection_kind !== 'ssh' &&
+              !device.control_online &&
+              !device.ssh_configured
+            "
             class="text-warning"
           >
             设备当前离线，Agent 恢复连接后才能进入终端。
+          </p>
+          <p
+            v-if="device.connection_kind === 'agent' && device.ssh_configured"
+            class="muted"
+          >
+            连接时优先使用 Agent，Agent 不可用时使用已配置的备用
+            SSH；现有会话不自动切换。
           </p>
           <p class="muted">
             支持交互式 Shell、Ctrl-C 和窗口缩放，使用{{
               device.connection_kind === "ssh"
                 ? "管理员配置的目标 SSH 账号"
-                : "设备上 Agent 的系统账号"
+                : device.ssh_configured
+                  ? "Agent 的系统账号，或备用 SSH 配置的账号"
+                  : "设备上 Agent 的系统账号"
             }}。操作录制和时长可在「终端会话」查看。
           </p>
           <p class="muted">

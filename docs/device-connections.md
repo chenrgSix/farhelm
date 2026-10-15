@@ -1,6 +1,6 @@
 # SSH 与 Agent 接入
 
-管理员在设备页点击「添加设备」，再选择「SSH 接入」或「Agent 接入」，两种方式均使用弹窗表单。SSH 方式填写连接配置；Agent 方式填写安装信息并生成一条命令，复制到目标 Linux 执行后自动安装、注册并启动，详情见 [Agent 一键安装](agent-installation.md)。已有 Agent 设备保持原有身份与历史；本版不把同一设备 ID 在两种方式间转换。两种设备共用网页终端、平台 SSH 入口、设备范围授权、会话额度、录制、时长、回放和导出。
+管理员在设备页点击「添加设备」，再选择「SSH 接入」或「Agent 接入」，两种方式均使用弹窗表单。SSH 方式填写连接配置；Agent 方式填写安装信息并生成一条命令，复制到目标 Linux 执行后自动安装、注册并启动，详情见 [Agent 一键安装](agent-installation.md)。已有 Agent 设备可直接添加备用 SSH，保持同一个设备 ID、设备组、授权、身份与历史，不创建第二台设备。独立 SSH 设备仍可用于没有安装 Agent 的机器。两种设备共用网页终端、平台 SSH 入口、设备范围授权、会话额度、录制、时长、回放和导出。
 
 ```text
 浏览器 / SSH 客户端 → 平台（认证、授权、录制） → WSS → Agent PTY
@@ -19,6 +19,18 @@
 Agent 在线只代表 WSS 连接；SSH 不维持常驻连接，显示按需连接及上次检查/连接结果，不把历史成功当作实时在线。SSH 设备本版支持交互终端；持久化命令任务及 HTTP/TCP/systemd 健康检查仍要求 Agent，前端隐藏对应入口，服务端明确拒绝。
 
 修改接入配置前需结束设备的活跃终端；revision 防止覆盖他人的修改。私钥留空保留原值；替换私钥时清除旧口令，必要时重新填写。主机指纹不一致会在认证前拒绝连接，不会自动接受新指纹。
+
+## 为 Agent 配置备用 SSH
+
+管理员打开「设备总览 → 接入配置」，勾选「启用备用 SSH」，填写目标地址、端口、账号、私钥及主机指纹，保存并测试连接。步骤与独立 SSH 设备相同；sudo 密码与 SSH 凭据分别维护。取消勾选并保存会删除备用 SSH 配置、私钥和口令，保留 Agent 身份及 sudo 密码。
+
+网页终端、平台 SSH 入口的直连和设备选择菜单使用同一规则：新会话创建时，Agent 已连接、心跳有效且支持交互终端则优先使用 Agent；否则，有备用配置时尝试 SSH，没有配置则提示 Agent 离线或需更新。SSH 主机指纹不匹配、认证失败或连接失败会明确报错，不忽略指纹或改用未经配置的目标。SSH 仍为按需连接，配置存在不代表目标实时可达。
+
+会话创建后固定通道。Agent 掉线会结束原 Agent 会话，重新连接才尝试备用 SSH；Agent 恢复后新会话重新优先使用 Agent，已打开的 SSH 会话继续使用 SSH。不会迁移 Shell、重放按键或恢复原工作目录。终端窗口和历史记录显示实际通道，两个通道共用同一设备范围、角色权限、额度、撤销规则和录制流程；SSH 使用配置的目标账号，其 Linux 权限可能与 Agent 运行账号不同。
+
+设备仍是 Agent 设备，继续支持健康检查、网络记录、命令任务和升级。这些功能不自动转由 SSH 执行；Agent 升级期间对新 Agent 终端的限制仍有效，Agent 不可用时备用 SSH 可用于排查恢复，不受未确认升级批次阻塞。
+
+接口沿用 `PUT /api/v1/devices/:id/connection`：Agent 可以同时提交 `ssh`、`private_key`、`passphrase` 和 `sudo_password`。省略字段保留已有值，`ssh:null` 仅允许 Agent 设备明确删除备用配置；所有变更均要求管理员、最新 revision 且设备没有活跃会话。`connection_kind` 保留 `agent`，设备列表新增 `ssh_configured` 和当前预计使用的 `terminal_backend`。无需数据库迁移或重装 Agent，已有 Agent / SSH 设备保持原有行为。
 
 ## Agent 可选 sudo 密码
 
@@ -43,6 +55,9 @@ docker build -t farhelm-sshd-test:local tests/e2e/ssh-target
 npm --prefix apps/server run build
 npm --prefix apps/web run build
 npm run test:ssh:target
+npm run test:ssh:backup # 同一个已存在的 Agent 设备配置备用 SSH
 ```
 
 脚本使用临时凭据、数据库及仅绑定宿主 loopback 的 sshd，验证浏览器配置、桌面/手机布局、真实 Linux PTY、Ctrl-C、resize、中文、隐藏输入、录制回放和系统 OpenSSH 经平台菜单连接，结束后移除测试容器。Chromium 可用 `PLAYWRIGHT_BROWSERS_PATH` 或 `FLEET_CHROMIUM_BIN` 指定。结果位于 `.test-output/dual-access-*`，不等于 CI 或生产验收。
+
+双通道服务端测试覆盖 Agent 优先、离线/心跳过期/不支持终端时回退、恢复后保留已有 SSH 会话、主机指纹失败、同设备权限与撤销、凭据删除和原 ID 不变。其中 Agent 使用协议测试端，SSH 使用真实 SSH 协议端；`test:ssh:backup` 另以真实 Linux OpenSSH 验证备用 SSH 的前端配置、网页终端、平台 SSH 菜单、录制和回放。

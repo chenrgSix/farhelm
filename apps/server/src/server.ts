@@ -469,7 +469,12 @@ export async function buildServer(config: ServerConfig) {
     consoleOrigin: config.consoleOrigin,
     agent(id) {
       const c = connections.get(id);
-      if (!c?.ready || !live(c)) return undefined;
+      if (
+        !c?.ready ||
+        !live(c) ||
+        Date.now() - c.lastHeartbeat > heartbeatTimeout
+      )
+        return undefined;
       return {
         terminal: c.terminal,
         send: (type, body) => send(c, type, body),
@@ -649,6 +654,7 @@ export async function buildServer(config: ServerConfig) {
             return {
               hasMore: rows.length > SSH_MENU_PAGE_SIZE,
               devices: rows.slice(0, SSH_MENU_PAGE_SIZE).map((device) => {
+                const backend = terminals.backend(device.id);
                 const c = connections.get(device.id);
                 const online =
                   c?.ready &&
@@ -657,13 +663,15 @@ export async function buildServer(config: ServerConfig) {
                 return {
                   ...device,
                   status:
-                    device.connection_kind === "ssh"
-                      ? "ssh"
-                      : !online
-                        ? "offline"
-                        : c.terminal
-                          ? "online"
-                          : "unsupported",
+                    backend === "ssh"
+                      ? device.connection_kind === "agent"
+                        ? "ssh_fallback"
+                        : "ssh"
+                      : backend === "agent"
+                        ? "online"
+                        : online
+                          ? "unsupported"
+                          : "offline",
                 };
               }),
             };
@@ -856,7 +864,9 @@ export async function buildServer(config: ServerConfig) {
           )
           .all(d.id),
         control_online:
-          !!connections.get(d.id)?.ready && live(connections.get(d.id)!),
+          !!connections.get(d.id)?.ready &&
+          live(connections.get(d.id)!) &&
+          Date.now() - connections.get(d.id)!.lastHeartbeat <= heartbeatTimeout,
         private_data_reachable: null,
         business_healthy: health.summary(d.id),
         last_seen: d.last_seen,
@@ -869,13 +879,12 @@ export async function buildServer(config: ServerConfig) {
               )
             : [],
         connection_kind: d.connection_kind,
-        terminal_available:
-          !d.revoked_at &&
-          (d.connection_kind === "ssh" ||
-            (!!connections.get(d.id)?.ready &&
-              live(connections.get(d.id)!) &&
-              !!connections.get(d.id)?.terminal)),
-        ...(d.connection_kind === "ssh" ? deviceConnections.status(d.id) : {}),
+        ssh_configured: deviceConnections.hasSsh(d.id),
+        terminal_backend: d.revoked_at ? null : terminals.backend(d.id),
+        terminal_available: !d.revoked_at && !!terminals.backend(d.id),
+        ...(deviceConnections.hasSsh(d.id)
+          ? deviceConnections.status(d.id)
+          : {}),
       }));
     return { v: 1, devices };
   });

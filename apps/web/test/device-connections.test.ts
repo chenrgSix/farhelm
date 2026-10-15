@@ -107,7 +107,7 @@ it("Agent sudo password remains write-only, omitted blanks preserve it, and expl
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(request.mock.calls.at(-1)?.[1]?.body).toEqual({ v: 1, revision: 1 });
-  await wrapper.get<HTMLInputElement>('input[type="checkbox"]').setValue(true);
+  await wrapper.get('[aria-label="清除已保存的 sudo 密码"]').setValue(true);
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(request.mock.calls.at(-1)?.[1]?.body).toEqual({
@@ -143,5 +143,77 @@ it("maps host-key mismatch to actionable text without retrying or replacing the 
       .findAll("input")
       .some((input) => input.element.value === connection.ssh!.fingerprint),
   ).toBe(true);
+  wrapper.unmount();
+});
+
+it("configures and removes backup SSH on the existing Agent ID while preserving independent sudo credentials", async () => {
+  const agent: DeviceConnection = {
+    ...connection,
+    kind: "agent",
+    ssh: null,
+    revision: 1,
+    has_private_key: false,
+    has_sudo_password: true,
+  };
+  const request = vi.spyOn(api, "request").mockResolvedValue(agent);
+  const wrapper = mount(DeviceConnectionPanel, { props: { device } });
+  await flushPromises();
+  await wrapper.get('[aria-label="启用备用 SSH"]').setValue(true);
+  await wrapper
+    .get('input[placeholder="192.168.1.10 或主机名"]')
+    .setValue(connection.ssh!.host);
+  await wrapper
+    .get('input[placeholder="目标机器的 Linux 用户名"]')
+    .setValue(connection.ssh!.username);
+  await wrapper
+    .get('input[placeholder="SHA256:…"]')
+    .setValue(connection.ssh!.fingerprint);
+  await wrapper.get("textarea").setValue("BACKUP-KEY");
+  await wrapper.get("form").trigger("submit");
+  expect(request).toHaveBeenCalledTimes(1);
+  await wrapper
+    .get('.connection-host-key input[type="checkbox"]')
+    .setValue(true);
+  request.mockResolvedValue({
+    ...connection,
+    kind: "agent",
+    revision: 2,
+    has_sudo_password: true,
+  });
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/devices/device/connection", {
+    method: "PUT",
+    body: { v: 1, revision: 1, ssh: connection.ssh, private_key: "BACKUP-KEY" },
+  });
+  expect(wrapper.get("textarea").element.value).toBe("");
+  expect(wrapper.text()).toContain("备用 SSH 已保存");
+  const testButton = () =>
+    wrapper.findAll("button").find((b) => b.text() === "测试已保存连接")!;
+  await testButton().trigger("click");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/devices/device/connection/test", {
+    method: "POST",
+    body: { v: 1, revision: 2 },
+  });
+  await wrapper
+    .get('input[placeholder="目标 Linux 账号的 sudo 密码；留空保持不变"]')
+    .setValue("unsaved-sudo");
+  expect(testButton().attributes("disabled")).toBeDefined();
+  await wrapper
+    .get('input[placeholder="目标 Linux 账号的 sudo 密码；留空保持不变"]')
+    .setValue("");
+  await wrapper.get('[aria-label="启用备用 SSH"]').setValue(false);
+  expect(wrapper.find("textarea").exists()).toBe(false);
+  expect(wrapper.text()).toContain("保存后将移除备用 SSH 配置和私钥");
+  request.mockResolvedValue({ ...agent, revision: 3 });
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/devices/device/connection", {
+    method: "PUT",
+    body: { v: 1, revision: 2, ssh: null },
+  });
+  expect(wrapper.text()).toContain("sudo 密码（可选，已保存）");
+  expect(request.mock.calls.some((c) => c[0] === "/ssh-devices")).toBe(false);
   wrapper.unmount();
 });

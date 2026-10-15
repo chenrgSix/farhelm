@@ -15,6 +15,7 @@ import { WebSocket } from "ws";
 import { buildServer } from "../src/server.js";
 import { fingerprint } from "../src/ssh-target.js";
 import { Credentials } from "../src/credentials.js";
+import { hash, token } from "../src/util.js";
 
 const root = mkdtempSync(join(tmpdir(), "farhelm-connections-test-"));
 execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
@@ -39,7 +40,7 @@ async function until(fn: () => unknown, label = "condition") {
   }
   throw new Error("Timed out: " + label);
 }
-async function fixture() {
+async function fixture(heartbeatTimeoutMs = 15000) {
   const downstream = new Set<Connection>();
   const shells: ServerChannel[] = [],
     inputs: Buffer[] = [],
@@ -101,6 +102,7 @@ async function fixture() {
     dataDir: mkdtempSync(join(root, "data-")),
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
+    heartbeatTimeoutMs,
     adminUsername: "admin",
     adminPassword: "connection-test-password",
     ssh: { host: "127.0.0.1", port: 0 },
@@ -139,11 +141,11 @@ async function fixture() {
   const path = `/devices/${id}/connection`;
   const browsers: WebSocket[] = [],
     clients: ssh2.Client[] = [];
-  async function web(auth = admin) {
+  async function web(auth = admin, targetId = id) {
     const created = await api(
       "POST",
       "/terminal-sessions",
-      { v: 1, device_id: id, cols: 100, rows: 32 },
+      { v: 1, device_id: targetId, cols: 100, rows: 32 },
       auth,
     );
     assert.equal(created.status, 200, JSON.stringify(created.body));
@@ -198,6 +200,45 @@ async function fixture() {
     });
     return { client, stream, output: () => output };
   }
+  async function agent(id: string, terminal = true) {
+    const access = token();
+    s.store.db
+      .prepare(
+        "INSERT INTO device_tokens(token_hash,device_id,expires_at,scope) VALUES(?,?,?,'agent-control-output')",
+      )
+      .run(hash(access), id, Date.now() + 60000);
+    const ws = new WebSocket(origin.replace("https:", "wss:") + "/agent/ws", {
+      ca,
+      headers: { authorization: "Bearer " + access },
+    });
+    browsers.push(ws);
+    ws.on("error", () => {});
+    const send = (type: string, body: unknown) =>
+      ws.send(JSON.stringify({ v: 1, type, body }));
+    ws.on("message", (raw) => {
+      const m = JSON.parse(String(raw));
+      if (m.type === "terminal.open") {
+        send("terminal.opened", { session_id: m.body.session_id });
+        send("terminal.output", {
+          session_id: m.body.session_id,
+          seq: 1,
+          data: Buffer.from("AGENT_PRIMARY_READY\r\n").toString("base64"),
+        });
+      }
+    });
+    await once(ws, "open");
+    send("agent.hello", {
+      agent_version: "dual-channel-test-double",
+      capabilities: terminal ? ["terminal.pty.v1"] : [],
+    });
+    await until(
+      async () =>
+        (await api("GET", "/devices")).body.devices.find(
+          (d: any) => d.id === id,
+        )?.control_online,
+    );
+    return ws;
+  }
   async function close() {
     for (const ws of browsers) ws.terminate();
     for (const client of clients) client.destroy();
@@ -215,6 +256,7 @@ async function fixture() {
     path,
     ssh,
     web,
+    agent,
     gateway,
     shells,
     inputs,
@@ -616,5 +658,335 @@ test("offline backup and restart preserve decryptable credentials, gateway ident
     assert.equal(view.json().ssh.fingerprint, hostFingerprint);
   } finally {
     await restored.close();
+  }
+});
+
+test("one Agent identity can configure, test, preserve and remove encrypted SSH backup independently of sudo and permissions", async () => {
+  const f = await fixture();
+  try {
+    const id = "hybrid",
+      path = `/devices/${id}/connection`;
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES(?,'hybrid-public-key','Hybrid Linux',1)",
+      )
+      .run(id);
+    f.store.seedUser({
+      username: "ops",
+      password: "connection-test-password",
+      role: "ops",
+      deviceScope: [id],
+    });
+    const ops = await f.login("ops");
+    assert.equal(
+      (
+        await f.api(
+          "PUT",
+          path,
+          { v: 1, revision: 0, ssh: f.ssh, private_key: loginKey },
+          ops,
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await f.api("PUT", path, { v: 1, revision: 0, ssh: f.ssh })).status,
+      400,
+    );
+    const saved = await f.api("PUT", path, {
+      v: 1,
+      revision: 0,
+      ssh: f.ssh,
+      private_key: loginKey,
+      sudo_password: "sudo-secret",
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.kind, "agent");
+    assert.equal(saved.body.has_private_key, true);
+    assert.equal(saved.body.has_sudo_password, true);
+    assert.deepEqual(saved.body.ssh, f.ssh);
+    assert.equal(
+      (await f.api("POST", path + "/test", { v: 1, revision: 1 })).body.ok,
+      true,
+    );
+    const preserve = await f.api("PUT", path, {
+      v: 1,
+      revision: 1,
+      sudo_password: "new-sudo-secret",
+    });
+    assert.deepEqual(preserve.body.ssh, f.ssh);
+    assert.equal(preserve.body.has_private_key, true);
+    const row = f.store.db
+      .prepare("SELECT * FROM device_connections WHERE device_id=?")
+      .get(id)!;
+    assert.equal(JSON.stringify(row).includes("PRIVATE KEY"), false);
+    const vault = new Credentials(f.config.dataDir, true);
+    assert.equal(vault.open(id, String(row.secrets)).private_key, loginKey);
+    assert.equal(
+      vault.open(id, String(row.secrets)).sudo_password,
+      "new-sudo-secret",
+    );
+    const visible = (await f.api("GET", "/devices", undefined, ops)).body
+      .devices;
+    assert.equal(visible.length, 1);
+    assert.equal(visible[0].id, id);
+    assert.equal(visible[0].connection_kind, "agent");
+    assert.equal(visible[0].ssh_configured, true);
+    assert.equal(visible[0].terminal_backend, "ssh");
+    assert.equal(visible[0].control_online, false);
+    assert.equal(visible[0].terminal_available, true);
+    for (const value of [
+      saved.body,
+      visible,
+      f.store.db.prepare("SELECT * FROM audit").all(),
+    ]) {
+      assert.equal(JSON.stringify(value).includes("PRIVATE KEY"), false);
+      assert.equal(JSON.stringify(value).includes("sudo-secret"), false);
+    }
+    assert.equal((await f.api("GET", path, undefined, ops)).status, 403);
+    const removed = await f.api("PUT", path, { v: 1, revision: 2, ssh: null });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.ssh, null);
+    assert.equal(removed.body.has_private_key, false);
+    assert.equal(removed.body.has_sudo_password, true);
+    assert.deepEqual(
+      vault.open(
+        id,
+        String(
+          f.store.db
+            .prepare("SELECT secrets FROM device_connections WHERE device_id=?")
+            .get(id)!.secrets,
+        ),
+      ),
+      { sudo_password: "new-sudo-secret" },
+    );
+    assert.equal(
+      (
+        await f.api("POST", "/terminal-sessions", {
+          v: 1,
+          device_id: id,
+          cols: 80,
+          rows: 24,
+        })
+      ).body.error,
+      "DEVICE_OFFLINE",
+    );
+    assert.equal(
+      f.store.db.prepare("SELECT COUNT(*) n FROM devices").get()!.n,
+      2,
+    );
+    assert.equal(
+      f.store.db.prepare("SELECT public_key FROM devices WHERE id=?").get(id)!
+        .public_key,
+      "hybrid-public-key",
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("web and gateway prefer Agent, fall back on new connections, preserve existing SSH sessions after recovery and enforce the same device scope and recording", async () => {
+  const f = await fixture();
+  try {
+    const id = "hybrid",
+      path = `/devices/${id}/connection`;
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES(?,'hybrid-public-key','Hybrid Linux',1)",
+      )
+      .run(id);
+    await f.api("PUT", path, {
+      v: 1,
+      revision: 0,
+      ssh: f.ssh,
+      private_key: loginKey,
+    });
+    f.store.seedUser({
+      username: "ops",
+      password: "connection-test-password",
+      role: "ops",
+      deviceScope: [id],
+    });
+    f.store.seedUser({
+      username: "outsider",
+      password: "connection-test-password",
+      role: "ops",
+      deviceScope: [],
+    });
+    const ops = await f.login("ops"),
+      outsider = await f.login("outsider");
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/terminal-sessions",
+          { v: 1, device_id: id, cols: 80, rows: 24 },
+          outsider,
+        )
+      ).status,
+      403,
+    );
+    const primary = await f.agent(id);
+    const web = await f.web(ops, id);
+    assert.equal((await web.wait("terminal.ready")).backend, "agent");
+    await until(() => web.output().includes("AGENT_PRIMARY_READY"));
+    const direct = await f.gateway("ops:" + id);
+    await until(() => direct.output().includes("AGENT_PRIMARY_READY"));
+    assert.equal(
+      f.shells.length,
+      0,
+      "Online Agent never authenticates to target SSH",
+    );
+    primary.terminate();
+    await web.wait("terminal.closed");
+    await until(
+      async () =>
+        !(await f.api("GET", "/devices")).body.devices.find(
+          (d: any) => d.id === id,
+        ).control_online,
+    );
+    // An unresolved Agent upgrade must not block the independent recovery channel.
+    f.store.db
+      .prepare(
+        "INSERT INTO agent_upgrade_batches(id,actor_id,request_json,concurrency,created_at) SELECT 'test-batch',id,'{}',1,? FROM users WHERE username='admin'",
+      )
+      .run(Date.now());
+    f.store.db
+      .prepare(
+        "INSERT INTO agent_upgrades(id,batch_id,device_id,arch,sha256,size,version,status,created_at,updated_at) VALUES('test-upgrade','test-batch',?,'aarch64',?,128,'0.2.1','UNKNOWN',?,?)",
+      )
+      .run(id, "a".repeat(64), Date.now(), Date.now());
+    const backup = await f.web(ops, id);
+    assert.equal((await backup.wait("terminal.ready")).backend, "ssh");
+    await until(() => backup.output().includes("TARGET_SSH_READY"));
+    const menu = await f.gateway("ops");
+    await until(() => menu.output().includes("备用 SSH · 按需连接"));
+    assert.equal((menu.output().match(/Hybrid Linux/g) ?? []).length, 1);
+    menu.stream.write("1\r");
+    await until(() => menu.output().includes("TARGET_SSH_READY"));
+    f.store.db
+      .prepare(
+        "UPDATE agent_upgrades SET status='FAILED' WHERE id='test-upgrade'",
+      )
+      .run();
+    await f.agent(id);
+    backup.send("terminal.input", {
+      data: Buffer.from("output").toString("base64"),
+    });
+    await until(() => backup.output().includes("TARGET_OUTPUT 中文"));
+    const recovered = await f.web(f.admin, id);
+    assert.equal((await recovered.wait("terminal.ready")).backend, "agent");
+    const sessions = (
+      await f.api("GET", "/terminal-sessions")
+    ).body.sessions.filter((s: any) => s.device_id === id);
+    assert.deepEqual(
+      new Set(sessions.map((s: any) => s.transport + ":" + s.backend)),
+      new Set(["web:agent", "ssh:agent", "web:ssh", "ssh:ssh"]),
+    );
+    const recording = (
+      await f.api(
+        "GET",
+        `/terminal-sessions/${backup.id}/recording`,
+        undefined,
+        ops,
+      )
+    ).body;
+    assert.equal(recording.session.device_id, id);
+    assert.equal(recording.session.backend, "ssh");
+    assert.ok(
+      recording.events.some(
+        (e: any) =>
+          e.kind === "output" &&
+          Buffer.from(e.data.data, "base64")
+            .toString()
+            .includes("TARGET_OUTPUT"),
+      ),
+    );
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          `/terminal-sessions/${backup.id}/recording`,
+          undefined,
+          outsider,
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await f.api("PUT", path, { v: 1, revision: 1, ssh: null })).body.error,
+      "CONNECTION_HAS_ACTIVE_SESSIONS",
+    );
+    f.store.db
+      .prepare("UPDATE users SET device_scope='[]' WHERE username='ops'")
+      .run();
+    backup.send("terminal.input", {
+      data: Buffer.from("MUST_NOT_EXECUTE").toString("base64"),
+    });
+    await backup.wait("terminal.closed");
+    assert.equal(
+      Buffer.concat(f.inputs).toString().includes("MUST_NOT_EXECUTE"),
+      false,
+    );
+    await f.api("POST", `/devices/${id}/revoke`, { v: 1 });
+    await recovered.wait("terminal.closed");
+    assert.equal(
+      (
+        await f.api("POST", "/terminal-sessions", {
+          v: 1,
+          device_id: id,
+          cols: 80,
+          rows: 24,
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      f.store.db.prepare("SELECT COUNT(*) n FROM devices").get()!.n,
+      2,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("unsupported or expired Agent falls back to SSH and pin mismatch is rejected without sending credentials", async () => {
+  const f = await fixture(1000);
+  try {
+    const id = "hybrid",
+      path = `/devices/${id}/connection`;
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES(?,'hybrid-key','Hybrid',1)",
+      )
+      .run(id);
+    await f.api("PUT", path, {
+      v: 1,
+      revision: 0,
+      ssh: { ...f.ssh, fingerprint: "SHA256:" + "A".repeat(43) },
+      private_key: loginKey,
+    });
+    const agent = await f.agent(id, false);
+    const before = f.authentications();
+    const denied = await f.web(f.admin, id);
+    assert.equal(
+      (await denied.wait("terminal.closed")).reason,
+      "SSH_HOST_KEY_MISMATCH",
+    );
+    assert.equal(f.authentications(), before);
+    agent.terminate();
+    await until(() => agent.readyState === WebSocket.CLOSED);
+    await f.api("PUT", path, { v: 1, revision: 1, ssh: f.ssh });
+    await f.agent(id);
+    await until(
+      async () =>
+        (await f.api("GET", "/devices")).body.devices.find(
+          (d: any) => d.id === id,
+        ).terminal_backend === "ssh",
+    );
+    const fallback = await f.web(f.admin, id);
+    assert.equal((await fallback.wait("terminal.ready")).backend, "ssh");
+  } finally {
+    await f.close();
   }
 });

@@ -46,6 +46,7 @@ interface Dependencies {
   requireAvailable?(id: string): void;
   connections: {
     kind(id: string): "agent" | "ssh";
+    hasSsh(id: string): boolean;
     open(
       id: string,
       cols: number,
@@ -183,6 +184,11 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     d.requireScope(user, row.device_id);
     return { row, user };
   }
+  function backend(deviceId: string): "agent" | "ssh" | null {
+    if (d.connections.kind(deviceId) === "ssh") return "ssh";
+    if (d.agent(deviceId)?.terminal) return "agent";
+    return d.connections.hasSsh(deviceId) ? "ssh" : null;
+  }
   function create(
     user: User,
     userSession: string,
@@ -199,12 +205,12 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     rate.check("terminal-create:" + user.id, 20);
     if (!authorized({ deviceId, actorId: user.id, userSession }))
       fail(403, "TERMINAL_NOT_AUTHORIZED");
-    const backend = d.connections.kind(deviceId);
-    d.requireAvailable?.(deviceId);
-    if (backend === "agent") {
+    const selectedBackend = backend(deviceId);
+    if (selectedBackend === "agent") d.requireAvailable?.(deviceId);
+    if (!selectedBackend) {
       const agent = d.agent(deviceId);
       if (!agent) fail(409, "DEVICE_OFFLINE");
-      if (!agent.terminal) fail(409, "TERMINAL_NOT_SUPPORTED_UPDATE_AGENT");
+      fail(409, "TERMINAL_NOT_SUPPORTED_UPDATE_AGENT");
     }
     if (
       sessions.size >= 32 ||
@@ -220,7 +226,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     store.transaction(() => {
       db.prepare(
         "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,transport,backend) VALUES(?,?,?,'OPENING',?,?,?,?,?)",
-      ).run(id, deviceId, user.id, cols, rows, now, transport, backend);
+      ).run(id, deviceId, user.id, cols, rows, now, transport, selectedBackend);
       record(id, "open", { cols, rows });
       store.audit("terminal.created", user.id, deviceId, null, {
         session_id: id,
@@ -235,7 +241,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       expires: now + 30000,
       created: now,
       ready: false,
-      backend,
+      backend: selectedBackend,
     };
     sessions.set(id, session);
     return { session, ticket };
@@ -454,7 +460,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           });
         });
         s.ready = true;
-        if (!sendClient(s, "terminal.ready", {}))
+        if (!sendClient(s, "terminal.ready", { backend: s.backend }))
           end(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
       } else if (type === "terminal.output") {
         keys(b, ["session_id", "seq", "data"]);
@@ -494,6 +500,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     }
   }
   return {
+    backend,
     openSsh(
       user: User,
       userSession: string,

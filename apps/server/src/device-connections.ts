@@ -45,9 +45,13 @@ export function registerDeviceConnections(
   function kind(id: string): "agent" | "ssh" {
     return d.requireDevice(id).connection_kind;
   }
+  function hasSsh(id: string) {
+    const row = saved(id);
+    return !!row && !!JSON.parse(row.config_json).host;
+  }
   function target(id: string): SshTargetConfig {
     const row = saved(id);
-    if (!row || kind(id) !== "ssh") fail(409, "SSH_NOT_CONFIGURED");
+    if (!row || !hasSsh(id)) fail(409, "SSH_NOT_CONFIGURED");
     const config = JSON.parse(row.config_json),
       credential = secrets.open(id, row.secrets);
     return {
@@ -64,7 +68,7 @@ export function registerDeviceConnections(
       device_id: id,
       kind: kind(id),
       revision: row?.revision ?? 0,
-      ssh: kind(id) === "ssh" && row ? JSON.parse(row.config_json) : null,
+      ssh: hasSsh(id) ? JSON.parse(row.config_json) : null,
       has_private_key: !!credential.private_key,
       has_passphrase: !!credential.passphrase,
       has_sudo_password: !!credential.sudo_password,
@@ -88,20 +92,22 @@ export function registerDeviceConnections(
   function validate(id: string, type: "agent" | "ssh", b: Record<string, any>) {
     const old = saved(id);
     const credential = old ? secrets.open(id, old.secrets) : {};
-    let config: Record<string, any> = {};
+    let config: Record<string, any> = old ? JSON.parse(old.config_json) : {};
     if (type === "agent") {
-      if (
-        b.ssh !== undefined ||
-        b.private_key !== undefined ||
-        b.passphrase !== undefined
-      )
-        fail(400, "AGENT_SSH_FIELDS_NOT_ALLOWED");
       if (b.sudo_password === null) delete credential.sudo_password;
       else if (b.sudo_password !== undefined)
         credential.sudo_password = str(b.sudo_password, 1, 1024);
-    } else {
-      if (b.sudo_password !== undefined)
-        fail(400, "SSH_SUDO_FIELD_NOT_ALLOWED");
+    } else if (b.sudo_password !== undefined) {
+      fail(400, "SSH_SUDO_FIELD_NOT_ALLOWED");
+    }
+    if (b.ssh === null) {
+      if (type === "ssh") fail(400, "SSH_CONFIGURATION_REQUIRED");
+      if (b.private_key !== undefined || b.passphrase !== undefined)
+        fail(400, "SSH_NOT_CONFIGURED");
+      config = {};
+      delete credential.private_key;
+      delete credential.passphrase;
+    } else if (b.ssh !== undefined) {
       const ssh = object(b.ssh);
       keys(ssh, ["host", "port", "username", "fingerprint"]);
       config = {
@@ -114,6 +120,8 @@ export function registerDeviceConnections(
         !/^SHA256:[A-Za-z0-9+/]{43}$/.test(config.fingerprint)
       )
         fail(400, "INVALID_SSH_IDENTITY");
+    }
+    if (config.host) {
       if (b.private_key !== undefined) {
         credential.private_key = str(b.private_key, 1, 32768);
         delete credential.passphrase;
@@ -145,6 +153,13 @@ export function registerDeviceConnections(
       )
         fail(400, "SSH_PRIVATE_KEY_INVALID_OR_PASSPHRASE_REQUIRED");
     }
+    if (
+      !config.host &&
+      (type === "ssh" ||
+        b.private_key !== undefined ||
+        b.passphrase !== undefined)
+    )
+      fail(400, "SSH_CONFIGURATION_REQUIRED");
     return { config, credential };
   }
   function persist(
@@ -262,7 +277,7 @@ export function registerDeviceConnections(
       b = object(req.body);
     version(b);
     keys(b, ["v", "revision"]);
-    if (kind(id) !== "ssh") fail(409, "SSH_DEVICE_REQUIRED");
+    if (!hasSsh(id)) fail(409, "SSH_NOT_CONFIGURED");
     const revision = integer(b.revision, 1, Number.MAX_SAFE_INTEGER);
     if (saved(id)?.revision !== revision)
       fail(409, "CONNECTION_CHANGED_RELOAD");
@@ -283,6 +298,7 @@ export function registerDeviceConnections(
   });
   return {
     kind,
+    hasSsh,
     status(id: string) {
       const row = saved(id);
       return {

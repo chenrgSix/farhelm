@@ -1,6 +1,6 @@
 # 交互终端
 
-在设备页点击「连接终端」，即可直接输入 Shell 命令。每个会话有独立 PTY 和工作目录；支持管道、重定向、Tab、方向键、Ctrl-C、中文与窗口缩放。默认使用 `/bin/bash --noprofile --norc -i`，没有 Bash 时使用 `/bin/sh -i`。使用 Agent 的非 root 账号，无需在目标设备安装 SSH 或修改系统账号。标准客户端可经[SSH 统一入口](ssh-gateway.md)使用同一终端和录制流程。
+在设备页点击「连接终端」，即可直接输入 Shell 命令。每个会话有独立 PTY 和工作目录；支持管道、重定向、Tab、方向键、Ctrl-C、中文与窗口缩放。默认使用 `/bin/bash --noprofile --norc -i`，没有 Bash 时使用 `/bin/sh -i`。Agent 通道使用 Agent 的运行账号，无需在目标设备安装 SSH。同一设备可配置备用 SSH，Agent 不可用时新会话使用 SSH 配置的账号；现有会话不切换。详见[双通道配置](device-connections.md)。标准客户端可经[SSH 统一入口](ssh-gateway.md)使用同一终端和录制流程。
 
 Bash 提示符显示真实用户名、主机名和当前目录，例如 `fleet@local-linux:~$`；执行 `cd /tmp` 后显示 `fleet@local-linux:/tmp$`。HOME 用 `~` 表示，目录随 Shell 工作目录自动更新。`/bin/sh` 回退模式显示当前目录。
 

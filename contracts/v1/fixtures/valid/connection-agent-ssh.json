@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "kind": "agent",
+  "revision": 1,
+  "ssh": {
+    "host": "192.168.1.20",
+    "port": 22,
+    "username": "fleet",
+    "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "has_private_key": true,
+  "has_passphrase": false,
+  "has_sudo_password": true,
+  "last_checked_at": null,
+  "last_error": null
+}

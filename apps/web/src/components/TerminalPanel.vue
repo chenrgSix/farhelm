@@ -16,6 +16,7 @@ const emit = defineEmits<{ close: []; changed: [] }>();
 const host = ref<HTMLDivElement>();
 const state = ref("正在连接…");
 const connected = ref(false);
+const backend = ref<"agent" | "ssh" | undefined>(props.recording?.backend);
 const error = ref("");
 const records = ref<
   { seq: number; at: number; kind: string; data: Record<string, any> }[]
@@ -134,6 +135,7 @@ async function connect() {
   terminal.reset();
   error.value = "";
   state.value = "正在连接…";
+  backend.value = undefined;
   fit.fit();
   try {
     const created = await api.request<{ session_id: string; ticket: string }>(
@@ -177,6 +179,9 @@ async function connect() {
         if (message.type === "terminal.ready") {
           connected.value = true;
           state.value = "已连接";
+          backend.value = ["agent", "ssh"].includes(message.body.backend)
+            ? message.body.backend
+            : undefined;
           terminal.options.disableStdin = false;
           fit.fit();
           send("terminal.resize", {
@@ -326,8 +331,9 @@ onBeforeUnmount(() => {
         <div>
           <span class="terminal-lights" aria-hidden="true">● ● ●</span
           ><strong>{{ deviceName }}</strong
-          ><span class="terminal-state" :class="{ connected }">{{
-            state
+          ><span class="terminal-state" :class="{ connected }">{{ state }}</span
+          ><span v-if="backend" class="terminal-state">{{
+            backend === "ssh" ? "SSH 通道" : "Agent 通道"
           }}</span>
         </div>
         <div class="terminal-actions">

@@ -9,6 +9,11 @@ import { join, resolve } from "node:path";
 import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 
+const backupMode = process.env.FLEET_TEST_BACKUP_SSH === "1";
+const evidencePrefix = backupMode ? "agent-ssh-backup" : "dual-access";
+const deviceName = backupMode
+  ? "Linux with Agent backup"
+  : "Linux without Agent";
 const root = resolve(import.meta.dirname, "../..");
 const temp = mkdtempSync(join(tmpdir(), "farhelm-ssh-target-e2e-"));
 const out = join(root, ".test-output");
@@ -92,6 +97,12 @@ try {
   });
   await server.app.listen({ host: "127.0.0.1", port: 0 });
   const port = server.app.server.address().port;
+  if (backupMode)
+    server.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('existing-agent','existing-agent-key',?,?)",
+      )
+      .run(deviceName, Date.now());
   vite = spawn(
     process.execPath,
     [
@@ -145,12 +156,22 @@ try {
     assert.equal(r.status(), 200);
     return r.json();
   };
-  await page.getByRole("button", { name: "＋ 添加设备", exact: true }).click();
-  await page.getByRole("button", { name: "SSH 接入", exact: true }).click();
+  if (backupMode) {
+    await page
+      .locator("tbody tr")
+      .filter({ hasText: deviceName })
+      .getByRole("button", { name: "接入配置", exact: true })
+      .click();
+    await page.getByLabel("启用备用 SSH", { exact: true }).check();
+  } else {
+    await page
+      .getByRole("button", { name: "＋ 添加设备", exact: true })
+      .click();
+    await page.getByRole("button", { name: "SSH 接入", exact: true }).click();
+  }
   const config = page.getByRole("dialog");
-  await config
-    .getByLabel("设备名称", { exact: true })
-    .fill("Linux without Agent");
+  if (!backupMode)
+    await config.getByLabel("设备名称", { exact: true }).fill(deviceName);
   await config.getByLabel("SSH 地址", { exact: true }).fill("127.0.0.1");
   await config.getByLabel("SSH 端口", { exact: true }).fill(String(targetPort));
   await config.getByLabel("SSH 账号", { exact: true }).fill("terminal");
@@ -167,7 +188,12 @@ try {
   await config.getByLabel("已核对目标主机指纹", { exact: true }).check();
   await config.getByRole("button", { name: "保存配置", exact: true }).click();
   await config
-    .getByText("配置已保存，可测试连接或关闭面板进入终端。", { exact: true })
+    .getByText(
+      backupMode
+        ? "备用 SSH 已保存，连接时优先使用 Agent，不可用时尝试 SSH。"
+        : "配置已保存，可测试连接或关闭面板进入终端。",
+      { exact: true },
+    )
     .waitFor();
   assert.equal(await config.locator("textarea").inputValue(), "");
   await config
@@ -176,8 +202,13 @@ try {
   await config
     .getByText("连接成功：主机指纹及 SSH 密钥认证已通过。", { exact: true })
     .waitFor();
+  assert.ok(
+    await config
+      .getByRole("button", { name: "保存配置", exact: true })
+      .evaluate((el) => el.getBoundingClientRect().bottom <= innerHeight - 10),
+  );
   await page.screenshot({
-    path: join(out, "dual-access-config-desktop.png"),
+    path: join(out, `${evidencePrefix}-config-desktop.png`),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -191,8 +222,13 @@ try {
       );
     }),
   );
+  assert.ok(
+    await config
+      .getByRole("button", { name: "保存配置", exact: true })
+      .evaluate((el) => el.getBoundingClientRect().bottom <= innerHeight - 5),
+  );
   await page.screenshot({
-    path: join(out, "dual-access-config-mobile.png"),
+    path: join(out, `${evidencePrefix}-config-mobile.png`),
     fullPage: true,
   });
   await config.getByRole("button", { name: "完成", exact: true }).click();
@@ -203,21 +239,25 @@ try {
   ).devices;
   assert.equal(devices.length, 1);
   const device = devices[0];
-  assert.equal(device.connection_kind, "ssh");
+  assert.equal(device.connection_kind, backupMode ? "agent" : "ssh");
+  assert.equal(device.ssh_configured, true);
+  assert.equal(device.terminal_backend, "ssh");
+  if (backupMode) assert.equal(device.id, "existing-agent");
   assert.equal(device.control_online, false);
   assertValid(
     "device-connection-response",
     await api(`/devices/${device.id}/connection`),
   );
   steps.push(
-    "Browser: create SSH-only device, verify host key, save private key, test auth; desktop/mobile form",
+    backupMode
+      ? "Browser: configure backup SSH on existing Agent ID without adding a device, verify host key and authentication; desktop/mobile form"
+      : "Browser: create SSH-only device, verify host key, save private key, test auth; desktop/mobile form",
   );
-  const row = page
-    .locator("tbody tr")
-    .filter({ hasText: "Linux without Agent" });
+  const row = page.locator("tbody tr").filter({ hasText: deviceName });
   await row.getByRole("button", { name: "连接终端", exact: true }).click();
   const terminal = page.getByRole("dialog");
   await terminal.getByText("已连接", { exact: true }).waitFor();
+  await terminal.getByText("SSH 通道", { exact: true }).waitFor();
   await terminal.locator(".xterm-helper-textarea").focus();
   const text = async (value) =>
     page.waitForFunction(
@@ -251,12 +291,13 @@ try {
   await text("__UTF8_中文__");
   await terminal.getByText("会话已结束", { exact: true }).waitFor();
   await page.screenshot({
-    path: join(out, "dual-access-web-terminal.png"),
+    path: join(out, `${evidencePrefix}-web-terminal.png`),
     fullPage: true,
   });
   const sessions = (await api("/terminal-sessions")).sessions;
   const web = sessions.find((s) => s.transport === "web");
   assert.equal(web.backend, "ssh");
+  assert.equal(web.device_id, device.id);
   assert.equal(web.audit_complete, 1);
   const recording = await api(`/terminal-sessions/${web.id}/recording`);
   const recorded = recording.events
@@ -277,7 +318,7 @@ try {
     .click();
   await text("__UTF8_中文__");
   await page.screenshot({
-    path: join(out, "dual-access-replay.png"),
+    path: join(out, `${evidencePrefix}-replay.png`),
     fullPage: true,
   });
   steps.push("Browser replay displays saved SSH target output and duration");
@@ -334,7 +375,11 @@ try {
   cli.stderr.on("data", (chunk) => {
     stderr += chunk.toString();
   });
-  await until(() => output.includes("SSH · 按需连接"), "OpenSSH menu");
+  await until(
+    () =>
+      output.includes(backupMode ? "备用 SSH · 按需连接" : "SSH · 按需连接"),
+    "OpenSSH menu",
+  );
   cli.stdin.write("1\r");
   await until(() => output.includes("$ "), "OpenSSH target shell");
   cli.stdin.write(
@@ -347,6 +392,7 @@ try {
     (s) => s.transport === "ssh",
   );
   assert.equal(sshSession.backend, "ssh");
+  assert.equal(sshSession.device_id, device.id);
   assert.equal(sshSession.audit_complete, 1);
   const sshRecording = await api(
     `/terminal-sessions/${sshSession.id}/recording`,
@@ -368,7 +414,7 @@ try {
   assert.equal(errors.length, 0, JSON.stringify(errors));
   assertValid("audit-response", await api("/audit"));
   writeFileSync(
-    join(out, "dual-access-e2e.json"),
+    join(out, `${evidencePrefix}-e2e.json`),
     JSON.stringify({ ok: true, steps }, null, 2),
   );
   console.log(JSON.stringify({ ok: true, steps }, null, 2));

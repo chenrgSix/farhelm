@@ -130,17 +130,34 @@
             "minimum": 1
           }
         }
-      },
-      "else": {
+      }
+    },
+    {
+      "if": {
         "properties": {
           "ssh": {
             "type": "null"
-          },
+          }
+        }
+      },
+      "then": {
+        "properties": {
           "has_private_key": {
             "const": false
           },
           "has_passphrase": {
             "const": false
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "has_private_key": {
+            "const": true
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
           }
         }
       }

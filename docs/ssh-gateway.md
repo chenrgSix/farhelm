@@ -32,11 +32,11 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 
 ## 服务端配置
 
-| 环境变量 | 含义 |
-| --- | --- |
-| `FLEET_SSH_PORT` | 监听端口；不设置或 `0` 关闭；例如 `2222` |
-| `FLEET_SSH_HOST` | 绑定地址，默认同 `FLEET_HOST`，默认本机回环 |
-| `FLEET_SSH_PUBLIC_HOST` | 前端命令显示的域名/IP；默认当前网页主机名 |
+| 环境变量                | 含义                                                    |
+| ----------------------- | ------------------------------------------------------- |
+| `FLEET_SSH_PORT`        | 监听端口；不设置或 `0` 关闭；例如 `2222`                |
+| `FLEET_SSH_HOST`        | 绑定地址，默认同 `FLEET_HOST`，默认本机回环             |
+| `FLEET_SSH_PUBLIC_HOST` | 前端命令显示的域名/IP；默认当前网页主机名               |
 | `FLEET_SSH_PUBLIC_PORT` | 前端显示的外部端口；默认实际监听端口，用于 NAT/端口映射 |
 
 `npm run dev` 默认只在 `127.0.0.1:2222` 启用，设置 `FLEET_SSH_PORT=0` 可关闭。正式配置须重新启动服务端生效。公开入口需要 TCP 层直接转发/端口映射，普通 HTTPS 反向代理不能代理 SSH。修改绑定地址和防火墙后，其他用户连接平台地址，无须访问 Agent IP。
@@ -60,3 +60,5 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 `npm run test:terminal` 在隔离状态目录中启动真实 Rust Agent，同时回归网页协议和 SSH。通过系统 OpenSSH（固定 known_hosts 和仅测试用 askpass）验证实际 Linux Shell、工作目录、Ctrl-C、中文、隐藏密码、凭据续期、正常退出与录制；用 SSH 客户端库验证真实 PTY 窗口缩放。macOS 下可配置 `FLEET_AGENT_DOCKER_IMAGE=rust:bookworm` 和 `FLEET_AGENT_BIN` 使用已构建 Linux Agent。测试不访问已有设备凭据，也不改变现有设备配置。
 
 `npm run test:ssh:browser` 连接已运行的本地开发实例，凭据参数同终端浏览器测试，验证连接命令复制/指纹、手机布局、真实 SSH Shell、时长更新、网页结束 SSH 会话及回放。截图和结果保存在 `.test-output/ssh-*`。本地验证不等于 CI、外网部署或第三方 SSH 客户端全量兼容验收。
+
+同一 Agent 设备可配置备用 SSH，直连和菜单选择都在新会话创建时优先使用心跳有效、支持终端的 Agent，否则尝试备用 SSH。菜单显示「备用 SSH · 按需连接」；不增加第二个设备条目，现有会话保持原通道，权限和录制仍归属同一设备。配置方法见[双通道配置](device-connections.md)。

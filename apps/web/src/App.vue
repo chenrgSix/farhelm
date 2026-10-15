@@ -767,7 +767,9 @@ onBeforeUnmount(() => {
                                 {{
                                   device.connection_kind === "ssh"
                                     ? "SSH 接入"
-                                    : "Agent · " +
+                                    : (device.ssh_configured
+                                        ? "Agent + 备用 SSH · "
+                                        : "Agent · ") +
                                       (device.agent_version ?? "版本未知")
                                 }}</small
                               >
@@ -812,6 +814,19 @@ onBeforeUnmount(() => {
                             good="在线"
                             bad="离线"
                           />
+                          <small
+                            v-if="
+                              device.connection_kind === 'agent' &&
+                              device.ssh_configured
+                            "
+                            class="muted"
+                          >
+                            {{
+                              device.terminal_backend === "ssh"
+                                ? "终端将尝试备用 SSH"
+                                : "已配置备用 SSH"
+                            }}
+                          </small>
                         </td>
                         <td>
                           <HealthBadge

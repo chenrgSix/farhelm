@@ -89,6 +89,12 @@
         },
         "required": ["id", "name"]
       }
+    },
+    "ssh_configured": {
+      "type": "boolean"
+    },
+    "terminal_backend": {
+      "enum": ["agent", "ssh", null]
     }
   },
   "required": [

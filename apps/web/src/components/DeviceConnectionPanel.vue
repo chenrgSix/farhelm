@@ -5,6 +5,7 @@ import type { Device, DeviceConnection } from "../api/types";
 const props = defineProps<{ device?: Device }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const kind = props.device?.connection_kind ?? (props.device ? "agent" : "ssh");
+const sshEnabled = ref(kind === "ssh");
 const deviceId = ref(props.device?.id ?? "");
 const name = ref(props.device?.name ?? "");
 const host = ref("");
@@ -32,7 +33,10 @@ const ssh = computed(() => ({
 }));
 const dirty = computed(
   () =>
-    JSON.stringify(ssh.value) !== saved.value ||
+    sshEnabled.value !== !!state.value?.ssh ||
+    (sshEnabled.value && JSON.stringify(ssh.value) !== saved.value) ||
+    !!sudoPassword.value ||
+    clearSudo.value ||
     !!privateKey.value ||
     !!passphrase.value ||
     clearPassphrase.value,
@@ -63,6 +67,7 @@ function report(e: unknown) {
 function apply(result: DeviceConnection) {
   state.value = result;
   deviceId.value = result.device_id;
+  sshEnabled.value = kind === "ssh" || !!result.ssh;
   if (result.ssh) {
     host.value = result.ssh.host;
     port.value = result.ssh.port;
@@ -110,7 +115,7 @@ async function scan() {
 }
 async function save() {
   if (busy.value || !loaded.value) return;
-  if (kind === "ssh" && !confirmed.value) {
+  if (sshEnabled.value && !confirmed.value) {
     error.value = "请先核对并确认目标主机指纹。";
     return;
   }
@@ -121,12 +126,13 @@ async function save() {
   const body: Record<string, unknown> = { v: 1 };
   if (creating) body.name = name.value.trim();
   else body.revision = state.value?.revision ?? 0;
-  if (kind === "ssh") {
+  if (sshEnabled.value) {
     body.ssh = ssh.value;
     if (privateKey.value) body.private_key = privateKey.value;
     if (passphrase.value) body.passphrase = passphrase.value;
     else if (clearPassphrase.value) body.passphrase = null;
-  } else {
+  } else if (state.value?.ssh) body.ssh = null;
+  if (kind === "agent") {
     if (clearSudo.value) body.sudo_password = null;
     else if (sudoPassword.value) body.sudo_password = sudoPassword.value;
   }
@@ -140,7 +146,9 @@ async function save() {
     message.value =
       kind === "ssh"
         ? "配置已保存，可测试连接或关闭面板进入终端。"
-        : "配置已保存。sudo 密码仅加密保管，不会自动填入终端。";
+        : sshEnabled.value
+          ? "备用 SSH 已保存，连接时优先使用 Agent，不可用时尝试 SSH。"
+          : "配置已保存。sudo 密码仅加密保管，不会自动填入终端。";
     emit("changed");
   } catch (e) {
     if (!disposed) report(e);
@@ -149,7 +157,8 @@ async function save() {
   }
 }
 async function testConnection() {
-  if (busy.value || dirty.value || !state.value) return;
+  if (busy.value || dirty.value || !state.value?.ssh || !sshEnabled.value)
+    return;
   busy.value = true;
   error.value = "";
   message.value = "";
@@ -211,7 +220,23 @@ async function testConnection() {
         <p v-if="!loaded">正在读取配置…</p>
         <template v-else>
           <fieldset :disabled="busy">
-            <template v-if="kind === 'ssh'">
+            <template v-if="kind === 'agent'">
+              <label class="connection-check"
+                ><input
+                  v-model="sshEnabled"
+                  type="checkbox"
+                  aria-label="启用备用 SSH"
+                />启用备用 SSH</label
+              >
+              <p class="field-hint">
+                同一设备优先通过 Agent 连接；Agent
+                离线、心跳失效或不支持终端时，尝试备用 SSH。现有会话不切换通道。
+              </p>
+              <p v-if="!sshEnabled && state?.ssh" class="field-hint">
+                保存后将移除备用 SSH 配置和私钥，保留 Agent 与 sudo 密码配置。
+              </p>
+            </template>
+            <template v-if="sshEnabled">
               <label v-if="!props.device"
                 >设备名称<input
                   v-model="name"
@@ -311,7 +336,7 @@ async function testConnection() {
                 私钥和口令加密保存，保存后不再返回浏览器。有设备终端权限的用户可通过平台连接，无需获知私钥。
               </p>
             </template>
-            <template v-else>
+            <template v-if="kind === 'agent'">
               <label
                 >sudo 密码（可选{{
                   state?.has_sudo_password ? "，已保存" : ""
@@ -324,8 +349,11 @@ async function testConnection() {
                   placeholder="目标 Linux 账号的 sudo 密码；留空保持不变"
               /></label>
               <label v-if="state?.has_sudo_password" class="connection-check"
-                ><input v-model="clearSudo" type="checkbox" />清除已保存的 sudo
-                密码</label
+                ><input
+                  v-model="clearSudo"
+                  type="checkbox"
+                  aria-label="清除已保存的 sudo 密码"
+                />清除已保存的 sudo 密码</label
               >
               <p class="field-hint">
                 仅管理员可设置或替换，保存后不可查看。目前仅加密保管；后续再配置使用及查看权限，不会自动执行
@@ -337,15 +365,15 @@ async function testConnection() {
             <button
               type="submit"
               class="button primary"
-              :disabled="busy || (kind === 'ssh' && !confirmed)"
+              :disabled="busy || (sshEnabled && !confirmed)"
             >
               {{ busy ? "处理中…" : "保存配置" }}
             </button>
             <button
-              v-if="kind === 'ssh' && deviceId"
+              v-if="sshEnabled && deviceId"
               type="button"
               class="button secondary"
-              :disabled="busy || dirty"
+              :disabled="busy || dirty || !state?.ssh"
               @click="testConnection"
             >
               测试已保存连接
@@ -448,7 +476,7 @@ textarea {
   flex-wrap: wrap;
   gap: 10px;
   position: sticky;
-  bottom: -24px;
+  bottom: 0;
   background: white;
   padding: 12px 0;
   border-top: 1px solid #e4ebef;
@@ -476,9 +504,6 @@ p {
   .connection-address {
     grid-template-columns: 1fr 95px;
     gap: 10px;
-  }
-  .connection-actions {
-    bottom: -16px;
   }
 }
 </style>

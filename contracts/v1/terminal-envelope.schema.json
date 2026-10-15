@@ -99,7 +99,11 @@
         "body": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {},
+          "properties": {
+            "backend": {
+              "enum": ["agent", "ssh"]
+            }
+          },
           "required": []
         }
       },
