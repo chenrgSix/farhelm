@@ -8,7 +8,8 @@ RUN apt-get update \
 RUN test "$FLEET_UID" -ne 0 \
     && (getent group "$FLEET_GID" >/dev/null || groupadd --gid "$FLEET_GID" fleet) \
     && useradd --uid "$FLEET_UID" --gid "$FLEET_GID" --create-home --shell /bin/bash fleet
-RUN printf 'fleet ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/fleet-local-dev \
+# The Agent already supplies a PTY; avoid sudo creating a second terminal session.
+RUN printf 'Defaults:fleet !use_pty\nfleet ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/fleet-local-dev \
     && chmod 0440 /etc/sudoers.d/fleet-local-dev \
     && visudo --check --file /etc/sudoers.d/fleet-local-dev
 

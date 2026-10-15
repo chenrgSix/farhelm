@@ -10,7 +10,9 @@ Bash 提示符显示真实用户名、主机名和当前目录，例如 `fleet@l
 
 本地容器使用 `deploy/dev/Dockerfile.agent` 中的普通用户 `fleet`，UID/GID 与启动者一致；HOME 和初始工作目录为 `/home/fleet`。该目录绑定到项目 `.dev/agent-home/`，可以直接 `touch t.txt`、编辑文件和创建目录，重建容器后文件保留。设备身份与 journal 仍保存在独立的 `.dev/agent/`。系统目录按正常 Linux 账号权限管理。
 
-本地开发镜像安装 sudo，并为 `fleet` 配置免密 sudo。开发启动脚本显式设置 `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=1`，允许终端中的 `sudo -i` 进入容器内 root；Agent 自身仍以 `fleet` 运行，容器未启用 privileged，并通过 Docker `--init` 回收退出后的孤儿进程。`exit` 返回 fleet。容器内安装的软件及 `/root` 文件不在持久化 home 目录中，重建容器后不会保留。
+本地开发镜像安装 sudo，并为 `fleet` 配置免密 sudo。开发启动脚本显式设置 `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=1`，允许终端中的 `sudo -i` 进入容器内 root；Agent 自身仍以 `fleet` 运行，容器未启用 privileged，并配置 Docker `--init` 作为 PID 1。`exit` 返回 fleet。容器内安装的软件及 `/root` 文件不在持久化 home 目录中，重建容器后不会保留。
+
+本地 sudo 使用 Agent 已提供的 PTY（`Defaults:fleet !use_pty`），避免嵌套终端和额外的 sudo 监控会话。
 
 其他环境默认 `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=0`，PTY 设置 `no_new_privs`，禁止通过 setuid/文件 capabilities 提权。显式配置为 1 后，终端可以使用系统已授予的 sudo 权限；Agent 不自动为真实主机安装 sudo 或配置 sudoers。该选项只影响交互终端，命令任务仍强制 `no_new_privs`。若父进程已设置 `no_new_privs`，不能通过该选项解除，启动会明确报错。
 
