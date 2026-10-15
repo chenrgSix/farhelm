@@ -1,0 +1,17 @@
+{
+  "task_id": "00000000-0000-4000-8000-000000000001",
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "actor_id": "00000000-0000-4000-8000-000000000003",
+  "action": "exec",
+  "argv": [
+    "/usr/bin/printf",
+    "fleet: %s\\n",
+    "你好, fleet 👋"
+  ],
+  "cwd": "/tmp",
+  "created_at": 1735689600000,
+  "expires_at": 1735689660000.5,
+  "timeout_ms": 5000,
+  "max_output_bytes": 65536,
+  "payload_hash": "eca4fda56f783d84468340f144040d5d8438021d67f83fda25413338da5277e4"
+}

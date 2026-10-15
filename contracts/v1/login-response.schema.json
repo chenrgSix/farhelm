@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/login-response.schema.json",
+  "title": "Fleet v1 login-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "access_token": {
+      "$ref": "common.schema.json#/$defs/token"
+    },
+    "user": {
+      "$ref": "user.schema.json"
+    }
+  },
+  "required": [
+    "access_token",
+    "user"
+  ]
+}

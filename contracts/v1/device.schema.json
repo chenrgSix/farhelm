@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/device.schema.json",
+  "title": "Fleet v1 device",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "name": {
+      "$ref": "common.schema.json#/$defs/name"
+    },
+    "control_online": {
+      "type": "boolean"
+    },
+    "private_data_reachable": {
+      "type": "null"
+    },
+    "business_healthy": {
+      "type": "null"
+    },
+    "last_seen": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revoked_at": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "agent_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "control_online",
+    "private_data_reachable",
+    "business_healthy",
+    "last_seen",
+    "revoked_at",
+    "agent_version"
+  ],
+  "description": "Unmeasured private-data and business-health states are explicitly null in this milestone."
+}

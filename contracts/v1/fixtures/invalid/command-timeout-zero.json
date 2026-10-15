@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "argv": [
+    "/usr/bin/printf",
+    "fleet: %s\\n",
+    "你好, fleet 👋"
+  ],
+  "cwd": "/tmp",
+  "timeout_ms": 0,
+  "max_output_bytes": 65536,
+  "ttl_seconds": 60
+}

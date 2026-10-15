@@ -1,0 +1,39 @@
+# Linux Fleet Web 控制台
+
+Vue 3 + TypeScript + Vite。面板只从真实 `/api/v1` 读取数据；没有离线演示数据、默认账号、URL token 或本地持久化会话。
+
+## 构建与测试
+
+Node.js 24+。在本目录运行 `npm ci`、`npm test`、`npm run typecheck`、`npm run build`。
+构建输出为 `dist/`，应通过服务端同源 HTTPS 静态服务或可信反向代理提供。服务端可设置 `FLEET_WEB_DIST=/absolute/path/apps/web/dist`（配置字段 `webDist`）。
+
+开发时，可使用仅绑定回环的 Vite 代理：
+
+```sh
+NODE_EXTRA_CA_CERTS=/absolute/path/dev-ca.pem \
+FLEET_DEV_API_TARGET=https://localhost:8443 npm run dev
+```
+
+浏览器访问终端显示的 `http://127.0.0.1:5173`。仅本机开发允许 HTTP；远程控制台登录必须使用 HTTPS。Vite 到 API 的 TLS 始终校验，禁止 `secure:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0`。未配置 API 代理时 API 缺失会显示明确错误，不会伪造数据。
+
+## 已实现
+
+- 显式登录；Bearer session 只存当前页内存，刷新/退出后清除；服务端仍负责所有授权
+- 角色与设备范围控制：管理员注册/撤销，admin/ops 授权 Exec，business/auditor 不提供任意 Exec
+- 控制在线、私网数据可达、业务健康独立呈现，未采集为未知，刷新失败不冒充在线
+- 单次命令明确 argv JSON、cwd、执行超时、排队 TTL、合并输出硬上限，不自动拼接 Shell
+- 提交中与成功后锁定重复点击；响应丢失后保留精确请求与原 Idempotency-Key，重试使用同一键；新任务须明确重新开始
+- 真实任务、操作人、状态、取消请求、UNKNOWN、清理不确定和审计完整性；取消请求不等于执行已停止
+- stdout/stderr 独立有界读取，校验大小与 SHA-256，最多预览 64 KiB。使用 Vue 文本节点，无 v-html/ANSI 解释，控制字符可见转义
+- 审计筛选、明细与任务关联；输出读取仍由服务端记录查看审计
+- 中文响应式页面，无 CDN、字体请求或运行时设计依赖
+
+## 当前边界
+
+- 单账号执行，命令与 Agent 共享主机权限；平台记录不代表端点强隔离
+- 刷新/关闭页面会失去内存中的会话与幂等键；提交结果未确认时会提示保留页面，重新登录应先核对任务历史
+- 读取输出是纯文本预览；二进制字节/非法 UTF-8 会被替代显示，中央原始对象不变
+- 页面展示服务端当前返回的列表；尚无服务端分页、批量、PTY、私网健康采集、业务模板或任务自动重试
+- 10 秒轮询，后台标签页暂停刷新；取消与输出读取不自动重试
+
+Unit tests use isolated mocked API responses only; runtime never falls back to those test fixtures.

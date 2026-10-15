@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/challenge-response.schema.json",
+  "title": "Fleet v1 challenge-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "challenge_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "signing_payload": {
+      "$ref": "common.schema.json#/$defs/base64"
+    },
+    "expires_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "v",
+    "challenge_id",
+    "signing_payload",
+    "expires_at"
+  ]
+}

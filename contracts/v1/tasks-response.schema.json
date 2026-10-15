@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/tasks-response.schema.json",
+  "title": "Fleet v1 tasks-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "task-detail.schema.json"
+      }
+    }
+  },
+  "required": [
+    "v",
+    "tasks"
+  ]
+}

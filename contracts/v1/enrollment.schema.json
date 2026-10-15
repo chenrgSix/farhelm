@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/enrollment.schema.json",
+  "title": "Fleet v1 enrollment",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "challenge_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "signature": {
+      "$ref": "common.schema.json#/$defs/signature"
+    },
+    "name": {
+      "$ref": "common.schema.json#/$defs/name"
+    }
+  },
+  "required": [
+    "v",
+    "challenge_id",
+    "signature",
+    "name"
+  ]
+}

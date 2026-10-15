@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','ops','business','auditor')), device_scope TEXT NOT NULL, created_at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS user_sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, public_key TEXT NOT NULL UNIQUE, name TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER, revoked_at INTEGER, agent_version TEXT) STRICT;
+CREATE TABLE IF NOT EXISTS enrollment_tokens (token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, created_by TEXT NOT NULL REFERENCES users(id), name TEXT, redeemed_device_id TEXT REFERENCES devices(id)) STRICT;
+CREATE TABLE IF NOT EXISTS challenges (id TEXT PRIMARY KEY, purpose TEXT NOT NULL, public_key TEXT NOT NULL, device_id TEXT, enrollment_hash TEXT, signing_payload TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0) STRICT;
+CREATE TABLE IF NOT EXISTS device_tokens (token_hash TEXT PRIMARY KEY, device_id TEXT NOT NULL REFERENCES devices(id), scope TEXT NOT NULL CHECK(scope='agent-control-output'), expires_at INTEGER NOT NULL) STRICT;
+CREATE INDEX IF NOT EXISTS device_tokens_device ON device_tokens(device_id);
+CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, device_id TEXT NOT NULL REFERENCES devices(id), actor_id TEXT NOT NULL REFERENCES users(id), task_json TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL, last_seq INTEGER NOT NULL DEFAULT 0, result_json TEXT, cancel_requested INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL) STRICT;
+CREATE INDEX IF NOT EXISTS tasks_device_state ON tasks(device_id,status);
+CREATE TABLE IF NOT EXISTS idempotency (actor_id TEXT NOT NULL REFERENCES users(id), key TEXT NOT NULL, request_hash TEXT NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), PRIMARY KEY(actor_id,key)) STRICT;
+CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, device_id TEXT NOT NULL REFERENCES devices(id), task_id TEXT NOT NULL REFERENCES tasks(id), seq INTEGER NOT NULL, kind TEXT NOT NULL, event_json TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(task_id,seq)) STRICT;
+CREATE TABLE IF NOT EXISTS artifacts (task_id TEXT NOT NULL REFERENCES tasks(id), sha256 TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0), relative_path TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(task_id,sha256)) STRICT;
+CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, actor_id TEXT, device_id TEXT, task_id TEXT, action TEXT NOT NULL, detail_json TEXT NOT NULL) STRICT;
+CREATE INDEX IF NOT EXISTS audit_device ON audit(device_id,id);

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/user.schema.json",
+  "title": "Fleet v1 user",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "role": {
+      "enum": [
+        "admin",
+        "ops",
+        "business",
+        "auditor"
+      ]
+    },
+    "device_scope": {
+      "anyOf": [
+        {
+          "const": "*"
+        },
+        {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "username",
+    "role",
+    "device_scope"
+  ]
+}

@@ -1,0 +1,3 @@
+Status: BLOCKED / NOT VERIFIED
+The installed Chromium could not start because the cloud command sandbox denied a required Unix-domain socket. A permitted alternate launch also failed during environment initialization. No TLS checks were disabled and no security settings were changed. The browser-smoke.ts script remains available for a normal Linux environment, but no rendered screenshot or real-browser success is claimed.
+Vue typecheck/build and 30 API/model/component tests passed. The development startup smoke separately verified the real Rust WSS client, trusted HTTPS service, Vue loopback HTTP entry and authenticated proxy.

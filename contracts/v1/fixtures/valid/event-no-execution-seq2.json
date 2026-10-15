@@ -1,0 +1,18 @@
+{
+  "event_id": "00000000-0000-4000-8000-000000000008",
+  "task_id": "00000000-0000-4000-8000-000000000001",
+  "seq": 2,
+  "kind": "finished",
+  "at": 1735689600110,
+  "payload": {
+    "status": "EXPIRED",
+    "exit_code": null,
+    "reason": "TTL_EXPIRED",
+    "audit_complete": true,
+    "stdout": {},
+    "stderr": null,
+    "started_at": null,
+    "finished_at": 1735689600110,
+    "cleanup": "not_started"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/health-response.schema.json",
+  "title": "Fleet v1 health-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "ok": {
+      "const": true
+    },
+    "server_instance": {
+      "$ref": "common.schema.json#/$defs/id"
+    }
+  },
+  "required": [
+    "v",
+    "ok",
+    "server_instance"
+  ],
+  "description": "Implementation extension: readiness response from GET /healthz."
+}

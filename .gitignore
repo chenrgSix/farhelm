@@ -1,0 +1,13 @@
+node_modules/
+target/
+dist/
+.dev/
+.test-output/
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+*.crt
+.env
+.idea/

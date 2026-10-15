@@ -1,0 +1,632 @@
+[
+  {
+    "path": "valid/challenge-enroll.json",
+    "schema": "challenge-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/challenge-response-enroll.json",
+    "schema": "challenge-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/challenge-auth.json",
+    "schema": "challenge-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/challenge-response-auth.json",
+    "schema": "challenge-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/challenge-auth-key-recovery.json",
+    "schema": "challenge-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/enrollment.json",
+    "schema": "enrollment.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/enrollment-response.json",
+    "schema": "enrollment-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/auth.json",
+    "schema": "auth.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/auth-response.json",
+    "schema": "auth-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/task.json",
+    "schema": "task.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/result-succeeded.json",
+    "schema": "result.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/result-unknown.json",
+    "schema": "result.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/result-no-execution.json",
+    "schema": "result.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/event-accepted.json",
+    "schema": "event.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/event-started.json",
+    "schema": "event.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/event-finished.json",
+    "schema": "event.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/event-no-execution-seq2.json",
+    "schema": "event.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/envelope-agent.hello.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/envelope-agent.heartbeat.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/envelope-task.assign.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/envelope-task.cancel.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/envelope-task.event.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/envelope-event.ack.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/envelope-error.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/command.json",
+    "schema": "commands.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/command-zero-output.json",
+    "schema": "commands.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/command-response.json",
+    "schema": "command-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/enrollment-token-minimal.json",
+    "schema": "enrollment-token-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/enrollment-token-request.json",
+    "schema": "enrollment-token-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/enrollment-token-response.json",
+    "schema": "enrollment-token-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/user.json",
+    "schema": "user.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/user-scoped.json",
+    "schema": "user.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/login.json",
+    "schema": "login.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/login-response.json",
+    "schema": "login-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/me-response.json",
+    "schema": "me-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device.json",
+    "schema": "device.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/devices-response.json",
+    "schema": "devices-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/task-detail.json",
+    "schema": "task-detail.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/task-response.json",
+    "schema": "task-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/tasks-response.json",
+    "schema": "tasks-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/cancel-request.json",
+    "schema": "cancel-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/cancel-response.json",
+    "schema": "cancel-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/revoke-request.json",
+    "schema": "revoke-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/revoke-response.json",
+    "schema": "revoke-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/artifact-response.json",
+    "schema": "artifact-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/task-extra-field.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "Arbitrary execution identity is forbidden"
+  },
+  {
+    "path": "invalid/task-missing-field.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "Server actor binding is required"
+  },
+  {
+    "path": "invalid/task-empty-argv.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "No executable"
+  },
+  {
+    "path": "invalid/task-null-byte-argv.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "NUL cannot be an OS argument"
+  },
+  {
+    "path": "invalid/task-relative-cwd.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "Working directory must be absolute"
+  },
+  {
+    "path": "invalid/task-unsafe-number.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "JSON number precision must be shared across Rust/JS"
+  },
+  {
+    "path": "invalid/task-fractional-time.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "Integer milliseconds only"
+  },
+  {
+    "path": "invalid/task-negative-limit.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "No negative limits"
+  },
+  {
+    "path": "invalid/task-too-large-output.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "One MiB task limit"
+  },
+  {
+    "path": "invalid/task-uppercase-hash.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "Lowercase SHA256 only"
+  },
+  {
+    "path": "invalid/task-action-shortcut.json",
+    "schema": "task.schema.json",
+    "valid": false,
+    "reason": "Only exec action"
+  },
+  {
+    "path": "invalid/envelope-unknown-version.json",
+    "schema": "envelope.schema.json",
+    "valid": false,
+    "reason": "Unknown version rejected"
+  },
+  {
+    "path": "invalid/envelope-unknown-type.json",
+    "schema": "envelope.schema.json",
+    "valid": false,
+    "reason": "No second execution path"
+  },
+  {
+    "path": "invalid/envelope-extra-token.json",
+    "schema": "envelope.schema.json",
+    "valid": false,
+    "reason": "Authentication belongs in headers"
+  },
+  {
+    "path": "invalid/envelope-task-field.json",
+    "schema": "envelope.schema.json",
+    "valid": false,
+    "reason": "Nested exact task validation"
+  },
+  {
+    "path": "invalid/command-spoof-actor.json",
+    "schema": "commands.schema.json",
+    "valid": false,
+    "reason": "Server derives actor"
+  },
+  {
+    "path": "invalid/command-missing-version.json",
+    "schema": "commands.schema.json",
+    "valid": false,
+    "reason": "HTTP mutations are explicitly versioned"
+  },
+  {
+    "path": "invalid/command-invalid-version.json",
+    "schema": "commands.schema.json",
+    "valid": false,
+    "reason": "Version has integer type"
+  },
+  {
+    "path": "invalid/command-timeout-zero.json",
+    "schema": "commands.schema.json",
+    "valid": false,
+    "reason": "Timeout must be 100ms or greater"
+  },
+  {
+    "path": "invalid/command-unknown-option.json",
+    "schema": "commands.schema.json",
+    "valid": false,
+    "reason": "No arbitrary options"
+  },
+  {
+    "path": "invalid/challenge-enroll-missing-token.json",
+    "schema": "challenge-request.schema.json",
+    "valid": false,
+    "reason": "Enrollment requires token"
+  },
+  {
+    "path": "invalid/challenge-auth-token.json",
+    "schema": "challenge-request.schema.json",
+    "valid": false,
+    "reason": "Cannot cross-bind purpose fields"
+  },
+  {
+    "path": "invalid/challenge-enroll-device.json",
+    "schema": "challenge-request.schema.json",
+    "valid": false,
+    "reason": "Enrollment has no preassigned device"
+  },
+  {
+    "path": "invalid/challenge-malformed-key.json",
+    "schema": "challenge-request.schema.json",
+    "valid": false,
+    "reason": "Raw 32-byte Ed25519 key required"
+  },
+  {
+    "path": "invalid/challenge-noncanonical-key.json",
+    "schema": "challenge-request.schema.json",
+    "valid": false,
+    "reason": "Unused base64 pad bits must be zero"
+  },
+  {
+    "path": "invalid/auth-short-signature.json",
+    "schema": "auth.schema.json",
+    "valid": false,
+    "reason": "64-byte Ed25519 signature required"
+  },
+  {
+    "path": "invalid/event-zero-sequence.json",
+    "schema": "event.schema.json",
+    "valid": false,
+    "reason": "Sequence starts at one"
+  },
+  {
+    "path": "invalid/event-invalid-uuid.json",
+    "schema": "event.schema.json",
+    "valid": false,
+    "reason": "event_id is a UUID"
+  },
+  {
+    "path": "invalid/event-accepted-payload.json",
+    "schema": "event.schema.json",
+    "valid": false,
+    "reason": "Accepted payload is exactly empty"
+  },
+  {
+    "path": "invalid/event-started-payload.json",
+    "schema": "event.schema.json",
+    "valid": false,
+    "reason": "Started payload is exactly empty"
+  },
+  {
+    "path": "invalid/event-extra-field.json",
+    "schema": "event.schema.json",
+    "valid": false,
+    "reason": "Device comes from authenticated connection"
+  },
+  {
+    "path": "invalid/result-missing-artifacts.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "Executed success requires output evidence"
+  },
+  {
+    "path": "invalid/result-unknown-complete-missing.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "Missing crash artifacts cannot claim complete audit"
+  },
+  {
+    "path": "invalid/result-empty-artifact-after-start.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "Empty object is for non-execution only"
+  },
+  {
+    "path": "invalid/result-artifact-extra.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "Only owner-bound hash/size references"
+  },
+  {
+    "path": "invalid/result-not-started-timestamp.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "No-execution result cannot have started_at"
+  },
+  {
+    "path": "invalid/result-extra-property.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "No silent truncation shorthand"
+  },
+  {
+    "path": "invalid/login-versioned.json",
+    "schema": "login.schema.json",
+    "valid": false,
+    "reason": "Login exception stays unversioned"
+  },
+  {
+    "path": "invalid/device-false-health.json",
+    "schema": "device.schema.json",
+    "valid": false,
+    "reason": "Unmeasured status must remain unknown"
+  },
+  {
+    "path": "invalid/user-unknown-role.json",
+    "schema": "user.schema.json",
+    "valid": false,
+    "reason": "No undocumented role"
+  },
+  {
+    "path": "invalid/user-duplicate-scope.json",
+    "schema": "user.schema.json",
+    "valid": false,
+    "reason": "Unique scope IDs"
+  },
+  {
+    "path": "invalid/cancel-request-extra.json",
+    "schema": "cancel-request.schema.json",
+    "valid": false,
+    "reason": "No force option"
+  },
+  {
+    "path": "invalid/artifact-response-too-large.json",
+    "schema": "artifact-response.schema.json",
+    "valid": false,
+    "reason": "Object upload hard limit"
+  },
+  {
+    "path": "valid/command-bare-executable.json",
+    "schema": "commands.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/result-unknown-captured.json",
+    "schema": "result.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/result-no-execution-null.json",
+    "schema": "result.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/result-no-execution-empty.json",
+    "schema": "result.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/error-response.json",
+    "schema": "error-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/health-response.json",
+    "schema": "health-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/command-relative-executable.json",
+    "schema": "commands.schema.json",
+    "valid": false,
+    "reason": "Only absolute program path or a bare name"
+  },
+  {
+    "path": "invalid/result-unknown-complete-captured.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "UNKNOWN never claims complete audit"
+  },
+  {
+    "path": "invalid/result-no-execution-success.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "Success requires actual execution"
+  },
+  {
+    "path": "invalid/result-expired-after-start.json",
+    "schema": "result.schema.json",
+    "valid": false,
+    "reason": "Expiry is a pre-execution terminal state"
+  },
+  {
+    "path": "valid/audit-user.bootstrap.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-user.login.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-user.login_failed.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-enrollment.created.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-device.enrolled.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-device.revoked.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-task.created.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-task.cancel_requested.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-output.viewed.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-authorization.denied.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-task.accepted.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-task.started.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-task.finished.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-response.json",
+    "schema": "audit-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-null-identities.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/audit-unregistered-action.json",
+    "schema": "audit.schema.json",
+    "valid": false,
+    "reason": "Audit action variants are explicit"
+  },
+  {
+    "path": "invalid/audit-wrong-detail-shape.json",
+    "schema": "audit.schema.json",
+    "valid": false,
+    "reason": "Detail must match its action"
+  },
+  {
+    "path": "invalid/audit-nested-extra-field.json",
+    "schema": "audit.schema.json",
+    "valid": false,
+    "reason": "Audit payloads also reject undeclared fields"
+  }
+]

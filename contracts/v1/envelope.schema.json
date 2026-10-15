@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/envelope.schema.json",
+  "title": "Fleet v1 envelope",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.hello"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agent_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "agent_version"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.heartbeat"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agent_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "agent_version"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "task.assign"
+        },
+        "body": {
+          "$ref": "task.schema.json"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "task.cancel"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "task_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            }
+          },
+          "required": [
+            "task_id"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "task.event"
+        },
+        "body": {
+          "$ref": "event.schema.json"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "event.ack"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "event_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "task_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "seq": {
+              "$ref": "common.schema.json#/$defs/sequence"
+            }
+          },
+          "required": [
+            "event_id",
+            "task_id",
+            "seq"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "error"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "code"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    }
+  ],
+  "description": "Only enumerated v1 WSS frames are accepted. Enforce the 65536-byte UTF-8 limit before parsing. Tokens never appear in WSS JSON or query parameters."
+}

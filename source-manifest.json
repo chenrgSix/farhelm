@@ -1,0 +1,1212 @@
+{
+  "version": "0.1.0",
+  "algorithm": "SHA-256",
+  "note": "Source-only index. This manifest does not hash itself. Static RFC/test fixtures are public test data, not deployment credentials.",
+  "files": [
+    {
+      "path": ".gitignore",
+      "size": 94,
+      "sha256": "5c92a0f1df4786f915b6ac70008ce8670aad29c8aefd5eef9b30be2048d68306"
+    },
+    {
+      "path": "PROTOCOL.md",
+      "size": 5866,
+      "sha256": "77dd76acc8632cb01ab03ea7dae2c2ccaf09e0a027304b66cd65c82668dc27d8"
+    },
+    {
+      "path": "README.md",
+      "size": 6764,
+      "sha256": "1158dbc4cd4dcd5d265bbbc4a432b34eebacbf78579bee63899f6f6b71bd1041"
+    },
+    {
+      "path": "agent/Cargo.lock",
+      "size": 49084,
+      "sha256": "5bd4b818e7799f5f90b7e56c3c1fc74a0866eaf7bac94859cf12458df5b98235"
+    },
+    {
+      "path": "agent/Cargo.toml",
+      "size": 964,
+      "sha256": "a4b4e6c3ee503a1231211dbfd3b8c3ce99be9b2703f91ea49efeb5d71c23ada0"
+    },
+    {
+      "path": "agent/README.md",
+      "size": 6558,
+      "sha256": "93e54272db77b7ac4d449b73c2ba1087501f9c465b8202fac2699d351425b8e9"
+    },
+    {
+      "path": "agent/src/config.rs",
+      "size": 7988,
+      "sha256": "25d8e931d8bae8c8e2400685249e16bae261c47920ceb90bd92abcf6f8dacb5c"
+    },
+    {
+      "path": "agent/src/connection.rs",
+      "size": 8079,
+      "sha256": "2d066fbcaf7b17733b72a291d86f4c2be5fb54fd31a9a50c5ea359f671af4513"
+    },
+    {
+      "path": "agent/src/executor.rs",
+      "size": 26262,
+      "sha256": "1e5f59fff8794adfec36fcd1d98524287af53fdd48eab7ac8d29c6c1c1401759"
+    },
+    {
+      "path": "agent/src/identity.rs",
+      "size": 10558,
+      "sha256": "00799f7c16446c902fb1a93f4c8e49f16192213f337e3f404bb06fe7010347a6"
+    },
+    {
+      "path": "agent/src/journal.rs",
+      "size": 11250,
+      "sha256": "3bdfb1bfc2dd407b8b13af8fa925dd0858c44f004d38d2ea7d5ab611f64d3802"
+    },
+    {
+      "path": "agent/src/lib.rs",
+      "size": 324,
+      "sha256": "6d1dee0aea249c403916e5a50d94049771af70ab4112826d545189d5115ac305"
+    },
+    {
+      "path": "agent/src/main.rs",
+      "size": 1114,
+      "sha256": "cc6732cb1cc86b4a3ae9bc6412d606c48c4300f8f9eeb95547e1cd5232cdb64f"
+    },
+    {
+      "path": "agent/src/protocol.rs",
+      "size": 5191,
+      "sha256": "cd758b2eb87a234d1f00ddbfdc7b4def5c6cbf2a179b12564d1e7a0996a8ace1"
+    },
+    {
+      "path": "agent/tests/contracts.rs",
+      "size": 1528,
+      "sha256": "d413861768e2c798b38ef4bbbac3e471f11c59d443ea2cb34c1978198adcddf3"
+    },
+    {
+      "path": "apps/server/README.md",
+      "size": 6911,
+      "sha256": "5cd36a09da7d440177dfa6aacb72c8d503dc5c9d21c38f54b6bbf636256a0537"
+    },
+    {
+      "path": "apps/server/migrations/001_initial.sql",
+      "size": 2923,
+      "sha256": "c7fb1aab79a7b906300bee9dcebc8cb00dd6d10200fff4b59f3b10126c6e2b48"
+    },
+    {
+      "path": "apps/server/package-lock.json",
+      "size": 45453,
+      "sha256": "7caeb5f09ec08432d3d2b9702b010e1b2594042e9a9f0b2b52ba4af3a5c3761b"
+    },
+    {
+      "path": "apps/server/package.json",
+      "size": 606,
+      "sha256": "a5baecc75db9d04b5d31f5589485ddf3b70fa50307feba758c26c7369c6db58a"
+    },
+    {
+      "path": "apps/server/src/index.ts",
+      "size": 1235,
+      "sha256": "8342763072cd35e1d6f30d08a7b3a47769b6f74c12201980150f37c7f46c046e"
+    },
+    {
+      "path": "apps/server/src/server.ts",
+      "size": 42063,
+      "sha256": "cd5cbbda64354faadbe5299763a70860729a6e51bc152171c5755bbd95cffd38"
+    },
+    {
+      "path": "apps/server/src/store.ts",
+      "size": 3807,
+      "sha256": "bac8ba3e17d73827dfac86a4cd95431ca7b62fa307773419263a5b478fdb57f6"
+    },
+    {
+      "path": "apps/server/src/types.ts",
+      "size": 1057,
+      "sha256": "73fae790f83cc559db8c4eb55bb3d1378f4ba7802c2d6b10cc3b58fb333457a8"
+    },
+    {
+      "path": "apps/server/src/util.ts",
+      "size": 3683,
+      "sha256": "f0504ab9ee030c87b48d5afd809846148e562b00c3ccb2bec838d99066f70d67"
+    },
+    {
+      "path": "apps/server/test/bootstrap.test.ts",
+      "size": 1278,
+      "sha256": "3feee532ee9d10190df8797ce35f90a9b4adc259d5f466c4ef15c478ce56ef44"
+    },
+    {
+      "path": "apps/server/test/server.test.ts",
+      "size": 18807,
+      "sha256": "0d478c85197ca033b991e8c6a7c435c41c6437690aff8a3cd03522acfe4e2bfb"
+    },
+    {
+      "path": "apps/server/tsconfig.json",
+      "size": 351,
+      "sha256": "c31cddfdd85c98de6777556fce9460658bf46c22657f65fc081d1458e2b15e39"
+    },
+    {
+      "path": "apps/web/README.md",
+      "size": 2753,
+      "sha256": "2ae4eac90e43d18b06e908d2c82376a53359cc35601afb3ff436a2f98b95753a"
+    },
+    {
+      "path": "apps/web/index.html",
+      "size": 474,
+      "sha256": "3be67cb2261d34c6114a418b05e2a81dfea9ceae4bf894e3b191831f06fd8064"
+    },
+    {
+      "path": "apps/web/package-lock.json",
+      "size": 91383,
+      "sha256": "97f2e7e27dafd65364ef664145e8f902576c845a3cb487d9358001d732752c1f"
+    },
+    {
+      "path": "apps/web/package.json",
+      "size": 646,
+      "sha256": "a947ad5e22e364668f90abcb596442ca2c0d8b3d3f128035c1d04827276794dc"
+    },
+    {
+      "path": "apps/web/src/App.vue",
+      "size": 32455,
+      "sha256": "594570a522c8f762df2a27dbcadf8903255f42389f8268da530233dd04ca748f"
+    },
+    {
+      "path": "apps/web/src/api/client.ts",
+      "size": 4098,
+      "sha256": "c32cf01758048af48ed9b38c315c8009c1a81c9d3b4fd8b35002b39eecc0792a"
+    },
+    {
+      "path": "apps/web/src/api/types.ts",
+      "size": 1918,
+      "sha256": "605b8fa45c5d97e26e582b60d5e49b62f595745217f96ecfdc97e1ad0de5abc2"
+    },
+    {
+      "path": "apps/web/src/components/ExecForm.vue",
+      "size": 6711,
+      "sha256": "e8b1a262a0a7ace441fe445d63854c2b5651b98daac6b38457290faa9422c766"
+    },
+    {
+      "path": "apps/web/src/components/HealthBadge.vue",
+      "size": 454,
+      "sha256": "baf8368e918c06b743b42f36063f20a23c5fb44ddaa160ade06dc0c30f0ece66"
+    },
+    {
+      "path": "apps/web/src/components/StatusBadge.vue",
+      "size": 289,
+      "sha256": "d9c746ce92b069649286165c83ea8d8b6a659e8b55c4a1ff3f804fbade1b075d"
+    },
+    {
+      "path": "apps/web/src/components/TaskDetail.vue",
+      "size": 8288,
+      "sha256": "f0e80bfe5507f16ed29b001eedbae7e261314ab97309287e615441a81f20abc5"
+    },
+    {
+      "path": "apps/web/src/main.ts",
+      "size": 114,
+      "sha256": "a9a77d229d3df173585188d0cfcdeb479cf61b5a0028b67353b4f5998c9e3ad9"
+    },
+    {
+      "path": "apps/web/src/model.ts",
+      "size": 4396,
+      "sha256": "4e36cb539dbcb3e4a667231164c90652eff6da64813ba3d18fe3d31686798688"
+    },
+    {
+      "path": "apps/web/src/style.css",
+      "size": 21811,
+      "sha256": "453360dee259d047fc67d6673de3a89cedf7cdd734f82248cb60cd8f1e12193b"
+    },
+    {
+      "path": "apps/web/test/client.test.ts",
+      "size": 2969,
+      "sha256": "6264c2d5f3134151f61a7ee80020513492ef8238da6868d51c8000d292621af5"
+    },
+    {
+      "path": "apps/web/test/components.test.ts",
+      "size": 8565,
+      "sha256": "24f06296e3cde63a3984cea9ba576322b43249297228c2c7cc2d483dd6161a4f"
+    },
+    {
+      "path": "apps/web/test/model.test.ts",
+      "size": 3451,
+      "sha256": "cf267dbd26776cf85a2d13543bca77e244e1e28f4ea06bb1d35bbb9c60c6a8c8"
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "size": 574,
+      "sha256": "31463c6bc18ecd5921b541b5a5ce4d2718e0449fb5aad33b09fa2d3dcebc54c5"
+    },
+    {
+      "path": "apps/web/vite.config.ts",
+      "size": 636,
+      "sha256": "738ee17ba6bdef15c0105344e56eadcd52009196fadce16a9f3661f5323e8a21"
+    },
+    {
+      "path": "contracts/v1/README.md",
+      "size": 8279,
+      "sha256": "6dd8ec8d503410d7cb5d1327a8d74261cf01a57cd28ec4e53bf210b972dc40a3"
+    },
+    {
+      "path": "contracts/v1/artifact-response.schema.json",
+      "size": 641,
+      "sha256": "c5e8b9fb0c79e260893bd4b4fc324fb3bb32b0539712d159f21d01fb256f3bd1"
+    },
+    {
+      "path": "contracts/v1/audit-response.schema.json",
+      "size": 432,
+      "sha256": "f722a168fde93b5d7595ccc19a56f07b909b7caedd19f16a266416442a14d0fa"
+    },
+    {
+      "path": "contracts/v1/audit.schema.json",
+      "size": 16315,
+      "sha256": "eec6d68a23423a4cab4ba8e1d13157d0772e902af09ae6a742402adeeca0007d"
+    },
+    {
+      "path": "contracts/v1/auth-response.schema.json",
+      "size": 593,
+      "sha256": "ef97c7ffd4ab9dc63eed2ccfedd395674b80bb3590d52ea28f5f501416bd7217"
+    },
+    {
+      "path": "contracts/v1/auth.schema.json",
+      "size": 482,
+      "sha256": "fc3df66dcea217993e306ba3bf7c2f47e35925124709afdd30d2abaaaf9c8047"
+    },
+    {
+      "path": "contracts/v1/cancel-request.schema.json",
+      "size": 313,
+      "sha256": "ea714aa3111a64ba36b46ce2557a3db4fb7ae55c2ca5203783b38d19d229bf78"
+    },
+    {
+      "path": "contracts/v1/cancel-response.schema.json",
+      "size": 455,
+      "sha256": "cdca15aee8f110a63c99b965af65a82754c70ed47b691eb17417b1b66b39da39"
+    },
+    {
+      "path": "contracts/v1/challenge-request.schema.json",
+      "size": 1352,
+      "sha256": "2aff0b8d743ce2a6318df1fac6e06548d23ca14c6ba84dae110c49c5bf71fcd0"
+    },
+    {
+      "path": "contracts/v1/challenge-response.schema.json",
+      "size": 616,
+      "sha256": "40488c461b41c15c5df43d6b5faf6329ffb902d69ccdfeb4fbd6c3ee9f76a847"
+    },
+    {
+      "path": "contracts/v1/command-response.schema.json",
+      "size": 492,
+      "sha256": "d8b3ed0ebf32634b4d82a2ce65c1022da0a834a5c1656ba264b2e8996a29754c"
+    },
+    {
+      "path": "contracts/v1/commands.schema.json",
+      "size": 1067,
+      "sha256": "44b166e17530502d373606eaf4876963d6bb74ac183037b6dd21c94b6395eefb"
+    },
+    {
+      "path": "contracts/v1/common.schema.json",
+      "size": 3291,
+      "sha256": "b4e22a24f94d7e61a5aa1583c369a89fbc450f315f2f11c9f28f7ed4e5e7d3c1"
+    },
+    {
+      "path": "contracts/v1/device.schema.json",
+      "size": 1313,
+      "sha256": "4e19a402d6563cc104d08442c6561e22ad231702a950047550e9ff1de1014385"
+    },
+    {
+      "path": "contracts/v1/devices-response.schema.json",
+      "size": 441,
+      "sha256": "6504de662c2216239f6706b04e9360159de06d586ebf9ddc9dc4b4afae274da2"
+    },
+    {
+      "path": "contracts/v1/enrollment-response.schema.json",
+      "size": 411,
+      "sha256": "d6f7c550abb9bc4dbabe3270a2c03f0c33ff3ee592b1d589246926f49249c8fc"
+    },
+    {
+      "path": "contracts/v1/enrollment-token-request.schema.json",
+      "size": 498,
+      "sha256": "fdcfcd0391894409f97c7a980e755f082a25146429dffe7c8e131d419013d446"
+    },
+    {
+      "path": "contracts/v1/enrollment-token-response.schema.json",
+      "size": 537,
+      "sha256": "e05f2040d842795b774d4b60adb661a9f8dd6968963e42ae280d9755dd157955"
+    },
+    {
+      "path": "contracts/v1/enrollment.schema.json",
+      "size": 574,
+      "sha256": "957c62c6dcc29301f3542e227ea72315f29a1728495801bf44c20da74b539511"
+    },
+    {
+      "path": "contracts/v1/envelope.schema.json",
+      "size": 4277,
+      "sha256": "a0270a871e7fc2884aec57d214a756a847bd504c31463a1632b664ddec1ee565"
+    },
+    {
+      "path": "contracts/v1/error-response.schema.json",
+      "size": 521,
+      "sha256": "a252cad00b40b2e1e3fd2ce02b0c10bd2ba71859b691edf0d3207d028afa8336"
+    },
+    {
+      "path": "contracts/v1/event.schema.json",
+      "size": 1510,
+      "sha256": "f8953ad9675f4d27b85ffcf2b27fabe46312a89935370ddf15aeabbd24d87f6f"
+    },
+    {
+      "path": "contracts/v1/fixtures/canonical-task.json",
+      "size": 1833,
+      "sha256": "31065c151f867d718a8f622e7f538fc9278e35d2661bd20d10a3bd0059ff1bdc"
+    },
+    {
+      "path": "contracts/v1/fixtures/challenge-signatures.json",
+      "size": 4485,
+      "sha256": "02b77ed98405dd3ef81a0ad383d047473b1ae759652164e2156018b4aa142c65"
+    },
+    {
+      "path": "contracts/v1/fixtures/ed25519-rfc8032.json",
+      "size": 471,
+      "sha256": "6b6160e63ecce2127e6034cc128fe0b971c57cf80954f2e4d6614228fc76c714"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/artifact-response-too-large.json",
+      "size": 112,
+      "sha256": "f387863b892cd1452729be328fb25cfa9cf2d7969d6e638e92f8268c8e69a56f"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/audit-nested-extra-field.json",
+      "size": 861,
+      "sha256": "e9eb2af7f46df6a2d4713310eebdac65ecfc4efdd32ca39ba7acae9bd8e31e6a"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/audit-unregistered-action.json",
+      "size": 303,
+      "sha256": "c008bbdbee1fd95471e4d1a6b79df4806613357899c97dca740fc60c50102752"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/audit-wrong-detail-shape.json",
+      "size": 270,
+      "sha256": "aebd5d25864b0d95a00abf1a65a9d90508435b8a82822b63b2a579ba0cb2eeaa"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/auth-short-signature.json",
+      "size": 174,
+      "sha256": "b490bf3cb1676400c54a09819649d7f58f35c0f526ef1bdee80b62fc894fd6b2"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/cancel-request-extra.json",
+      "size": 30,
+      "sha256": "85b71b90a92fe83b8550d7896c8beffd138237ad924d76befc1daafccc4518a9"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/challenge-auth-token.json",
+      "size": 222,
+      "sha256": "8d62d0f97bbc0cb8239e361609e4fcc9c17986c235a1873b6783e1c72886a7f3"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/challenge-enroll-device.json",
+      "size": 224,
+      "sha256": "6f0d40fbc5247e2a3d93d017016db900fd79078062d9ab3524ea0bc4c5dd3dc5"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/challenge-enroll-missing-token.json",
+      "size": 100,
+      "sha256": "a8970b0145c5e0494dc6160f20e79d50d1abd2d442298ded8e26e28486410eb4"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/challenge-malformed-key.json",
+      "size": 119,
+      "sha256": "9a64827c50f8bc14693ef1ac093ac494de5adff5d817976a81de67f22a3d0a43"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/challenge-noncanonical-key.json",
+      "size": 153,
+      "sha256": "d43e97bcec8188f000353b7464d200e4720ccaefa9353e57a27555cc46777eb4"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/command-invalid-version.json",
+      "size": 244,
+      "sha256": "fe9f18a186fe41a32febc93927a6a7752a2fc77a8cc345baa05a1f7cf674b4b7"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/command-missing-version.json",
+      "size": 232,
+      "sha256": "8dd74d544c639b96077632c3e886c2fa13207caf08657eebdb460cd189b8a8aa"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/command-relative-executable.json",
+      "size": 190,
+      "sha256": "674211282be7854bdf605adf6067dc201f001fac8d865eab26cb3d51665f1023"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/command-spoof-actor.json",
+      "size": 268,
+      "sha256": "6951ee647291b2009ffc10dc4a35838bdaddba739a6de8da74362ff6efa0d74f"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/command-timeout-zero.json",
+      "size": 239,
+      "sha256": "a20b7757e1166100e73c4e3a2abe2d42a3daa6d1f23205bbfa8cbd7ce4f021be"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/command-unknown-option.json",
+      "size": 259,
+      "sha256": "afabd2fff3b678461b8fe321d513363db972d8ed550c7db4fb491b04be65732d"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/device-false-health.json",
+      "size": 247,
+      "sha256": "be2cd79268aa9f568ee3e80242299bcfb6ed364318550466b63b65c0e2474523"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/envelope-extra-token.json",
+      "size": 595,
+      "sha256": "3cf7e2157d5389e4414742b280a50a005b7b4983bf76fc49e86359d7a435fa8d"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/envelope-task-field.json",
+      "size": 581,
+      "sha256": "33e2688e035f56130bc89262c137e81b74eaff0ae2776a2ef6739dcf75a7c645"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/envelope-unknown-type.json",
+      "size": 568,
+      "sha256": "27ae34eb788062fe0eac44f97fb6a4d1a3e0867ae6efbad432333ac9d517c5e9"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/envelope-unknown-version.json",
+      "size": 567,
+      "sha256": "8e2a7013566393085d4068e25f9186d3d2d51753b79d7ccf5b1ce062682aa388"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/event-accepted-payload.json",
+      "size": 211,
+      "sha256": "3d0467362f69416cd54509740b78208c65a74e10d3d08c7a2da92f0368f88b52"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/event-extra-field.json",
+      "size": 681,
+      "sha256": "df8e6da353611a634292119fc160b5643a918e43bf87d80bb0b880a2a02a46ae"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/event-invalid-uuid.json",
+      "size": 155,
+      "sha256": "23ae04c302238d7e16ff3bbb9860028b7db356f48064e64d7cdcdcbf2081a03a"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/event-started-payload.json",
+      "size": 199,
+      "sha256": "327afd905d5c16c8285cdc08ca1369bbf7ca82876f4c621a15e6013904afdddf"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/event-zero-sequence.json",
+      "size": 184,
+      "sha256": "4eb8fca96812441fcef7c2c16823cb3513725562348122834690e756a6960056"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/login-versioned.json",
+      "size": 77,
+      "sha256": "c3c31d09fc50aa43134120581b61fe2e24360a763a0f53fcc84ab275e7f43c45"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-artifact-extra.json",
+      "size": 461,
+      "sha256": "a49c2bdd6cab62e0f84143fa6daddf3d53eb023b95b5ee2d976c08519b06be3c"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-empty-artifact-after-start.json",
+      "size": 314,
+      "sha256": "1a53f2f7e62f7af782fd1c6e3b761e5179c1422347fa4323075d338907df0dbd"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-expired-after-start.json",
+      "size": 411,
+      "sha256": "670765782b27e8692b09605b0a0d379e1a6dc2a8e281c978999050ee11ed54f7"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-extra-property.json",
+      "size": 442,
+      "sha256": "39197b85d7d236c4026ec3d3c8c851df210a76f575a2e513a0ff966b6525d683"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-missing-artifacts.json",
+      "size": 316,
+      "sha256": "4bd2bb7501c4e40343ad20b742e1f824d90c535d9eb73ad2d239f0d3463778f8"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-no-execution-success.json",
+      "size": 218,
+      "sha256": "2710893cde6d136dcb55d015134a468f4114b8291762099817d87fa23ab538a9"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-not-started-timestamp.json",
+      "size": 225,
+      "sha256": "d26f4ecc1cb87e175a7d0709326ccaca16307cc73a1ca8eaffd172175ab0cbc4"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-unknown-complete-captured.json",
+      "size": 426,
+      "sha256": "91c6b731df3ab189ddd37c3e037c593b2643d4d482ac54e58c30929edfb8205e"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/result-unknown-complete-missing.json",
+      "size": 232,
+      "sha256": "54c9b00e14a99c4b674a5c82d879620eb61ceca336d258e2e55df1faf35a34f3"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-action-shortcut.json",
+      "size": 494,
+      "sha256": "f37772da4f15479364ed8696367cd566d8bc2de314f39bde7d46360a2ba251fc"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-empty-argv.json",
+      "size": 415,
+      "sha256": "807ec34ba325fea865525d93b6269b32f4dda1ca4c67c04cc5abb9c4db60c3cc"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-extra-field.json",
+      "size": 498,
+      "sha256": "a915eeaefe878f093d43d546cdf3f4a40a76d069600adfd4ca3e2be5dc8f9909"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-fractional-time.json",
+      "size": 488,
+      "sha256": "f98a3a71ff158c2ad509cc079b9e0b1c989ebe002a12e9ed28b729e04cb146ca"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-missing-field.json",
+      "size": 432,
+      "sha256": "4596ee69bdc9268537aed56b2445b307c1ea0aeb6500c8420413ee88a30c022e"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-negative-limit.json",
+      "size": 483,
+      "sha256": "8436d32bdb15bf96a71ddd6510438679d0a1c650a88845ea6ad74b138bc53dfe"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-null-byte-argv.json",
+      "size": 458,
+      "sha256": "218d50f4a3529629f0c5bb7a0212ec283a3e9dbab06e9db4f315be38ce3195b1"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-relative-cwd.json",
+      "size": 485,
+      "sha256": "46102a6bcac17ac2ccca33c4425b88c48c76c7d236f7041b599601d665f4e030"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-too-large-output.json",
+      "size": 488,
+      "sha256": "9b7517e40df372ebfc229d021bbf648e7f994e2cb63ba4e15a8114310fa1fcf0"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-unsafe-number.json",
+      "size": 489,
+      "sha256": "c2a12a09a4a6e7fe3b234a92873ced0a3fa6278ffcf11d166f7b7c4314e060c2"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/task-uppercase-hash.json",
+      "size": 486,
+      "sha256": "7b91275dba6ab29d2bcff26371455a4675b7e8774ef0b8faac354cd9935e71a0"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/user-duplicate-scope.json",
+      "size": 210,
+      "sha256": "0710e402d1b32cb2f0f5151be57f3b4e736f184a06eef60357937fa3bf1e9ea4"
+    },
+    {
+      "path": "contracts/v1/fixtures/invalid/user-unknown-role.json",
+      "size": 125,
+      "sha256": "3af9f57336d88ec7a1768aa599b2bffd5063c7ae15709d4905db67b4d6c574aa"
+    },
+    {
+      "path": "contracts/v1/fixtures/manifest.json",
+      "size": 15543,
+      "sha256": "75582c66ac0555d3da57d464b45914c7fae57870fa1327f73db033c8115abd97"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/artifact-response.json",
+      "size": 106,
+      "sha256": "301e95de0f0a5575827ef0bbd2cd6a87a23bcabd7832c700e589be81f9a3a3c3"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-authorization.denied.json",
+      "size": 346,
+      "sha256": "e57a61dcfc7ec9fee08485ef58742424f00be56bb099ae423902237668ec3e53"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-device.enrolled.json",
+      "size": 272,
+      "sha256": "a0eb650a71c17427ce1aab7d4046494e6e8db72fe8312821d49e3d87e277b41d"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-device.revoked.json",
+      "size": 245,
+      "sha256": "94d1233797d93b987b0d5c18ab1b301ee26c90eab94c218047ff2b4576cbaad2"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-enrollment.created.json",
+      "size": 318,
+      "sha256": "b4c978204ff1c98654d895dc3c790027e423844561fcd4ff1187a3396efbc942"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-null-identities.json",
+      "size": 238,
+      "sha256": "0ba4d8ab9e43da33ceaa95951b8f62f1ad0e4266d38b5d684f2845725e430535"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-output.viewed.json",
+      "size": 367,
+      "sha256": "2a26644c0f7f333020937921e63c6232ae187a78236be3d4b9006c9968bd101a"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-response.json",
+      "size": 5505,
+      "sha256": "503eede350f46d37dbbb7274ee7b8ce53f2f5e22fe25f27c0375deaf02c0068b"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-task.accepted.json",
+      "size": 361,
+      "sha256": "4f7f0f95ef4f0350426c9d5be6801469614c71aee6cea0a126a6d947e0d835ad"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-task.cancel_requested.json",
+      "size": 252,
+      "sha256": "ae63e94477be2f7141cb9ddb7c11c59a1125f6af1c0db9bed3797e87aa2b6ffc"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-task.created.json",
+      "size": 520,
+      "sha256": "55fef333ab08e9728ffd902056954967a9ca9642257309d7bb8dc17d5ad7c6c4"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-task.finished.json",
+      "size": 835,
+      "sha256": "04f94aa0641cca57f2b023413a8382cb43d28943f66cfff6a62e1236d1c9f68e"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-task.started.json",
+      "size": 360,
+      "sha256": "21143e7c117a438ecfd37cf26fe57dbc86cfccd1de59226c41d91bdf06975e2e"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-user.bootstrap.json",
+      "size": 298,
+      "sha256": "386919f0a7697aede084008bd5b7b067d60a0f8383ec3924a6c6841463456011"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-user.login.json",
+      "size": 241,
+      "sha256": "3c0d9fba92749a321f9738f5779274d3749695e8dc035913a4d744cae5a0bc28"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/audit-user.login_failed.json",
+      "size": 339,
+      "sha256": "2ca44fffc778f435d2fff86d08a17a755c202907859b558002411124c4857643"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/auth-response.json",
+      "size": 145,
+      "sha256": "139f06a39b83bfc054540611d059d9e9446d5f97cf57124eab10d2d15c3d8570"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/auth.json",
+      "size": 178,
+      "sha256": "4a089ca10d9752cf3709a65e130341ff87e3bfd8406c6e0b9ce4f71957371137"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/cancel-request.json",
+      "size": 13,
+      "sha256": "05ea03c4a3ef474e2276a2910f804ae49e759d1107946e8b50df38dc508abc27"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/cancel-response.json",
+      "size": 50,
+      "sha256": "792df71bbe5f6edb5da0f9c30d884bb586f48ad545cb93f01e5d9b18af76f83f"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/challenge-auth-key-recovery.json",
+      "size": 98,
+      "sha256": "b3ae52388b433ea2c37564032ec97333eb50b3e3edd95b118c54512fc1a70346"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/challenge-auth.json",
+      "size": 153,
+      "sha256": "e0d413691913acf614878968b606d55494d599409340c51cbfbc3065667b6028"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/challenge-enroll.json",
+      "size": 169,
+      "sha256": "cd3f96ed36e1bd57546d6aa4ccf902e46d783a39b85e7a2f9e4f99c135c7840a"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/challenge-response-auth.json",
+      "size": 415,
+      "sha256": "22d922e985f963f53af7b8a85bc5de714e6049d9d8ddf749a8fd9649db313438"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/challenge-response-enroll.json",
+      "size": 455,
+      "sha256": "427bc67857f308763ff243b2a5aa9b1a10aca490b9b154f18f60502155c492ea"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/command-bare-executable.json",
+      "size": 187,
+      "sha256": "6dcc6b440367a9e3fb2c8377125ee0a7157c9ffbb450241254f854986f375f78"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/command-response.json",
+      "size": 88,
+      "sha256": "6a56f6678b810553266657e03fbd4669fc84d0e34e97a235a32f1f8064398c8c"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/command-zero-output.json",
+      "size": 238,
+      "sha256": "edd82394394f8a8ed71f0450652c695617a858a3309056479171db87b9af14b6"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/command.json",
+      "size": 242,
+      "sha256": "dcc42b64d9b2e8fdbe78a717b47362f1a7a372f622abaacfb53493eea841058e"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/device.json",
+      "size": 247,
+      "sha256": "11fd45779fb6fa91e639e9640e58be79650927e27486cfece9026fe863f80faa"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/devices-response.json",
+      "size": 320,
+      "sha256": "26c032aa4e4fd9a9784071b767e852e222283e15d311711890e924f6ee29cf1b"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/enrollment-response.json",
+      "size": 68,
+      "sha256": "c27504acc1597fd797c4d22173ea6111c2b6fff9a3337d3c7886ae5c174fa83d"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/enrollment-token-minimal.json",
+      "size": 13,
+      "sha256": "05ea03c4a3ef474e2276a2910f804ae49e759d1107946e8b50df38dc508abc27"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/enrollment-token-request.json",
+      "size": 68,
+      "sha256": "bef1b3ae009a17a7961ebf78c5e046798a71dc91b2ffc375a193cc752cd6ca52"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/enrollment-token-response.json",
+      "size": 113,
+      "sha256": "b14865fce71f68aedd98cf066e5c207ed8cea489df4e731d5dda31787f0d03f4"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/enrollment.json",
+      "size": 205,
+      "sha256": "218f1f95f72f9a0cd82d2ad525cb4e99d852ccabf5784316f027ba0b29f703b7"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/envelope-agent.heartbeat.json",
+      "size": 88,
+      "sha256": "4aa1b9a8641684aa7768003d35b301cd92e57c66804caf2a6545682de44d00ac"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/envelope-agent.hello.json",
+      "size": 84,
+      "sha256": "e24c522fc5c5d9467a2d768e8005862a020d19ed8c9385ea6d894f0e0bde3615"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/envelope-error.json",
+      "size": 73,
+      "sha256": "22fb4acd5ebf71bec019690dee474453628627185d75a8afbdfb1aaaaa957a38"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/envelope-event.ack.json",
+      "size": 177,
+      "sha256": "3c4c25413e70068c04be3c798e85361d70f7609175759261e3126ac15b154093"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/envelope-task.assign.json",
+      "size": 567,
+      "sha256": "66c23345cb74d8337888c52ea34c0542ed9bcabfec7663ff3816857e2de485f7"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/envelope-task.cancel.json",
+      "size": 109,
+      "sha256": "fcc8bdf423022eab29d749f257e01b53c0c602bf72c30c9884f404268aed19c9"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/envelope-task.event.json",
+      "size": 720,
+      "sha256": "4d69752f9581acd67e5b42afe1395079d6a93b3c94ad4e9eb3371de907a9d18f"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/error-response.json",
+      "size": 43,
+      "sha256": "5b565a89892a53d462602325bafe3829b3d5e7532ae9fc8ef1acda6e4c2131f1"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/event-accepted.json",
+      "size": 184,
+      "sha256": "a55d15e34ee5bb1a429453fcc359165c6250162ee83934155767ba990bb76348"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/event-finished.json",
+      "size": 626,
+      "sha256": "627781b702a4514ca77ca5cf18b0996be8f7a7c5fb9d7daa846655e844b5f91e"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/event-no-execution-seq2.json",
+      "size": 417,
+      "sha256": "c004d24946b6d632240cfe1fd385e484779cb0e34e8c7248c88d779b5c2d288e"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/event-started.json",
+      "size": 183,
+      "sha256": "69b6b64aca70bb6345566b2d045c5826e2119186f74e7a548172a0a25fa55709"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/health-response.json",
+      "size": 72,
+      "sha256": "877236c8a9cf4138c8431019dd1832cb974f42ac06727e49eac0b943f767bffa"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/login-response.json",
+      "size": 189,
+      "sha256": "711ec1664dfc7e39ff3afd094f1d3e7aa5cb59489c17a0ff2cd34f72230af27f"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/login.json",
+      "size": 67,
+      "sha256": "4a9a1b59f4d1fba6b0b56423d9dd26832d1c1b308765292cf996fa2d5592021e"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/me-response.json",
+      "size": 131,
+      "sha256": "37ad5129d264904479b2143409f38ded9b390cbc2681e79fbb2bd7fd39d5e06b"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/result-no-execution-empty.json",
+      "size": 214,
+      "sha256": "7951a73f11d040260f1e0e4c9373d465776711cf6f5d7d3119ac404625ab21cf"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/result-no-execution-null.json",
+      "size": 218,
+      "sha256": "6fcb721c57b5f2b625de7724fcdc3193dc7dd85afc354f7cd68252079aa2512a"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/result-no-execution.json",
+      "size": 216,
+      "sha256": "63f2e1ec5fbd703e382509fdc5ba7d799f0e06f256d223a7c0e9f1e6c9f2931b"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/result-succeeded.json",
+      "size": 413,
+      "sha256": "352b802fee0642c1524afe441490db01141529a1b45f5fd4a551fea1ba776d0e"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/result-unknown-captured.json",
+      "size": 427,
+      "sha256": "8ff753d96ce6dd56b25ea18dbbf373b9f5a64b1de2f6439dba617c3417aebbe3"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/result-unknown.json",
+      "size": 233,
+      "sha256": "b398298743bf15ffa022e01938b3f1814ffdd9c6bc231b151b082284f003a75f"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/revoke-request.json",
+      "size": 13,
+      "sha256": "05ea03c4a3ef474e2276a2910f804ae49e759d1107946e8b50df38dc508abc27"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/revoke-response.json",
+      "size": 27,
+      "sha256": "9f29d2c8c57be3e60548c1e8c00eb1c2d748d1cba87fdd7e32dc1f934b585c05"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/task-detail.json",
+      "size": 1015,
+      "sha256": "3dad8189dce1805e43a4557a5ead28f98dd693943f9a504cf094bb6caf628be3"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/task-response.json",
+      "size": 1025,
+      "sha256": "afefd6bca105f425b1459dc85d424179fb2b0600e3165f23e6ac868ead73a3d7"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/task.json",
+      "size": 486,
+      "sha256": "678ab0d4773d9cc5625effdd15050e92f26eab2f504a8d801976e612f4e5cc83"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/tasks-response.json",
+      "size": 1194,
+      "sha256": "e40ae9094a9185aa1116f4bedd363979bb21011a83298bc2fa6e1ddedc6dcdf0"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/user-scoped.json",
+      "size": 164,
+      "sha256": "25376d7876d975c6875c5288d75560fd6432bab40ca401964222521659c1ccc5"
+    },
+    {
+      "path": "contracts/v1/fixtures/valid/user.json",
+      "size": 121,
+      "sha256": "9fa404484c28d4b0cf03060c3c338d0d8d246c85d63c2b5d8caaa9401a6eb033"
+    },
+    {
+      "path": "contracts/v1/health-response.schema.json",
+      "size": 548,
+      "sha256": "98a6ae363d93abbac703517f73d7cf6c21afd7fcb76110ba9bf8857d5414ba6c"
+    },
+    {
+      "path": "contracts/v1/login-response.schema.json",
+      "size": 432,
+      "sha256": "f4f368f902c8994725084660127ccafad8ec124ee7bcec424d9215001790682f"
+    },
+    {
+      "path": "contracts/v1/login.schema.json",
+      "size": 554,
+      "sha256": "a559ad5d787e91b4d65dd81a6c4bde4169aacd9d40e20828704b1c3d2b72f073"
+    },
+    {
+      "path": "contracts/v1/me-response.schema.json",
+      "size": 898,
+      "sha256": "e3bd924ce2012e44bbedce76544bd06a9ac22c99b5093a11083c58d63e58b5c0"
+    },
+    {
+      "path": "contracts/v1/result.schema.json",
+      "size": 4328,
+      "sha256": "7b9132e65b82e14ceffac583ccfc391079564e414593e7d81a44c913266f7a11"
+    },
+    {
+      "path": "contracts/v1/revoke-request.schema.json",
+      "size": 313,
+      "sha256": "a39c0f754c9a81438fb3cf9e47b5b24dc581dbb2d145fe6241fe28d545d3dc04"
+    },
+    {
+      "path": "contracts/v1/revoke-response.schema.json",
+      "size": 364,
+      "sha256": "8b66234732010b5a130642ac2ab413f481e032523f8ec0418056768360442b39"
+    },
+    {
+      "path": "contracts/v1/task-detail.schema.json",
+      "size": 1702,
+      "sha256": "f701a0af2c0f211fe8df75c610cfabc3bc195646d9fde213a21729c73fe8c83f"
+    },
+    {
+      "path": "contracts/v1/task-response.schema.json",
+      "size": 1750,
+      "sha256": "0b08a113997256f988dcd1c28f79bb6723cba0ace6f81aa6e4833127bf42438f"
+    },
+    {
+      "path": "contracts/v1/task.schema.json",
+      "size": 1424,
+      "sha256": "0e9d6efa0af5f4274d98dd802f27bfc443500e60c4575f044cc2d2b5cc2a83f4"
+    },
+    {
+      "path": "contracts/v1/tasks-response.schema.json",
+      "size": 438,
+      "sha256": "58017a05da9032fc4313b96e318eae15c3adb1810b022f04a93de6466585d8a0"
+    },
+    {
+      "path": "contracts/v1/user.schema.json",
+      "size": 840,
+      "sha256": "4e6558bb0461dc450c02566b51b9229832b69b6fcaf634e27cd9d207c3b18b68"
+    },
+    {
+      "path": "deploy/dev/generate-tls.sh",
+      "size": 1226,
+      "sha256": "9ec026082c304e5b7c6c627cc257e17eea7095ae4a751dfdf2d8195a1e26d219"
+    },
+    {
+      "path": "docs/RELEASE-NOTES.md",
+      "size": 1639,
+      "sha256": "93d7e7fad64e06cda0bf07159365b46f706c5aeb2d0cbbee9f62a7a4fa3d1e57"
+    },
+    {
+      "path": "docs/acceptance/p0.md",
+      "size": 1120,
+      "sha256": "ded3514d5a77da42c65d57e2726a21741738acaaeeb57dbe161cb2f2443a22fd"
+    },
+    {
+      "path": "docs/acceptance/p1.md",
+      "size": 1782,
+      "sha256": "e96cc4e28f1c513ac3ef3c1dbdf306a2b1ef2fd303c0407c5384965c552444f6"
+    },
+    {
+      "path": "docs/acceptance/p2.md",
+      "size": 678,
+      "sha256": "00e95dd706316091ff582c301aea85675f0479fce27537077be40c167a72da59"
+    },
+    {
+      "path": "docs/acceptance/p3.md",
+      "size": 860,
+      "sha256": "cf59728f2f3e1db306656dc130e921ec837887dfa50cd8af930b7e67c8e62ff4"
+    },
+    {
+      "path": "docs/acceptance/p4.md",
+      "size": 812,
+      "sha256": "5779e8d2567f72c31ce52978557f3a0186a3603a26d520e81c345926c220048e"
+    },
+    {
+      "path": "docs/acceptance/p5.md",
+      "size": 684,
+      "sha256": "e84a30c98b5a730ae4e5049c9a9149865492e1fb8f3d19e82dfee2b0aa721468"
+    },
+    {
+      "path": "docs/adr/0001.md",
+      "size": 1214,
+      "sha256": "627d98b0e6818f1b8efe9953030f103724cdd942e2205a024f266638f32b7a83"
+    },
+    {
+      "path": "docs/adr/0002.md",
+      "size": 1872,
+      "sha256": "2b2e531660941b71149d1f62c3c0a6e87b6ac2dc36a9cc6473420333a2fa6f47"
+    },
+    {
+      "path": "docs/adr/0003.md",
+      "size": 2446,
+      "sha256": "f335ba6e084dec26406f62ccf5ad9e6cc09febe7cdfb5f0df4e2adc30efb184a"
+    },
+    {
+      "path": "docs/adr/0004.md",
+      "size": 2284,
+      "sha256": "dddd516a456911911fc26212467afe6bf09e9d4ce7d9d2cac15cad04c7d1f235"
+    },
+    {
+      "path": "docs/adr/0005.md",
+      "size": 2172,
+      "sha256": "b63fa4aee99cfd596b8854a6712b932fa260fb81567e10d50dd260e19ae67f50"
+    },
+    {
+      "path": "docs/adr/0006.md",
+      "size": 1662,
+      "sha256": "5579a60f843fffc38b0886b7431d20eb370a5a27bfa5debd32b40026b8b6a0bf"
+    },
+    {
+      "path": "docs/architecture-review.md",
+      "size": 22173,
+      "sha256": "e3e399df306734951bbd427c72bd3d96fefa193dcd211306ca53ee2d1b354979"
+    },
+    {
+      "path": "docs/architecture.md",
+      "size": 2893,
+      "sha256": "811f9522df42c3e0f8cc024a9406e1113e8209d18e3af810bbce05fbb6a9e38c"
+    },
+    {
+      "path": "docs/runbooks/recovery.md",
+      "size": 2188,
+      "sha256": "5ea84762b43ca2d77f883b9c0ce6c409a3628686f7ce8487a8a36b72bd8a600c"
+    },
+    {
+      "path": "docs/test-evidence/browser-status.txt",
+      "size": 635,
+      "sha256": "48329a05e90d11f83a63030b9e4602110dbaa8f938676263fed06f35550e5ee5"
+    },
+    {
+      "path": "docs/test-evidence/build.log",
+      "size": 6110,
+      "sha256": "38fa117252fdd475e8cccd26a959781c7ebf20cd340fa0c851c95442836ecb33"
+    },
+    {
+      "path": "docs/test-evidence/check.log",
+      "size": 12480,
+      "sha256": "1518296c8921334ff5b2092d0edf8c06a8710f1395efba7b702df9c5092726a4"
+    },
+    {
+      "path": "docs/test-evidence/dev-startup.log",
+      "size": 95,
+      "sha256": "5fe9edfeea36a9643efdda8b4caff750ed815001ee47bcf16092ece48b3dac0b"
+    },
+    {
+      "path": "docs/test-evidence/e2e-release.log",
+      "size": 2512,
+      "sha256": "0201f1575d23e9da6a51bb57b3100ca43a44ffddec3a389a9b3eda2c95582ce6"
+    },
+    {
+      "path": "docs/test-evidence/e2e.log",
+      "size": 2513,
+      "sha256": "318e381aa288a109dc9750299f2b25fafedede61174d58590103ac4cc791ae9b"
+    },
+    {
+      "path": "docs/test-evidence/static-checks.log",
+      "size": 443,
+      "sha256": "759cc9d392f4841d481add1cf3ea0c1e13afea1b73230873e6b94eca3f89b8cc"
+    },
+    {
+      "path": "docs/test-report.md",
+      "size": 5854,
+      "sha256": "4f0ef93a368afa8dc7d8c686b32a1c03dfb301803bb2abc40f52f37debb5f020"
+    },
+    {
+      "path": "package-lock.json",
+      "size": 2228,
+      "sha256": "4e164d29e760106d73bf3d2e8e4998480e205228ba24168a00cdf6ef3218f48d"
+    },
+    {
+      "path": "package.json",
+      "size": 1386,
+      "sha256": "66d3f839c259eecd0cedcddf5efddb08c9bee6613b3d6f16f0d2f910a16ba218"
+    },
+    {
+      "path": "scripts/backup.py",
+      "size": 1260,
+      "sha256": "7bb1877e124ba8ca75dafd7a60c1ce42739bb7c7236900688b0a680865746240"
+    },
+    {
+      "path": "scripts/dev-enroll.mjs",
+      "size": 1372,
+      "sha256": "5e457ccef86c1b7f20f3377909fcc3433d7a3d9dd1fb77f59ce4bc8b6d315be0"
+    },
+    {
+      "path": "scripts/dev.sh",
+      "size": 1962,
+      "sha256": "90dc8851c0abe2f4562179eacba39f9d5213c3e918bd75be6de4a71ac2c80f39"
+    },
+    {
+      "path": "scripts/package-source.py",
+      "size": 2279,
+      "sha256": "fc29b1ff7db40bcdb3c5d1bd85b579181befe6807e9a8d4a468a5aca23bb98cd"
+    },
+    {
+      "path": "tests/contracts/contracts.test.mjs",
+      "size": 10026,
+      "sha256": "22404562f86b0ea02b03691176bacebb34b0679baede37e805942e96418bec80"
+    },
+    {
+      "path": "tests/contracts/generate-contracts.py",
+      "size": 12553,
+      "sha256": "75b20c22f17c01d24c9a2f135d3194447bb88dde0edbce7a93d57acb90f44a5d"
+    },
+    {
+      "path": "tests/contracts/generate-fixtures.mjs",
+      "size": 18912,
+      "sha256": "b96ae127df0899262798bb7166e16cf31e2c140898c6aee2488038ba70c28852"
+    },
+    {
+      "path": "tests/contracts/package-lock.json",
+      "size": 3056,
+      "sha256": "5c4fdcaee1911064dbc145a6e7ed9762acc932fa5515dba8e7fac80eaf1a1a93"
+    },
+    {
+      "path": "tests/contracts/package.json",
+      "size": 278,
+      "sha256": "ba03f236b2da30b6ba2f84dd6bdce1cfcd43b4535c1c15fb7c94c9c3fe3ab30b"
+    },
+    {
+      "path": "tests/contracts/test-results.txt",
+      "size": 7470,
+      "sha256": "89bc5b59493587951fab3d8adf7f16b1c01cd855aa3ce3760d2b7dca9fe21567"
+    },
+    {
+      "path": "tests/contracts/validate.mjs",
+      "size": 1873,
+      "sha256": "7fe8ea6fbefeb5ee7dde8bea9619379e771ce0a9a07e03b12a099c752841b02d"
+    },
+    {
+      "path": "tests/e2e/browser-smoke.ts",
+      "size": 7208,
+      "sha256": "61d730536d807b0e764e54027435747b3f5af51dcc1118602948ce25a231577a"
+    },
+    {
+      "path": "tests/e2e/dev-smoke.sh",
+      "size": 1384,
+      "sha256": "8d25967f0b9f0430d450edc04bc454a79837c031288fc68a24401d133dbd22fc"
+    },
+    {
+      "path": "tests/e2e/fleet.test.ts",
+      "size": 30749,
+      "sha256": "156c112f3710c9df8503bdd5fb6b278d9e0142f8d1050a9732c32c5691e604bb"
+    }
+  ]
+}

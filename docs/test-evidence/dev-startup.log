@@ -1,0 +1,1 @@
+PASS dev.sh: trusted HTTPS health + actual Rust WSS + Vue loopback + authenticated HTTPS proxy

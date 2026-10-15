@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/devices-response.schema.json",
+  "title": "Fleet v1 devices-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "$ref": "device.schema.json"
+      }
+    }
+  },
+  "required": [
+    "v",
+    "devices"
+  ]
+}

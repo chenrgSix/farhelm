@@ -1,0 +1,11 @@
+{
+  "status": "EXPIRED",
+  "exit_code": null,
+  "reason": "TTL_EXPIRED",
+  "audit_complete": true,
+  "stdout": {},
+  "stderr": {},
+  "started_at": null,
+  "finished_at": 1735689600110,
+  "cleanup": "not_started"
+}

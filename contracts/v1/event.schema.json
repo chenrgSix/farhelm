@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/event.schema.json",
+  "title": "Fleet v1 event",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "task_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "seq": {
+      "$ref": "common.schema.json#/$defs/sequence"
+    },
+    "kind": {
+      "enum": [
+        "accepted",
+        "started",
+        "finished"
+      ]
+    },
+    "at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/empty"
+        },
+        {
+          "$ref": "result.schema.json"
+        }
+      ]
+    }
+  },
+  "required": [
+    "event_id",
+    "task_id",
+    "seq",
+    "kind",
+    "at",
+    "payload"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "finished"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "result.schema.json"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "payload": {
+            "$ref": "common.schema.json#/$defs/empty"
+          }
+        }
+      }
+    }
+  ],
+  "description": "A single durable event body. Event sequence continuity, state transitions, replay identity and artifact availability are checked transactionally by the server."
+}

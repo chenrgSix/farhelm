@@ -1,0 +1,30 @@
+{
+  "id": 13,
+  "at": 1735689600112,
+  "actor_id": "00000000-0000-4000-8000-000000000003",
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "task_id": "00000000-0000-4000-8000-000000000001",
+  "action": "task.finished",
+  "detail": {
+    "event_id": "00000000-0000-4000-8000-000000000008",
+    "seq": 3,
+    "at": 1735689600110,
+    "payload": {
+      "status": "SUCCEEDED",
+      "exit_code": 0,
+      "reason": null,
+      "audit_complete": true,
+      "stdout": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "stderr": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "started_at": 1735689600100,
+      "finished_at": 1735689600110,
+      "cleanup": "process_group"
+    }
+  }
+}

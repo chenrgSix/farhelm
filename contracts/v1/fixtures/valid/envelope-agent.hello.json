@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "agent.hello",
+  "body": {
+    "agent_version": "0.1.0"
+  }
+}

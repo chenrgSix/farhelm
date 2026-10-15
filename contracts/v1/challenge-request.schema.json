@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/challenge-request.schema.json",
+  "title": "Fleet v1 challenge-request",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "purpose": {
+          "const": "enroll"
+        },
+        "public_key": {
+          "$ref": "common.schema.json#/$defs/public_key"
+        },
+        "enrollment_token": {
+          "$ref": "common.schema.json#/$defs/token"
+        }
+      },
+      "required": [
+        "v",
+        "purpose",
+        "public_key",
+        "enrollment_token"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "purpose": {
+          "const": "auth"
+        },
+        "public_key": {
+          "$ref": "common.schema.json#/$defs/public_key"
+        },
+        "device_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      },
+      "required": [
+        "v",
+        "purpose",
+        "public_key"
+      ]
+    }
+  ],
+  "description": "Auth without device_id supports registered-key recovery. Enrollment token and auth device ID are purpose-specific; signing bytes include empty fields where omitted."
+}

@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/result.schema.json",
+  "title": "Fleet v1 result",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "$ref": "common.schema.json#/$defs/terminal_status"
+    },
+    "exit_code": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "audit_complete": {
+      "type": "boolean"
+    },
+    "stdout": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/artifact"
+        },
+        {
+          "$ref": "common.schema.json#/$defs/empty"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stderr": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/artifact"
+        },
+        {
+          "$ref": "common.schema.json#/$defs/empty"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "finished_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "cleanup": {
+      "enum": [
+        "process_group",
+        "unconfirmed",
+        "not_started"
+      ]
+    }
+  },
+  "required": [
+    "status",
+    "exit_code",
+    "reason",
+    "audit_complete",
+    "stdout",
+    "stderr",
+    "started_at",
+    "finished_at",
+    "cleanup"
+  ],
+  "anyOf": [
+    {
+      "properties": {
+        "stdout": {
+          "$ref": "common.schema.json#/$defs/artifact"
+        },
+        "stderr": {
+          "$ref": "common.schema.json#/$defs/artifact"
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "UNKNOWN"
+        },
+        "audit_complete": {
+          "const": false
+        },
+        "stdout": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/artifact"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stderr": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/artifact"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "enum": [
+            "FAILED",
+            "CANCELLED",
+            "EXPIRED",
+            "UNKNOWN"
+          ]
+        },
+        "cleanup": {
+          "const": "not_started"
+        },
+        "started_at": {
+          "type": "null"
+        }
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "cleanup": {
+            "const": "not_started"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "started_at": {
+            "type": "null"
+          },
+          "exit_code": {
+            "type": "null"
+          },
+          "status": {
+            "enum": [
+              "FAILED",
+              "CANCELLED",
+              "EXPIRED",
+              "UNKNOWN"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "UNKNOWN"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "audit_complete": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "EXPIRED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "cleanup": {
+            "const": "not_started"
+          },
+          "started_at": {
+            "type": "null"
+          },
+          "exit_code": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
+  "description": "Missing streams are allowed only for UNKNOWN with incomplete audit or terminal no-execution results. Empty objects are allowed only for no-execution results. Storage durability and truthful cleanup remain runtime invariants."
+}

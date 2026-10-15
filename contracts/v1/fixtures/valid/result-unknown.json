@@ -1,0 +1,11 @@
+{
+  "status": "UNKNOWN",
+  "exit_code": null,
+  "reason": "RECOVERY_RUNNING",
+  "audit_complete": false,
+  "stdout": null,
+  "stderr": null,
+  "started_at": 1735689600100,
+  "finished_at": 1735689600110,
+  "cleanup": "unconfirmed"
+}

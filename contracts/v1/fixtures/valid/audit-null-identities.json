@@ -1,0 +1,11 @@
+{
+  "id": 99,
+  "at": 1735689600100,
+  "actor_id": null,
+  "device_id": null,
+  "task_id": null,
+  "action": "user.login_failed",
+  "detail": {
+    "username_hash": "db09d473d4b6461b91bfa47e4fed3ef55e0234df4132ca7a827b0a69e8927cac"
+  }
+}

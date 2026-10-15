@@ -1,0 +1,41 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> linux-fleet@0.1.0 test:e2e
+> node --import ./apps/server/node_modules/tsx/dist/loader.mjs --test tests/e2e/fleet.test.ts
+
+▶ Linux Fleet real Rust / HTTPS / WSS vertical slice and fault recovery
+  ✔ TLS rejects untrusted CA, login required (105.096813ms)
+  ✔ actual Rust rejects an untrusted TLS CA and does not enroll (320.329194ms)
+  ✔ actual Rust enrollment, WSS heartbeat, correct TLS CA (137.73739ms)
+  ✔ stdout stderr exit status and identity durable audit (1437.507377ms)
+  ✔ HTTP idempotency and three same-ID deliveries never repeat side effects (1317.28984ms)
+  ✔ lost finished ACK and WSS disconnect replay result with no duplicate execution (2597.800625ms)
+  ✔ running task survives short token renewal and original token expiry (12505.160329ms)
+  ✔ binary stdout and concurrent stderr preserve exact bytes (791.840026ms)
+  ✔ single execution concurrency preserves sequential side effects (1455.958531ms)
+  ✔ timeout stops ordinary fork descendant; no false strong cleanup claim (1406.040264ms)
+  ✔ cancel running command records request separately and waits for evidence (923.935084ms)
+  ✔ output hard limit stops and marks audit incomplete (719.345722ms)
+  ✔ business/auditor/cross-device ops cannot arbitrary Exec (435.616386ms)
+  ✔ crash after durable RUNNING is UNKNOWN and never replayed (1502.378396ms)
+  ✔ crash after spawn preserves UNKNOWN and cleans verified remaining group (783.920624ms)
+  ✔ accepted, sealed-output and committed-result crash boundaries recover conservatively (2979.66773ms)
+  ✔ expired offline task never runs after reconnect (1959.424966ms)
+  ✔ real Rust recovers lost enrollment response using original private key (238.915807ms)
+  ✔ Ed25519 wrong proof/replay rejected and lost enrollment response recovers same ID (56.768041ms)
+  ✔ offline backup restore preserves task audit and complete output hashes (1077.221455ms)
+  ✔ revocation closes old connection and prevents reauthentication (1220.863589ms)
+✔ Linux Fleet real Rust / HTTPS / WSS vertical slice and fault recovery (34485.748139ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 40218.793809
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

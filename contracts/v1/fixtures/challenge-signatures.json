@@ -1,0 +1,63 @@
+{
+  "description": "Public RFC 8032 key signs Fleet v1 domain-separated bytes; terminal LF and empty fields are significant",
+  "seed_hex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "public_key_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+  "cases": [
+    {
+      "fields": {
+        "server_instance": "fleet-fixture-server",
+        "purpose": "enroll",
+        "challenge_id": "00000000-0000-4000-8000-000000000004",
+        "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+        "public_key": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+        "device_id": "",
+        "enrollment_token_sha256": "ec1ba5e48c4fd3dcc9eeac6bedd4386a32199f0509897abef8d9919e3041ad8f",
+        "expires_at": 1735689660000
+      },
+      "enrollment_token": "public-test-enrollment-token000000000000000",
+      "request": {
+        "v": 1,
+        "purpose": "enroll",
+        "public_key": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+        "enrollment_token": "public-test-enrollment-token000000000000000"
+      },
+      "response": {
+        "v": 1,
+        "challenge_id": "00000000-0000-4000-8000-000000000004",
+        "signing_payload": "ZmxlZXQtdjEKZmxlZXQtZml4dHVyZS1zZXJ2ZXIKZW5yb2xsCjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwNApBQUVDQXdRRkJnY0lDUW9MREEwT0R4QVJFaE1VRlJZWEdCa2FHeHdkSGg4PQoxMXFZQVlLeENyZlZTLzdUeVdRSE9nN2hjdlBhcGlNbHJ3SWFhUGNIVVJvPQoKZWMxYmE1ZTQ4YzRmZDNkY2M5ZWVhYzZiZWRkNDM4NmEzMjE5OWYwNTA5ODk3YWJlZjhkOTkxOWUzMDQxYWQ4ZgoxNzM1Njg5NjYwMDAwCg==",
+        "expires_at": 1735689660000
+      },
+      "signing_payload_utf8": "fleet-v1\nfleet-fixture-server\nenroll\n00000000-0000-4000-8000-000000000004\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\n11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n\nec1ba5e48c4fd3dcc9eeac6bedd4386a32199f0509897abef8d9919e3041ad8f\n1735689660000\n",
+      "signing_payload_hex": "666c6565742d76310a666c6565742d666978747572652d7365727665720a656e726f6c6c0a30303030303030302d303030302d343030302d383030302d3030303030303030303030340a41414543417751464267634943516f4c4441304f4478415245684d554652595847426b61477877644868383d0a3131715941594b7843726656532f3754795751484f6737686376506170694d6c727749616150634855526f3d0a0a656331626135653438633466643364636339656561633662656464343338366133323139396630353039383937616265663864393931396533303431616438660a313733353638393636303030300a",
+      "signature": "io0gQxMAItsw8xm2Lk+nsTQcn+2ynpaq/sR0GIVym94uGGR4qgGgf1F9B7yur0SJrI05zAhJ8Y/8eadT+AX/Ag=="
+    },
+    {
+      "fields": {
+        "server_instance": "fleet-fixture-server",
+        "purpose": "auth",
+        "challenge_id": "00000000-0000-4000-8000-000000000005",
+        "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+        "public_key": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+        "device_id": "00000000-0000-4000-8000-000000000002",
+        "enrollment_token_sha256": "",
+        "expires_at": 1735689660000
+      },
+      "enrollment_token": "",
+      "request": {
+        "v": 1,
+        "purpose": "auth",
+        "public_key": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+        "device_id": "00000000-0000-4000-8000-000000000002"
+      },
+      "response": {
+        "v": 1,
+        "challenge_id": "00000000-0000-4000-8000-000000000005",
+        "signing_payload": "ZmxlZXQtdjEKZmxlZXQtZml4dHVyZS1zZXJ2ZXIKYXV0aAowMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDUKQUFFQ0F3UUZCZ2NJQ1FvTERBME9EeEFSRWhNVUZSWVhHQmthR3h3ZEhoOD0KMTFxWUFZS3hDcmZWUy83VHlXUUhPZzdoY3ZQYXBpTWxyd0lhYVBjSFVSbz0KMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyCgoxNzM1Njg5NjYwMDAwCg==",
+        "expires_at": 1735689660000
+      },
+      "signing_payload_utf8": "fleet-v1\nfleet-fixture-server\nauth\n00000000-0000-4000-8000-000000000005\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\n11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n00000000-0000-4000-8000-000000000002\n\n1735689660000\n",
+      "signing_payload_hex": "666c6565742d76310a666c6565742d666978747572652d7365727665720a617574680a30303030303030302d303030302d343030302d383030302d3030303030303030303030350a41414543417751464267634943516f4c4441304f4478415245684d554652595847426b61477877644868383d0a3131715941594b7843726656532f3754795751484f6737686376506170694d6c727749616150634855526f3d0a30303030303030302d303030302d343030302d383030302d3030303030303030303030320a0a313733353638393636303030300a",
+      "signature": "bCKRxu6N8ebmdcXH2Sm2GB+5i5iixwoG1GF/2T3lxy2gHhQd/JDoMUGL+5iOUjkAar+PjY4wTmWWwLgZvPpODg=="
+    }
+  ]
+}

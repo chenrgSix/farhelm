@@ -1,0 +1,13 @@
+{
+  "id": 10,
+  "at": 1735689600109,
+  "actor_id": "00000000-0000-4000-8000-000000000003",
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "task_id": "00000000-0000-4000-8000-000000000001",
+  "action": "authorization.denied",
+  "detail": {
+    "reason": "DEVICE_SCOPE_DENIED",
+    "method": "GET",
+    "route": "/api/v1/tasks/:id"
+  }
+}

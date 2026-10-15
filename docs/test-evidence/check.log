@@ -1,0 +1,251 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> linux-fleet@0.1.0 check
+> npm --prefix apps/server run typecheck && npm --prefix apps/server test && npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix tests/contracts test && cargo test --manifest-path agent/Cargo.toml --locked
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> @linux-fleet/server@0.1.0 typecheck
+> tsc --noEmit
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> @linux-fleet/server@0.1.0 test
+> node --import tsx --test test/*.test.ts
+
+✔ user bootstrap and audit commit atomically or roll back together (123.950912ms)
+✔ durable Ed25519 enrollment, scoped RBAC, HTTPS objects, WSS ACK/replay and revocation (1269.00374ms)
+✔ strict bounds, authentication, short token expiry and contiguous events (2158.090638ms)
+✔ same-origin static assets are isolated, API paths never use SPA fallback (139.042094ms)
+✔ cross-device denial is auditable; malformed Unicode and huge frames reject (279.971235ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4404.098199
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> @linux-fleet/web@0.1.0 typecheck
+> vue-tsc --noEmit
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> @linux-fleet/web@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /workspace/shared/linux-fleet/apps/web
+
+ ✓ test/model.test.ts (16 tests) 25ms
+ ✓ test/client.test.ts (5 tests) 69ms
+ ✓ test/components.test.ts (9 tests) 784ms
+
+ Test Files  3 passed (3)
+      Tests  30 passed (30)
+   Start at  18:12:52
+   Duration  4.07s (transform 1.50s, setup 0ms, collect 2.48s, tests 878ms, environment 2.79s, prepare 581ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> fleet-contract-tests@1.0.0 test
+> node --test contracts.test.mjs
+
+✔ accept valid/challenge-enroll.json (10.702315ms)
+✔ accept valid/challenge-response-enroll.json (0.940284ms)
+✔ accept valid/challenge-auth.json (0.777904ms)
+✔ accept valid/challenge-response-auth.json (0.466239ms)
+✔ accept valid/challenge-auth-key-recovery.json (0.309441ms)
+✔ accept valid/enrollment.json (0.873735ms)
+✔ accept valid/enrollment-response.json (0.727638ms)
+✔ accept valid/auth.json (1.210486ms)
+✔ accept valid/auth-response.json (0.751164ms)
+✔ accept valid/task.json (3.066645ms)
+✔ accept valid/result-succeeded.json (3.798806ms)
+✔ accept valid/result-unknown.json (0.525115ms)
+✔ accept valid/result-no-execution.json (1.166435ms)
+✔ accept valid/event-accepted.json (2.510564ms)
+✔ accept valid/event-started.json (0.430511ms)
+✔ accept valid/event-finished.json (1.338626ms)
+✔ accept valid/event-no-execution-seq2.json (0.900027ms)
+✔ accept valid/envelope-agent.hello.json (4.079161ms)
+✔ accept valid/envelope-agent.heartbeat.json (0.379989ms)
+✔ accept valid/envelope-task.assign.json (0.867716ms)
+✔ accept valid/envelope-task.cancel.json (0.364776ms)
+✔ accept valid/envelope-task.event.json (0.7771ms)
+✔ accept valid/envelope-event.ack.json (0.579678ms)
+✔ accept valid/envelope-error.json (0.439356ms)
+✔ accept valid/command.json (2.971831ms)
+✔ accept valid/command-zero-output.json (0.451722ms)
+✔ accept valid/command-response.json (0.588675ms)
+✔ accept valid/enrollment-token-minimal.json (0.657478ms)
+✔ accept valid/enrollment-token-request.json (0.358136ms)
+✔ accept valid/enrollment-token-response.json (0.562357ms)
+✔ accept valid/user.json (0.662032ms)
+✔ accept valid/user-scoped.json (0.18449ms)
+✔ accept valid/login.json (0.36444ms)
+✔ accept valid/login-response.json (0.759324ms)
+✔ accept valid/me-response.json (0.997996ms)
+✔ accept valid/device.json (1.006974ms)
+✔ accept valid/devices-response.json (0.676793ms)
+✔ accept valid/task-detail.json (1.592483ms)
+✔ accept valid/task-response.json (1.403959ms)
+✔ accept valid/tasks-response.json (0.767717ms)
+✔ accept valid/cancel-request.json (0.333367ms)
+✔ accept valid/cancel-response.json (0.452497ms)
+✔ accept valid/revoke-request.json (0.325422ms)
+✔ accept valid/revoke-response.json (0.487251ms)
+✔ accept valid/artifact-response.json (0.447385ms)
+✔ reject invalid/task-extra-field.json (0.303288ms)
+✔ reject invalid/task-missing-field.json (0.29301ms)
+✔ reject invalid/task-empty-argv.json (0.332036ms)
+✔ reject invalid/task-null-byte-argv.json (0.288769ms)
+✔ reject invalid/task-relative-cwd.json (0.562173ms)
+✔ reject invalid/task-unsafe-number.json (0.393161ms)
+✔ reject invalid/task-fractional-time.json (0.862337ms)
+✔ reject invalid/task-negative-limit.json (0.208962ms)
+✔ reject invalid/task-too-large-output.json (0.160861ms)
+✔ reject invalid/task-uppercase-hash.json (0.142422ms)
+✔ reject invalid/task-action-shortcut.json (0.123232ms)
+✔ reject invalid/envelope-unknown-version.json (0.352081ms)
+✔ reject invalid/envelope-unknown-type.json (0.185854ms)
+✔ reject invalid/envelope-extra-token.json (0.282898ms)
+✔ reject invalid/envelope-task-field.json (0.24607ms)
+✔ reject invalid/command-spoof-actor.json (0.134555ms)
+✔ reject invalid/command-missing-version.json (7.038737ms)
+✔ reject invalid/command-invalid-version.json (0.273733ms)
+✔ reject invalid/command-timeout-zero.json (0.319455ms)
+✔ reject invalid/command-unknown-option.json (0.224339ms)
+✔ reject invalid/challenge-enroll-missing-token.json (0.228022ms)
+✔ reject invalid/challenge-auth-token.json (0.137766ms)
+✔ reject invalid/challenge-enroll-device.json (0.194156ms)
+✔ reject invalid/challenge-malformed-key.json (0.18245ms)
+✔ reject invalid/challenge-noncanonical-key.json (0.150362ms)
+✔ reject invalid/auth-short-signature.json (0.140649ms)
+✔ reject invalid/event-zero-sequence.json (0.182502ms)
+✔ reject invalid/event-invalid-uuid.json (0.111041ms)
+✔ reject invalid/event-accepted-payload.json (0.130593ms)
+✔ reject invalid/event-started-payload.json (0.158778ms)
+✔ reject invalid/event-extra-field.json (0.165083ms)
+✔ reject invalid/result-missing-artifacts.json (0.087867ms)
+✔ reject invalid/result-unknown-complete-missing.json (0.076473ms)
+✔ reject invalid/result-empty-artifact-after-start.json (0.306084ms)
+✔ reject invalid/result-artifact-extra.json (0.579398ms)
+✔ reject invalid/result-not-started-timestamp.json (0.185903ms)
+✔ reject invalid/result-extra-property.json (0.134681ms)
+✔ reject invalid/login-versioned.json (0.079642ms)
+✔ reject invalid/device-false-health.json (0.076818ms)
+✔ reject invalid/user-unknown-role.json (0.061642ms)
+✔ reject invalid/user-duplicate-scope.json (0.529203ms)
+✔ reject invalid/cancel-request-extra.json (0.216597ms)
+✔ reject invalid/artifact-response-too-large.json (0.090034ms)
+✔ accept valid/command-bare-executable.json (0.084907ms)
+✔ accept valid/result-unknown-captured.json (0.098866ms)
+✔ accept valid/result-no-execution-null.json (0.14268ms)
+✔ accept valid/result-no-execution-empty.json (0.09054ms)
+✔ accept valid/error-response.json (0.301689ms)
+✔ accept valid/health-response.json (0.525024ms)
+✔ reject invalid/command-relative-executable.json (0.312229ms)
+✔ reject invalid/result-unknown-complete-captured.json (0.185827ms)
+✔ reject invalid/result-no-execution-success.json (0.170449ms)
+✔ reject invalid/result-expired-after-start.json (0.234323ms)
+✔ accept valid/audit-user.bootstrap.json (9.565211ms)
+✔ accept valid/audit-user.login.json (0.606374ms)
+✔ accept valid/audit-user.login_failed.json (0.302557ms)
+✔ accept valid/audit-enrollment.created.json (0.262593ms)
+✔ accept valid/audit-device.enrolled.json (0.467175ms)
+✔ accept valid/audit-device.revoked.json (0.21834ms)
+✔ accept valid/audit-task.created.json (0.936065ms)
+✔ accept valid/audit-task.cancel_requested.json (0.72874ms)
+✔ accept valid/audit-output.viewed.json (5.468107ms)
+✔ accept valid/audit-authorization.denied.json (0.442882ms)
+✔ accept valid/audit-task.accepted.json (0.436635ms)
+✔ accept valid/audit-task.started.json (0.237453ms)
+✔ accept valid/audit-task.finished.json (0.209119ms)
+✔ accept valid/audit-response.json (1.312697ms)
+✔ accept valid/audit-null-identities.json (0.277049ms)
+✔ reject invalid/audit-unregistered-action.json (0.960196ms)
+✔ reject invalid/audit-wrong-detail-shape.json (0.245263ms)
+✔ reject invalid/audit-nested-extra-field.json (0.692276ms)
+✔ every public schema has at least one positive fixture (0.694677ms)
+✔ all concrete object declarations are closed (2.621212ms)
+✔ unknown fields are rejected recursively in every positive fixture (33.335073ms)
+✔ canonical task fixture fixes exact UTF-8 bytes and SHA256 (2.789921ms)
+✔ schema rejects non-interoperable strings and non-integer numeric limits (0.556689ms)
+✔ Ed25519 matches RFC 8032 section 7.1 TEST 1 exactly (6.718772ms)
+✔ challenge signatures bind exact fields, empty lines and terminal LF (7.332261ms)
+✔ frame limit is UTF-8 bytes, a transport invariant beyond JSON Schema (0.425093ms)
+✔ public helper accepts names and reports errors without mutating inputs (2.245245ms)
+ℹ tests 125
+ℹ suites 0
+ℹ pass 125
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 969.992297
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src/lib.rs (agent/target/debug/deps/fleet_agent-3a719f9952e77f15)
+
+running 21 tests
+test config::tests::single_instance_lock_rejects_second_owner ... ok
+test config::tests::missing_journal_does_not_create_new_identity ... ok
+test executor::execution_tests::restart_running_is_unknown_and_never_requeued ... ok
+test executor::tests::capture_is_bounded_and_reports_overflow ... ok
+test executor::execution_tests::capture_unavailable_never_spawns_and_marks_audit_incomplete ... ok
+test executor::execution_tests::disabled_backend_never_spawns ... ok
+test executor::tests::refuses_reused_pid_identity ... ok
+test identity::tests::rfc8032_vector ... ok
+test identity::tests::challenge_binds_context ... ok
+test identity::tests::key_is_persistent_and_private ... ok
+test protocol::tests::hash_is_stable_and_binds_fields ... ok
+test protocol::tests::rejects_injected_task_fields ... ok
+test protocol::tests::rejects_wrong_identity_and_unknown_version ... ok
+test journal::tests::durable_dedupe_and_ack_identity ... ok
+test journal::tests::state_and_events_are_atomic_and_monotonic ... ok
+test executor::execution_tests::child_cannot_gain_new_privileges ... ok
+test executor::execution_tests::real_process_captures_both_streams_and_nonzero_exit ... ok
+test executor::execution_tests::execution_has_only_allowlisted_environment ... ok
+test executor::execution_tests::output_overflow_stops_child_and_marks_incomplete ... ok
+test executor::execution_tests::timeout_kills_regular_fork_child_but_does_not_overclaim ... ok
+test executor::execution_tests::setsid_escape_is_unconfirmed_and_test_cleans_its_process ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.43s
+
+     Running unittests src/main.rs (agent/target/debug/deps/fleet_agent-beee5c69ab9b3093)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/contracts.rs (agent/target/debug/deps/contracts-cab3cf1db42e8a5c)
+
+running 2 tests
+test shared_canonical_task_fixture_matches ... ok
+test shared_challenge_signatures_match ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests fleet_agent
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

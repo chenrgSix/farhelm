@@ -1,0 +1,14 @@
+{
+  "status": "SUCCEEDED",
+  "exit_code": 0,
+  "reason": null,
+  "audit_complete": true,
+  "stdout": {},
+  "stderr": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "started_at": 1735689600100,
+  "finished_at": 1735689600110,
+  "cleanup": "process_group"
+}

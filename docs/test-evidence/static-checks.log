@@ -1,0 +1,9 @@
+    Checking fleet-agent v0.1.0 (/workspace/shared/linux-fleet/agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.88s
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> linux-fleet@0.1.0 format:check
+> prettier --check "apps/**/*.{ts,vue,css,json}" "tests/**/*.{ts,mjs,json}" --ignore-path .gitignore
+
+Checking formatting...
+All matched files use Prettier code style!

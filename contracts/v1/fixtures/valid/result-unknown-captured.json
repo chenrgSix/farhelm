@@ -1,0 +1,17 @@
+{
+  "status": "UNKNOWN",
+  "exit_code": null,
+  "reason": "RECOVERY_RUNNING",
+  "audit_complete": false,
+  "stdout": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "stderr": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "started_at": 1735689600100,
+  "finished_at": 1735689600110,
+  "cleanup": "unconfirmed"
+}

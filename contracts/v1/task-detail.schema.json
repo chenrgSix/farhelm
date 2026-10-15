@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/task-detail.schema.json",
+  "title": "Fleet v1 task-detail",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "actor_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "action": {
+      "const": "exec"
+    },
+    "argv": {
+      "$ref": "common.schema.json#/$defs/argv"
+    },
+    "cwd": {
+      "$ref": "common.schema.json#/$defs/cwd"
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "expires_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "timeout_ms": {
+      "$ref": "common.schema.json#/$defs/timeout_ms"
+    },
+    "max_output_bytes": {
+      "$ref": "common.schema.json#/$defs/max_output_bytes"
+    },
+    "payload_hash": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "status": {
+      "$ref": "common.schema.json#/$defs/task_status"
+    },
+    "last_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "cancel_requested": {
+      "type": "boolean"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "result.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "task_id",
+    "device_id",
+    "actor_id",
+    "action",
+    "argv",
+    "cwd",
+    "created_at",
+    "expires_at",
+    "timeout_ms",
+    "max_output_bytes",
+    "payload_hash",
+    "status",
+    "last_seq",
+    "cancel_requested",
+    "result"
+  ]
+}
