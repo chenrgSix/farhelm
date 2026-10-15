@@ -113,6 +113,16 @@ export class ApiClient {
       } catch {
         /* Untrusted error body is optional. */
       }
+      const upgradeHints: Record<string, string> = {
+        AGENT_UPGRADE_IN_PROGRESS:
+          "设备正在升级，现有操作结束后自动切换，请稍后重试",
+        AGENT_UPGRADE_NOT_SUPPORTED:
+          "所选设备尚不支持远程升级，请先更新基础程序",
+        AGENT_RELEASE_CHANGED: "发布版本已更新，请刷新升级状态后重新选择",
+        AGENT_DOWNGRADE_NOT_ALLOWED: "设备版本高于已发布版本，不能降级",
+      };
+      if (upgradeHints[reason])
+        throw new ApiError(upgradeHints[reason], response.status);
       const hints: Record<number, string> = {
         401: "登录已失效或凭据错误",
         403: "无权进行此操作",

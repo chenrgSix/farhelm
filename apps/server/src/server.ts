@@ -25,6 +25,7 @@ import { registerHealth } from "./health.js";
 import { registerDeviceConnections } from "./device-connections.js";
 import { registerAgentInstall } from "./agent-install.js";
 import { registerSettings } from "./settings.js";
+import { registerAgentUpgrades, type UpgradeInfo } from "./agent-upgrades.js";
 import {
   ApiError,
   fail,
@@ -59,6 +60,7 @@ interface Connection {
   terminal: boolean;
   health: boolean;
   address: boolean;
+  upgrade?: UpgradeInfo;
   healthSession: string;
 }
 const MAX_OBJECT = 1048576;
@@ -347,13 +349,26 @@ export async function buildServer(config: ServerConfig) {
         : undefined;
     },
   });
-  registerAgentInstall(app, {
+  const agentInstall = registerAgentInstall(app, {
     store,
     config,
     admin,
     rate,
     serverUrl: () => settings.current().platform_server_url,
     online: (id) => !!connections.get(id)?.ready && live(connections.get(id)!),
+  });
+  const upgrades = registerAgentUpgrades(app, {
+    store,
+    admin,
+    deviceAuth,
+    distDir: config.agentInstall?.distDir,
+    artifact: agentInstall.artifact,
+    agent: (id) => {
+      const c = connections.get(id);
+      return c?.ready && live(c)
+        ? { info: c.upgrade, send: (type, body) => send(c, type, body) }
+        : undefined;
+    },
   });
   const deviceConnections = registerDeviceConnections(app, {
     store,
@@ -393,6 +408,9 @@ export async function buildServer(config: ServerConfig) {
     requireScope,
     inScope,
     availableStorage,
+    requireAvailable: (id) => {
+      if (upgrades.active(id)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
+    },
     rate,
     consoleOrigin: config.consoleOrigin,
     agent(id) {
@@ -863,6 +881,7 @@ export async function buildServer(config: ServerConfig) {
       const row = store.task(existing.task_id);
       return { v: 1, task_id: row.id, status: row.status };
     }
+    if (upgrades.active(deviceId)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
     availableStorage();
     const pending = (
       db
@@ -1355,7 +1374,7 @@ export async function buildServer(config: ServerConfig) {
             String(env.type).startsWith("terminal.") ? 12000 : 1200,
           );
           if (env.type === "agent.hello" || env.type === "agent.heartbeat") {
-            keys(b, ["agent_version", "capabilities", "server_url"]);
+            keys(b, ["agent_version", "capabilities", "server_url", "runtime"]);
             if (b.capabilities !== undefined) {
               if (
                 !Array.isArray(b.capabilities) ||
@@ -1370,6 +1389,14 @@ export async function buildServer(config: ServerConfig) {
               c.address = b.capabilities.includes("agent.address.v1");
             }
             const agentVersion = str(b.agent_version, 1, 128);
+            if (env.type === "agent.hello")
+              c.upgrade = upgrades.remember(
+                c.deviceId,
+                agentVersion,
+                b.runtime,
+                Array.isArray(b.capabilities) &&
+                  b.capabilities.includes("agent.upgrade.v1"),
+              );
             if (env.type === "agent.heartbeat" && !c.ready)
               fail(400, "HELLO_REQUIRED");
             c.lastHeartbeat = Date.now();
@@ -1392,6 +1419,9 @@ export async function buildServer(config: ServerConfig) {
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
             }
+          } else if (env.type === "agent.upgrade.result") {
+            if (!c.ready || !c.upgrade?.supported) fail(400, "HELLO_REQUIRED");
+            upgrades.result(c.deviceId, b);
           } else if (env.type === "agent.address.result") {
             if (!c.ready || !c.address) fail(400, "HELLO_REQUIRED");
             settings.sync.result(c.deviceId, b);
@@ -1499,6 +1529,7 @@ export async function buildServer(config: ServerConfig) {
       ++ticks;
       terminals.tick();
       settings.sync.flush();
+      upgrades.tick();
       for (const c of connections.values()) {
         if (!live(c) || now - c.lastHeartbeat > heartbeatTimeout) {
           terminals.disconnect(c.deviceId);

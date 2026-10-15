@@ -20,6 +20,7 @@ import DeviceConnectionPanel from "./components/DeviceConnectionPanel.vue";
 import AddDevicePanel from "./components/AddDevicePanel.vue";
 import AgentInstallPanel from "./components/AgentInstallPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
+import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -29,7 +30,8 @@ const username = ref("");
 const password = ref("");
 const loginBusy = ref(false);
 const loginError = ref("");
-type View = "devices" | "tasks" | "audit" | "terminals" | "settings";
+type View =
+  "devices" | "tasks" | "audit" | "terminals" | "settings" | "upgrades";
 const view = ref<View>("devices");
 const closingSession = ref<string | null>(null);
 const terminalSessions = ref<TerminalSession[]>([]);
@@ -68,7 +70,10 @@ const navigation = computed(
       { id: "tasks", label: "任务中心", icon: "≡" },
       { id: "audit", label: "操作审计", icon: "◷" },
       ...(user.value?.role === "admin"
-        ? [{ id: "settings", label: "系统设置", icon: "⚙" } as const]
+        ? [
+            { id: "upgrades", label: "Agent 升级", icon: "↑" } as const,
+            { id: "settings", label: "系统设置", icon: "⚙" } as const,
+          ]
         : []),
     ] as const,
 );
@@ -78,6 +83,7 @@ const titles = {
   audit: ["操作审计", "平台内操作、授权与输出查看的持久化记录"],
   terminals: ["终端会话", "查看连接记录与会话回放"],
   settings: ["系统设置", "管理平台配置，保存后立即生效"],
+  upgrades: ["Agent 升级", "批量更新，跟踪每台设备的真实升级结果"],
 };
 const filteredDevices = computed(() =>
   devices.value.filter((d) =>
@@ -266,7 +272,8 @@ async function onCreated(id: string) {
   await selectTask(id);
 }
 function switchView(id: View) {
-  if (id === "settings" && user.value?.role !== "admin") return;
+  if (["settings", "upgrades"].includes(id) && user.value?.role !== "admin")
+    return;
   view.value = id;
   search.value = "";
 }
@@ -432,7 +439,7 @@ onBeforeUnmount(() => {
               lastUpdated ? `更新于 ${formatTime(lastUpdated)}` : "尚未获取数据"
             }}</span
           ><button
-            v-if="view !== 'settings'"
+            v-if="view !== 'settings' && view !== 'upgrades'"
             class="button secondary small"
             :disabled="refreshing"
             @click="refresh"
@@ -511,8 +518,11 @@ onBeforeUnmount(() => {
           v-if="view === 'settings' && user.role === 'admin'"
           @saved="refresh"
         />
+        <AgentUpgradePanel
+          v-if="view === 'upgrades' && user.role === 'admin'"
+        />
         <div
-          v-if="view !== 'settings'"
+          v-if="view !== 'settings' && view !== 'upgrades'"
           class="content-grid"
           :class="{ 'with-exec': execOpen }"
         >

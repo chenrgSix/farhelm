@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "agent.hello",
+  "body": {
+    "agent_version": "0.2.1",
+    "capabilities": ["agent.upgrade.v1"],
+    "runtime": {
+      "arch": "aarch64",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

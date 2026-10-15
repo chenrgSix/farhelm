@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-upgrade-batch-response.schema.json",
+  "title": "Farhelm v1 agent-upgrade-batch-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "batch_id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    }
+  },
+  "required": ["v", "batch_id"]
+}

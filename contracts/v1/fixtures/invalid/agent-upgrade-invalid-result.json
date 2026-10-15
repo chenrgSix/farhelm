@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "agent.upgrade.result",
+  "body": {
+    "upgrade_id": "00000000-0000-4000-8000-000000000001",
+    "status": "SUCCEEDED",
+    "reason": "TRIAL_FAILED"
+  }
+}

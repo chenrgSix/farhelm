@@ -6,6 +6,7 @@ use crate::{
     journal::Journal,
     now_ms,
     protocol::{envelope, Envelope, Event, Task, MAX_FRAME},
+    upgrade::{self, Spec as UpgradeSpec, State as UpgradeState},
 };
 use anyhow::{ensure, Context, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -22,11 +23,16 @@ use tokio_tungstenite::{
     Connector,
 };
 
-pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<()> {
+enum SessionEnd {
+    Reconnect,
+    Upgrade,
+}
+pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i32> {
     let identity = Arc::new(identity);
     let http = cfg.http_client()?;
     let tls = cfg.tls_config()?;
     let mut failures = 0u32;
+    let running_hash = upgrade::current_hash()?;
     loop {
         let selected = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
         let result = async {
@@ -38,10 +44,14 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<()
                 &access,
                 tls.clone(),
                 identity.clone(),
+                &running_hash,
             )
             .await
         }
         .await;
+        if matches!(result, Ok(SessionEnd::Upgrade)) {
+            return Ok(upgrade::RESTART_EXIT);
+        }
         if let Err(error) = result {
             AddressState::load(&cfg, &journal)?.rollback(&journal)?;
             eprintln!("control connection unavailable: {error:#}");
@@ -125,19 +135,28 @@ async fn session(
     access: &Access,
     tls: Arc<rustls::ClientConfig>,
     identity: Arc<Identity>,
-) -> Result<()> {
+    running_hash: &str,
+) -> Result<SessionEnd> {
     let mut access = access.clone();
     let mut socket = connect(cfg, &access, tls, "/agent/ws").await?;
     socket
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":["terminal.pty.v1","health.probes.v1","agent.address.v1"],"server_url":cfg.server.origin().ascii_serialization()}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash}}),
             )?
             .into(),
         ))
         .await?;
     ready(&mut socket, journal).await?;
+    if let Some(state) = upgrade::connected(journal, running_hash)? {
+        socket
+            .send(Message::Text(
+                envelope("agent.upgrade.result", state.receipt())?.into(),
+            ))
+            .await?;
+    }
+    let mut downloads = tokio::task::JoinSet::<(UpgradeSpec, Result<()>)>::new();
     let mut address = AddressState::load(cfg, journal)?;
     address.confirmed(cfg, journal)?;
     if let Some(receipt) = &address.receipt {
@@ -166,6 +185,12 @@ async fn session(
     tokio::pin!(renew);
     loop {
         tokio::select! {
+            Some(downloaded)=downloads.join_next(), if !downloads.is_empty()=>{
+                let (spec,result)=downloaded?;
+                let state=UpgradeState{spec,status:if result.is_ok(){"WAITING_IDLE"}else{"FAILED"}.into(),reason:if result.is_ok(){None}else{Some("DOWNLOAD_FAILED".into())}};
+                state.save(journal)?;
+                socket.send(Message::Text(envelope("agent.upgrade.result",state.receipt())?.into())).await?;
+            }
             Some(probed)=probes.join_next(), if !probes.is_empty()=>{
                 let (update,result)=probed?;
                 let previous=address.clone();
@@ -205,9 +230,18 @@ async fn session(
             Some(body)=health_events.recv()=>{socket.send(Message::Text(envelope("health.result",body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
             _=outbox.tick(), if uploads.is_empty()=>{
+                if upgrade::supervised() && downloads.is_empty() && terminals.is_idle() && terminal_events.is_empty() && journal.upgrade_idle()? {
+                    if let Some(mut state)=UpgradeState::load(journal)? {
+                        if state.status=="WAITING_IDLE" {
+                            state.status="RESTARTING".into();state.save(journal)?;
+                            let _=socket.send(Message::Text(envelope("agent.upgrade.result",state.receipt())?.into())).await;
+                            let _=socket.close(None).await;return Ok(SessionEnd::Upgrade);
+                        }
+                    }
+                }
                 if address.pending.is_some() && probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
                     socket.close(None).await?;
-                    return Ok(());
+                    return Ok(SessionEnd::Reconnect);
                 }
                 if let Some(event)=journal.first_outbox()?{
                     let cfg=cfg.clone();let journal=journal.clone();let http=http.clone();let access=access.clone();
@@ -227,6 +261,22 @@ async fn session(
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.upgrade"=>{
+                                ensure!(upgrade::supervised(),"upgrade requires supervisor");
+                                let spec:UpgradeSpec=serde_json::from_value(envelope.body)?;spec.validate()?;
+                                if let Some(state)=UpgradeState::load(journal)? {
+                                    if state.spec.upgrade_id==spec.upgrade_id && (state.status!="DOWNLOADING" || !downloads.is_empty()) {
+                                        socket.send(Message::Text(crate::protocol::envelope("agent.upgrade.result",state.receipt())?.into())).await?;continue;
+                                    }
+                                    ensure!(state.spec.upgrade_id==spec.upgrade_id || ["SUCCEEDED","FAILED"].contains(&state.status.as_str()),"upgrade already in progress");
+                                }
+                                let state=UpgradeState{spec:spec.clone(),status:if spec.sha256==running_hash{"SUCCEEDED"}else{"DOWNLOADING"}.into(),reason:None};state.save(journal)?;
+                                socket.send(Message::Text(crate::protocol::envelope("agent.upgrade.result",state.receipt())?.into())).await?;
+                                if spec.sha256!=running_hash {
+                                    let cfg=cfg.clone();let http=http.clone();let access=access.clone();
+                                    downloads.spawn(async move {let result=tokio::time::timeout(Duration::from_secs(120),upgrade::download(&cfg,&http,&access,&spec)).await.map_err(anyhow::Error::from).and_then(|x|x);(spec,result)});
+                                }
+                            }
                             "agent.address.update"=>{
                                 let update:AddressUpdate=serde_json::from_value(envelope.body)?;update.validate()?;
                                 if let Some(receipt)=&address.receipt {
@@ -255,7 +305,7 @@ async fn session(
                     }
                     Message::Ping(bytes)=>socket.send(Message::Pong(bytes)).await?,
                     Message::Pong(_)=>(),
-                    Message::Close(_)=>return Ok(()),
+                    Message::Close(_)=>return Ok(SessionEnd::Reconnect),
                     _=>anyhow::bail!("unexpected non-text control message"),
                 }
             }

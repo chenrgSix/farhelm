@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-upgrades-response.schema.json",
+  "title": "Farhelm v1 agent-upgrades-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "releases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "enum": ["aarch64", "x86_64"]
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+          },
+          "sha256": {
+            "$ref": "common.schema.json#/$defs/sha256"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 64,
+            "maximum": 67108864
+          }
+        },
+        "required": ["arch", "version", "sha256", "size"]
+      }
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "name": {
+            "$ref": "common.schema.json#/$defs/name"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "arch": {
+            "anyOf": [
+              {
+                "enum": ["aarch64", "x86_64"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "$ref": "common.schema.json#/$defs/sha256"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "online": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "device_id",
+          "name",
+          "version",
+          "arch",
+          "sha256",
+          "supported",
+          "online"
+        ]
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/uuid"
+          },
+          "batch_id": {
+            "$ref": "common.schema.json#/$defs/uuid"
+          },
+          "device_id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "arch": {
+            "enum": ["aarch64", "x86_64"]
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+          },
+          "sha256": {
+            "$ref": "common.schema.json#/$defs/sha256"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 64,
+            "maximum": 67108864
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "DOWNLOADING",
+              "WAITING_IDLE",
+              "RESTARTING",
+              "SUCCEEDED",
+              "FAILED",
+              "UNKNOWN"
+            ]
+          },
+          "reason": {
+            "enum": [
+              null,
+              "DOWNLOAD_FAILED",
+              "PACKAGE_INVALID",
+              "PERSIST_FAILED",
+              "TRIAL_FAILED",
+              "BUSY_EXPIRED",
+              "REVOKED",
+              "PACKAGE_MISSING",
+              "RESULT_UNCONFIRMED"
+            ]
+          },
+          "created_at": {
+            "$ref": "common.schema.json#/$defs/timestamp"
+          },
+          "updated_at": {
+            "$ref": "common.schema.json#/$defs/timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "batch_id",
+          "device_id",
+          "arch",
+          "version",
+          "sha256",
+          "size",
+          "status",
+          "reason",
+          "created_at",
+          "updated_at"
+        ]
+      }
+    }
+  },
+  "required": ["v", "releases", "devices", "jobs"]
+}

@@ -42,6 +42,7 @@ interface Dependencies {
   requireScope(user: User, id: string): void;
   inScope(user: User, id: string): boolean;
   availableStorage(): void;
+  requireAvailable?(id: string): void;
   connections: {
     kind(id: string): "agent" | "ssh";
     open(
@@ -197,6 +198,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     if (!authorized({ deviceId, actorId: user.id, userSession }))
       fail(403, "TERMINAL_NOT_AUTHORIZED");
     const backend = d.connections.kind(deviceId);
+    d.requireAvailable?.(deviceId);
     if (backend === "agent") {
       const agent = d.agent(deviceId);
       if (!agent) fail(409, "DEVICE_OFFLINE");

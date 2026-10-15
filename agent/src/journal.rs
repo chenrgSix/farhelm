@@ -72,6 +72,19 @@ impl Journal {
         self.0.lock().unwrap().execute("INSERT INTO metadata(key,value) VALUES('platform_address',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value])?;
         Ok(())
     }
+    pub fn set_upgrade(&self, state: &str, release: Option<&str>) -> Result<()> {
+        let mut c = self.0.lock().unwrap();
+        let tx = c.transaction()?;
+        tx.execute("INSERT INTO metadata(key,value) VALUES('agent_upgrade',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[state])?;
+        if let Some(value) = release {
+            tx.execute("INSERT INTO metadata(key,value) VALUES('agent_release',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn upgrade_idle(&self) -> Result<bool> {
+        Ok(self.0.lock().unwrap().query_row("SELECT NOT EXISTS(SELECT 1 FROM tasks WHERE status IN ('ACCEPTED','RUNNING')) AND NOT EXISTS(SELECT 1 FROM outbox)",[],|r|r.get(0))?)
+    }
     pub fn accept(&self, t: &Task) -> Result<bool> {
         let mut c = self.0.lock().unwrap();
         let tx = c.transaction()?;

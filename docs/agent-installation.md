@@ -19,7 +19,7 @@ npm run build:agent:installers
 # 也可以只构建指定架构：bash scripts/build-agent-installers.sh amd64
 ```
 
-默认输出到 `.dev/agent-dist/`，包含 `farhelm-agent-linux-x86_64` 和 `farhelm-agent-linux-aarch64`。构建使用锁定的 Cargo 依赖；目标服务器不需要 Rust、C 编译器或特定 glibc 版本。将包放入平台配置的目录，部署与当前服务端匹配的版本。
+默认输出到 `.dev/agent-dist/`，包含 `farhelm-agent-linux-x86_64`、`farhelm-agent-linux-aarch64` 及对应 `.json` 版本清单。构建使用锁定的 Cargo 依赖；目标服务器不需要 Rust、C 编译器或特定 glibc 版本。将包放入平台配置的目录，部署与当前服务端匹配的版本。
 
 服务端配置：
 
@@ -46,7 +46,7 @@ export FLEET_AGENT_CA_CERT=/srv/farhelm/tls/ca.crt
 - 新地址保存在 Agent 私有 journal 的 `platform_address` 配置中，优先于原 `FLEET_SERVER_URL`，因此普通账号也可保存，无需修改 root 所有的环境文件。身份和 journal 必须一起保留；不能删除 journal 来“重置配置”。
 - 目标连接失败会恢复之前的地址并报告失败；无法确定结果的超时显示待核对，不冒充已完成。最新版本和请求 ID 防止延迟回执覆盖更新的配置。
 - 离线 Agent 在重新连接原入口后补同步；切换期间必须保留旧地址入口，直到所有设备完成。已失联且无法访问旧入口的机器无法远程接收新配置。
-- 旧版 Agent 不支持此协议，会显示「需升级 Agent」，平台不会向它发送未知消息。先更新服务端，再升级 Agent 二进制并保留原身份和 journal。此功能不提供远程二进制升级；本次构建的新安装包包含地址同步支持。
+- 旧版 Agent 不支持此协议，会显示「需升级 Agent」，平台不会向它发送未知消息。先更新服务端，再升级 Agent 二进制并保留原身份和 journal。支持升级协议的设备可在前端「Agent 升级」批量更新，详见 [Agent 批量升级](agent-upgrades.md)。
 
 API：`GET /api/v1/settings/agent-sync` 返回当前配置版本和逐设备状态；`POST /api/v1/settings/agent-sync` 接收 `v: 1` 和当前 `revision`，为未完成的设备重试，过期版本返回 409。正在校验、已保存和已完成的设备不会被重复启动迁移。
 
@@ -76,7 +76,7 @@ API：
 - systemd：`systemctl status farhelm-agent`、`journalctl -u farhelm-agent`、`systemctl restart farhelm-agent`。
 - 后台模式：root 读取 `/var/log/farhelm-agent.log`；重启前先检查 `/etc/farhelm-agent/background.pid` 对应进程，确认旧 Agent 已停止，再运行 `nohup /usr/local/libexec/farhelm-agent-background >/var/log/farhelm-agent.log 2>&1 &`。Agent 状态锁拒绝同时启动第二个实例。
 
-不要删除或单独复制身份/journal 来重新安装；二者必须成对保留。该安装器不提供自动升级、卸载或设备迁移。
+不要删除或单独复制身份/journal 来重新安装；二者必须成对保留。该安装器不覆盖已有安装。后续版本更新使用 [Agent 批量升级](agent-upgrades.md)；卸载和设备迁移需单独处理。
 
 ## 验证
 

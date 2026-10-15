@@ -1,0 +1,13 @@
+{
+  "id": 1,
+  "at": 1,
+  "actor_id": null,
+  "device_id": "d1",
+  "task_id": null,
+  "action": "agent.upgrade_status",
+  "detail": {
+    "upgrade_id": "00000000-0000-4000-8000-000000000001",
+    "status": "SUCCEEDED",
+    "reason": null
+  }
+}

@@ -70,7 +70,9 @@
         "connection.tested",
         "settings.updated",
         "settings.agent_sync",
-        "settings.sync_requested"
+        "settings.sync_requested",
+        "agent.upgrade_requested",
+        "agent.upgrade_status"
       ]
     },
     "detail": {
@@ -448,6 +450,60 @@
             }
           },
           "required": ["revision"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "upgrade_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "batch_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+            },
+            "sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            }
+          },
+          "required": ["upgrade_id", "batch_id", "version", "sha256"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "upgrade_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "status": {
+              "enum": [
+                "QUEUED",
+                "DOWNLOADING",
+                "WAITING_IDLE",
+                "RESTARTING",
+                "SUCCEEDED",
+                "FAILED",
+                "UNKNOWN"
+              ]
+            },
+            "reason": {
+              "enum": [
+                null,
+                "DOWNLOAD_FAILED",
+                "PACKAGE_INVALID",
+                "PERSIST_FAILED",
+                "TRIAL_FAILED",
+                "BUSY_EXPIRED",
+                "REVOKED",
+                "PACKAGE_MISSING",
+                "RESULT_UNCONFIRMED"
+              ]
+            }
+          },
+          "required": ["upgrade_id", "status", "reason"]
         }
       ]
     }
@@ -1170,6 +1226,86 @@
               }
             },
             "required": ["revision"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "agent.upgrade_requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "upgrade_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "batch_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+              },
+              "sha256": {
+                "$ref": "common.schema.json#/$defs/sha256"
+              }
+            },
+            "required": ["upgrade_id", "batch_id", "version", "sha256"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "agent.upgrade_status"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "upgrade_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "status": {
+                "enum": [
+                  "QUEUED",
+                  "DOWNLOADING",
+                  "WAITING_IDLE",
+                  "RESTARTING",
+                  "SUCCEEDED",
+                  "FAILED",
+                  "UNKNOWN"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  null,
+                  "DOWNLOAD_FAILED",
+                  "PACKAGE_INVALID",
+                  "PERSIST_FAILED",
+                  "TRIAL_FAILED",
+                  "BUSY_EXPIRED",
+                  "REVOKED",
+                  "PACKAGE_MISSING",
+                  "RESULT_UNCONFIRMED"
+                ]
+              }
+            },
+            "required": ["upgrade_id", "status", "reason"]
           }
         }
       }

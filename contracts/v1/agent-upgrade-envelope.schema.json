@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-upgrade-envelope.schema.json",
+  "title": "Farhelm v1 agent-upgrade-envelope",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.upgrade"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "upgrade_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "arch": {
+              "enum": ["aarch64", "x86_64"]
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+            },
+            "sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 67108864
+            }
+          },
+          "required": ["upgrade_id", "arch", "version", "sha256", "size"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.upgrade.result"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "upgrade_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "status": {
+              "enum": [
+                "DOWNLOADING",
+                "WAITING_IDLE",
+                "RESTARTING",
+                "SUCCEEDED",
+                "FAILED"
+              ]
+            },
+            "reason": {
+              "enum": [
+                null,
+                "DOWNLOAD_FAILED",
+                "PACKAGE_INVALID",
+                "PERSIST_FAILED",
+                "TRIAL_FAILED",
+                "BUSY_EXPIRED",
+                "REVOKED",
+                "PACKAGE_MISSING",
+                "RESULT_UNCONFIRMED"
+              ]
+            }
+          },
+          "required": ["upgrade_id", "status", "reason"],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "FAILED"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "DOWNLOAD_FAILED",
+                      "PACKAGE_INVALID",
+                      "PERSIST_FAILED",
+                      "TRIAL_FAILED",
+                      "BUSY_EXPIRED",
+                      "REVOKED",
+                      "PACKAGE_MISSING",
+                      "RESULT_UNCONFIRMED"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": ["v", "type", "body"]
+    }
+  ]
+}

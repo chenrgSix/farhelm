@@ -8,6 +8,7 @@ pub mod identity;
 pub mod journal;
 pub mod protocol;
 pub mod terminal;
+pub mod upgrade;
 
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()

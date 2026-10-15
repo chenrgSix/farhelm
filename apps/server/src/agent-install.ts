@@ -254,4 +254,5 @@ export function registerAgentInstall(
       return reply.type("application/octet-stream").send(file.bytes);
     },
   );
+  return { artifact };
 }

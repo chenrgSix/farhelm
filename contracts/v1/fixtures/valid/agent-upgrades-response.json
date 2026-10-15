@@ -1,0 +1,37 @@
+{
+  "v": 1,
+  "releases": [
+    {
+      "arch": "aarch64",
+      "version": "0.2.1",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 128
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "d1",
+      "name": "测试",
+      "version": "0.2.0",
+      "arch": "aarch64",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "supported": true,
+      "online": true
+    }
+  ],
+  "jobs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "batch_id": "00000000-0000-4000-8000-000000000001",
+      "device_id": "d1",
+      "arch": "aarch64",
+      "version": "0.2.1",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 128,
+      "status": "WAITING_IDLE",
+      "reason": null,
+      "created_at": 1,
+      "updated_at": 2
+    }
+  ]
+}

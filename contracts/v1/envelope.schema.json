@@ -35,6 +35,19 @@
               "minLength": 1,
               "maxLength": 2048,
               "pattern": "^https://[^\\s/@?#]+/?$"
+            },
+            "runtime": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "arch": {
+                  "enum": ["aarch64", "x86_64"]
+                },
+                "sha256": {
+                  "$ref": "common.schema.json#/$defs/sha256"
+                }
+              },
+              "required": ["arch", "sha256"]
             }
           },
           "required": ["agent_version"]
@@ -222,6 +235,9 @@
     },
     {
       "$ref": "agent-address-envelope.schema.json"
+    },
+    {
+      "$ref": "agent-upgrade-envelope.schema.json"
     }
   ],
   "description": "Enumerated v1 WSS frames; 65536-byte UTF-8 limit before parsing. Only single-use terminal.attach tickets and in-place agent.reauth credentials appear in authenticated flows; never place tokens in URLs or logs."

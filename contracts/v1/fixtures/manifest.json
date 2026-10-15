@@ -903,5 +903,60 @@
     "path": "valid/audit-settings-sync_requested.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/agent-upgrade-request.json",
+    "schema": "agent-upgrade-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-upgrade-batch-response.json",
+    "schema": "agent-upgrade-batch-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-upgrades-response.json",
+    "schema": "agent-upgrades-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-upgrade-envelope.json",
+    "schema": "agent-upgrade-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-upgrade-result.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-upgrade-hello.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/agent-upgrade-too-many.json",
+    "schema": "agent-upgrade-request.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-upgrade-empty.json",
+    "schema": "agent-upgrade-request.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-upgrade-invalid-arch.json",
+    "schema": "agent-upgrade-envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-upgrade-invalid-result.json",
+    "schema": "agent-upgrade-envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/agent-upgrade-audit.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]
