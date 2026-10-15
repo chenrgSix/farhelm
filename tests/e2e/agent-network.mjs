@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, connect } from "node:net";
+import { createServer as createHttpsServer } from "node:https";
 import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 
@@ -19,7 +20,8 @@ execFileSync("bash", [join(root, "deploy/dev/generate-tls.sh"), tls], {
 });
 const errors = [],
   steps = [],
-  peers = new Set();
+  peers = new Set(),
+  targets = [];
 let server,
   proxy,
   vite,
@@ -156,6 +158,110 @@ try {
     .split(/\s+/);
   assert.ok(initial.snapshot.addresses.some((a) => actual.includes(a.address)));
   steps.push("real Linux interface IP agrees with container hostname -I");
+  vite = spawn(
+    process.execPath,
+    [
+      join(root, "apps/web/node_modules/vite/bin/vite.js"),
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(webPort),
+      "--strictPort",
+    ],
+    {
+      cwd: join(root, "apps/web"),
+      env: {
+        ...process.env,
+        NODE_EXTRA_CA_CERTS: join(tls, "ca.crt"),
+        FLEET_DEV_API_TARGET: `https://localhost:${apiPort}`,
+      },
+      stdio: "ignore",
+    },
+  );
+  await until(async () => {
+    try {
+      return (await fetch(origin)).ok;
+    } catch {
+      return false;
+    }
+  }, "Vite");
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 1000 },
+  });
+  page.on("pageerror", (e) => errors.push(String(e)));
+  await page.goto(origin);
+  await page.getByLabel("账号", { exact: true }).fill("admin");
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "登录 →", exact: true }).click();
+  await page.getByRole("button", { name: "网络记录", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  for (let i = 0; i < 2; i++) {
+    const target =
+      i === 0
+        ? createServer((socket) => socket.destroy())
+        : createHttpsServer(
+            {
+              key: readFileSync(join(tls, "server.key")),
+              cert: readFileSync(join(tls, "server.crt")),
+            },
+            (_req, res) => {
+              res.writeHead(503);
+              res.end();
+            },
+          );
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    targets.push({
+      server: target,
+      port: target.address().port,
+      scheme: i === 0 ? "tcp" : "https",
+    });
+  }
+  const probes = async () =>
+    assertValid(
+      "network-probes-response",
+      await api("GET", `/devices/${id}/network-probes`),
+    );
+  const probePanel = dialog.getByRole("region", {
+    name: "网络连通性探测",
+    exact: true,
+  });
+  await probePanel.getByLabel("启用网络探测", { exact: true }).check();
+  for (let i = 0; i < 2; i++) {
+    await probePanel
+      .getByRole("button", { name: "添加探测地址", exact: true })
+      .click();
+    await probePanel
+      .getByLabel(`探测地址 ${i + 1}`, { exact: true })
+      .fill(`${targets[i].scheme}://host.docker.internal:${targets[i].port}`);
+  }
+  await probePanel.getByLabel("探测间隔（秒）", { exact: true }).fill("5");
+  await probePanel.getByLabel("单次超时（毫秒）", { exact: true }).fill("500");
+  await probePanel.getByLabel("连续失败次数", { exact: true }).fill("2");
+  await probePanel
+    .getByRole("button", { name: "保存探测配置", exact: true })
+    .click();
+  await until(async () => {
+    const s = await probes();
+    return (
+      s.applied_revision === 1 &&
+      s.result_fresh &&
+      s.result?.status === "healthy"
+    );
+  }, "frontend configuration applied and independent probes healthy");
+  const localProbe = async () =>
+    JSON.parse(
+      await docker([
+        "exec",
+        container,
+        "python3",
+        "-c",
+        "import sqlite3; c=sqlite3.connect('/var/lib/farhelm-agent/journal.sqlite3'); print(c.execute(\"SELECT value FROM metadata WHERE key='network_probe_latest'\").fetchone()[0])",
+      ]),
+    );
+  steps.push(
+    "frontend configured independent TCP and HTTPS targets (503 counts as reachable), interval, timeout and failure threshold; Agent persisted and acknowledged configuration",
+  );
   // Blackhole both directions without sending FIN/RST. The Agent must notice missing Pongs.
   const cut = Date.now();
   blocked = true;
@@ -183,6 +289,33 @@ try {
   steps.push(
     "silent loss detected locally within 25 seconds; platform offline before buffered report arrives",
   );
+  await until(
+    async () => (await localProbe()).status === "platform_unreachable",
+    "only platform unavailable while targets remain reachable",
+  );
+  assert.equal((await probes()).result_fresh, false);
+  await new Promise((r) => targets[0].server.close(r));
+  await until(
+    async () => (await localProbe()).status === "partial_unreachable",
+    "partial target failure while platform offline",
+  );
+  await new Promise((r) => targets[1].server.close(r));
+  await until(
+    async () => (await localProbe()).status === "suspected_offline",
+    "all targets failed after configured threshold",
+  );
+  assert.ok((await localProbe()).consecutive_failures >= 2);
+  const offlineSeq = (await localProbe()).seq;
+  const beforeUpdate = await probes();
+  const pendingConfig = await api("PUT", `/devices/${id}/network-probes`, {
+    v: 1,
+    config: { ...beforeUpdate.config, interval_secs: 7 },
+  });
+  assert.equal(pendingConfig.config.revision, 2);
+  assert.equal(pendingConfig.applied_revision, 1);
+  steps.push(
+    "independent probes distinguish platform-only, partial and all-target failure during a silent outage; offline config waits for reconnection",
+  );
   // Restart while disconnected. The original detection must survive; no new outage duplicates.
   await docker(["exec", container, "pkill", "-TERM", "-u", "farhelm"]);
   await docker([
@@ -195,6 +328,12 @@ try {
     async () => (await local()).pending?.event_id === pending.event_id,
     "outage persisted across restart",
   );
+  await until(async () => {
+    const p = await localProbe();
+    return (
+      p.seq > offlineSeq && p.revision === 1 && p.status === "suspected_offline"
+    );
+  }, "saved probes keep running after an offline process restart");
   const restoredAt = Date.now();
   blocked = false;
   for (const peer of peers) peer.destroy();
@@ -222,6 +361,33 @@ try {
   );
   steps.push(
     "restart while offline retains original detection; recovery replays exactly once and ACKs durably",
+  );
+  await until(async () => {
+    const p = await probes();
+    return (
+      p.applied_revision === 2 &&
+      p.result_fresh &&
+      p.result?.status === "targets_unreachable"
+    );
+  }, "platform recovered while targets remain down");
+  for (const target of targets)
+    await new Promise((r) => target.server.listen(target.port, "127.0.0.1", r));
+  await until(async () => {
+    const p = await probes();
+    return p.result_fresh && p.result?.status === "healthy";
+  }, "all connectivity restored");
+  await until(async () => {
+    const states = (await probes()).events.map((e) => e.status);
+    return [
+      "platform_unreachable",
+      "partial_unreachable",
+      "suspected_offline",
+      "targets_unreachable",
+      "healthy",
+    ].every((x) => states.includes(x));
+  }, "offline classification evidence replayed");
+  steps.push(
+    "offline restart retains probes; reconnect applies queued config; old-revision evidence replays and restored platform is never misclassified as whole-device offline",
   );
   // Restart while previously connected is explicitly labelled as an unknown process gap.
   await docker(["exec", container, "pkill", "-TERM", "-u", "farhelm"]);
@@ -281,44 +447,6 @@ try {
   steps.push(
     "planned platform address change completes without a false outage",
   );
-  vite = spawn(
-    process.execPath,
-    [
-      join(root, "apps/web/node_modules/vite/bin/vite.js"),
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(webPort),
-      "--strictPort",
-    ],
-    {
-      cwd: join(root, "apps/web"),
-      env: {
-        ...process.env,
-        NODE_EXTRA_CA_CERTS: join(tls, "ca.crt"),
-        FLEET_DEV_API_TARGET: `https://localhost:${apiPort}`,
-      },
-      stdio: "ignore",
-    },
-  );
-  await until(async () => {
-    try {
-      return (await fetch(origin)).ok;
-    } catch {
-      return false;
-    }
-  }, "Vite");
-  browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({
-    viewport: { width: 1440, height: 1000 },
-  });
-  page.on("pageerror", (e) => errors.push(String(e)));
-  await page.goto(origin);
-  await page.getByLabel("账号", { exact: true }).fill("admin");
-  await page.getByLabel("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "登录 →", exact: true }).click();
-  await page.getByRole("button", { name: "网络记录", exact: true }).click();
-  const dialog = page.getByRole("dialog");
   await dialog.getByText("与平台断连", { exact: true }).waitFor();
   await dialog.getByText("Agent 进程中断", { exact: true }).waitFor();
   assert.ok(
@@ -341,11 +469,37 @@ try {
     ),
     false,
   );
+  await probePanel.locator(".probe-config > summary").click();
+  await probePanel
+    .getByLabel("探测间隔（秒）", { exact: true })
+    .scrollIntoViewIfNeeded();
+  assert.equal(
+    await probePanel.getByLabel("探测间隔（秒）", { exact: true }).inputValue(),
+    "7",
+  );
+  await page.screenshot({
+    path: join(out, "network-probes-config-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await probePanel.locator(".probe-config").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: join(out, "network-probes-config-desktop.png"),
+    fullPage: true,
+  });
   assert.deepEqual(errors, []);
   steps.push(
     "desktop/mobile browser displays real IP and both recorded event types without page overflow",
   );
-  const result = { ok: true, steps, events: (await snapshot()).events, errors };
+  const result = {
+    ok: true,
+    steps,
+    events: (await snapshot()).events,
+    probe_events: (await probes()).events,
+    errors,
+  };
+  const audit = await api("GET", "/audit");
+  assertValid("audit-response", audit);
   writeFileSync(
     join(out, "agent-network-e2e.json"),
     JSON.stringify(result, null, 2),
@@ -356,6 +510,9 @@ try {
   vite?.kill("SIGTERM");
   await docker(["rm", "-f", container]).catch(() => {});
   for (const peer of peers) peer.destroy();
+  for (const target of targets)
+    if (target.server.listening)
+      await new Promise((r) => target.server.close(r));
   if (proxy) await new Promise((r) => proxy.close(r));
   await server?.close();
 }

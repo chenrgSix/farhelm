@@ -1,0 +1,65 @@
+{
+  "v": 1,
+  "config": {
+    "revision": 1,
+    "enabled": true,
+    "interval_secs": 30,
+    "timeout_ms": 3000,
+    "failure_threshold": 2,
+    "targets": ["https://example.test/", "tcp://192.168.1.1:53"]
+  },
+  "applied_revision": 1,
+  "supported": true,
+  "device_online": true,
+  "result": {
+    "sample_id": "e230784a-741b-418f-9eee-eaf82339fc01",
+    "seq": 1,
+    "revision": 1,
+    "observed_at": 1792100000000,
+    "platform_connected": false,
+    "status": "platform_unreachable",
+    "consecutive_failures": 0,
+    "results": [
+      {
+        "target": "https://example.test/",
+        "reachable": true,
+        "reason": "HTTP_RESPONSE",
+        "duration_ms": 3
+      },
+      {
+        "target": "tcp://192.168.1.1:53",
+        "reachable": true,
+        "reason": "TCP_CONNECTED",
+        "duration_ms": 3
+      }
+    ]
+  },
+  "result_fresh": false,
+  "events": [
+    {
+      "sample_id": "e230784a-741b-418f-9eee-eaf82339fc01",
+      "seq": 1,
+      "revision": 1,
+      "observed_at": 1792100000000,
+      "platform_connected": false,
+      "status": "platform_unreachable",
+      "consecutive_failures": 0,
+      "results": [
+        {
+          "target": "https://example.test/",
+          "reachable": true,
+          "reason": "HTTP_RESPONSE",
+          "duration_ms": 3
+        },
+        {
+          "target": "tcp://192.168.1.1:53",
+          "reachable": true,
+          "reason": "TCP_CONNECTED",
+          "duration_ms": 3
+        }
+      ],
+      "received_at": 1792100000001
+    }
+  ],
+  "next_before": null
+}

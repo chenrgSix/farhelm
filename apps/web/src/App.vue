@@ -1111,6 +1111,7 @@ onBeforeUnmount(() => {
         v-if="networkTarget && user"
         :key="networkTarget.id"
         :device="networkTarget"
+        :user="user"
         @close="networkTarget = null"
       />
       <HealthChecksPanel

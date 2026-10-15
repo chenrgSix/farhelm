@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/network-probes-update.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "config": {
+      "$ref": "network-probe-config.schema.json"
+    }
+  },
+  "required": ["v", "config"]
+}

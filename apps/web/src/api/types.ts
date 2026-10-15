@@ -185,3 +185,44 @@ export interface NetworkResponse {
   events: NetworkEvent[];
   next_before: number | null;
 }
+export interface NetworkProbeConfig {
+  revision: number;
+  enabled: boolean;
+  interval_secs: number;
+  timeout_ms: number;
+  failure_threshold: number;
+  targets: string[];
+}
+export interface NetworkProbeReport {
+  sample_id: string;
+  seq: number;
+  revision: number;
+  observed_at: number;
+  platform_connected: boolean;
+  status:
+    | "healthy"
+    | "platform_unreachable"
+    | "partial_unreachable"
+    | "checking"
+    | "targets_unreachable"
+    | "suspected_offline"
+    | "disabled";
+  consecutive_failures: number;
+  results: {
+    target: string;
+    reachable: boolean;
+    reason: string;
+    duration_ms: number;
+  }[];
+}
+export interface NetworkProbeResponse {
+  v: 1;
+  config: NetworkProbeConfig;
+  applied_revision: number | null;
+  supported: boolean;
+  device_online: boolean;
+  result: NetworkProbeReport | null;
+  result_fresh: boolean;
+  events: (NetworkProbeReport & { received_at: number })[];
+  next_before: number | null;
+}

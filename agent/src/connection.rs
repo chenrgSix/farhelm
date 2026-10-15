@@ -29,7 +29,12 @@ enum SessionEnd {
     ConnectionLost,
     Upgrade,
 }
-pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i32> {
+pub async fn run(
+    cfg: Config,
+    journal: Journal,
+    identity: Identity,
+    probes: crate::network_probes::Probes,
+) -> Result<i32> {
     let identity = Arc::new(identity);
     let http = cfg.http_client()?;
     let tls = cfg.tls_config()?;
@@ -51,6 +56,7 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i3
                 &running_hash,
                 &mut network,
                 contact,
+                &probes,
             )
             .await
         };
@@ -62,7 +68,7 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i3
             return Ok(upgrade::RESTART_EXIT);
         }
         if matches!(result, Err(_) | Ok(SessionEnd::ConnectionLost)) {
-            network.failed(
+            let changed = network.failed(
                 if observed.borrow().is_some() {
                     "connection_lost"
                 } else {
@@ -70,6 +76,9 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i3
                 },
                 now_ms(),
             )?;
+            if changed {
+                probes.wake();
+            }
         }
         if let Err(error) = result {
             AddressState::load(&cfg, &journal)?.rollback(&journal)?;
@@ -172,6 +181,7 @@ async fn session(
     running_hash: &str,
     network: &mut Monitor,
     contact: tokio::sync::watch::Sender<Option<tokio::time::Instant>>,
+    probes: &crate::network_probes::Probes,
 ) -> Result<SessionEnd> {
     let mut access = access.clone();
     let mut socket = connect(cfg, &access, tls, "/agent/ws").await?;
@@ -179,13 +189,14 @@ async fn session(
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash}}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash}}),
             )?
             .into(),
         ))
         .await?;
     ready(&mut socket, journal).await?;
     network.connected(now_ms())?;
+    probes.wake();
     contact.send_replace(Some(tokio::time::Instant::now()));
     if let Some(state) = upgrade::connected(journal, running_hash)? {
         socket
@@ -204,12 +215,13 @@ async fn session(
             ))
             .await?;
     }
-    let mut probes = tokio::task::JoinSet::<(AddressUpdate, Result<()>)>::new();
+    let mut address_probes = tokio::task::JoinSet::<(AddressUpdate, Result<()>)>::new();
     eprintln!("control connected; device {}", access.device_id);
     let mut heartbeat = tokio::time::interval(Duration::from_millis(cfg.heartbeat_ms));
     let mut ping = tokio::time::interval(Duration::from_secs(5));
     let mut pending_ping: Option<Vec<u8>> = None;
     let mut inventory = tokio::time::interval(Duration::from_secs(30));
+    let mut reported_probe = 0;
     let mut network_events = tokio::time::interval(Duration::from_secs(1));
     let mut outbox = tokio::time::interval(Duration::from_millis(250));
     // Artifact transfer must not block incoming cancellations or heartbeats.
@@ -243,6 +255,15 @@ async fn session(
                 }
             }
             _=network_events.tick()=>{
+                if let Some(report)=journal.network_probe_latest()? {
+                    if report.seq!=reported_probe {
+                        socket.send(Message::Text(envelope("agent.network.probe.latest",json!({"age_ms":(now_ms()-report.observed_at).max(0),"report":&report}))?.into())).await?;
+                        reported_probe=report.seq;
+                    }
+                }
+                if let Some(report)=journal.network_probe_first()? {
+                    socket.send(Message::Text(envelope("agent.network.probe.event",report)?.into())).await?;
+                }
                 if let Some(event)=journal.network_first()? {
                     socket.send(Message::Text(envelope("agent.network.event",event)?.into())).await?;
                 }
@@ -253,7 +274,7 @@ async fn session(
                 state.save(journal)?;
                 socket.send(Message::Text(envelope("agent.upgrade.result",state.receipt())?.into())).await?;
             }
-            Some(probed)=probes.join_next(), if !probes.is_empty()=>{
+            Some(probed)=address_probes.join_next(), if !address_probes.is_empty()=>{
                 let (update,result)=probed?;
                 let previous=address.clone();
                 if result.is_ok() {
@@ -302,7 +323,7 @@ async fn session(
                         }
                     }
                 }
-                if address.pending.is_some() && probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
+                if address.pending.is_some() && address_probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
                     network.planned()?;
                     let _=socket.close(None).await;
                     return Ok(SessionEnd::AddressChange);
@@ -325,6 +346,15 @@ async fn session(
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.network.probe.config"=>{
+                                let config:crate::network_probes::Settings=serde_json::from_value(envelope.body)?;
+                                let revision=probes.configure(config)?;
+                                socket.send(Message::Text(crate::protocol::envelope("agent.network.probe.configured",json!({"revision":revision}))?.into())).await?;
+                            }
+                            "agent.network.probe.ack"=>{
+                                #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{sample_id:String,seq:u64}
+                                let ack:Ack=serde_json::from_value(envelope.body)?;journal.network_probe_ack(&ack.sample_id,ack.seq)?;
+                            }
                             "agent.network.ack"=>{
                                 #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{event_id:String}
                                 let ack:Ack=serde_json::from_value(envelope.body)?;journal.network_ack(&ack.event_id)?;
@@ -354,9 +384,9 @@ async fn session(
                                     }
                                     if receipt.revision>update.revision {continue;}
                                 }
-                                probes.abort_all();while probes.join_next().await.is_some() {}
+                                address_probes.abort_all();while address_probes.join_next().await.is_some() {}
                                 let cfg=cfg.clone();let journal=journal.clone();let identity=identity.clone();
-                                probes.spawn(async move {
+                                address_probes.spawn(async move {
                                     let result=tokio::time::timeout(Duration::from_secs(30),probe(cfg,journal,identity,&update)).await.map_err(anyhow::Error::from).and_then(|x|x);
                                     (update,result)
                                 });

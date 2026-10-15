@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "agent.network.probe.ack",
+  "body": {
+    "sample_id": "e230784a-741b-418f-9eee-eaf82339fc01",
+    "seq": 1
+  }
+}

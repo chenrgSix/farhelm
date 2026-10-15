@@ -75,7 +75,8 @@
         "agent.upgrade_status",
         "agent.release_uploaded",
         "agent.release_imported",
-        "agent.release_availability"
+        "agent.release_availability",
+        "network.probes_configured"
       ]
     },
     "detail": {
@@ -564,6 +565,31 @@
             }
           },
           "required": ["sha256", "enabled"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "target_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "interval_secs": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 3600
+            }
+          },
+          "required": ["revision", "enabled", "target_count", "interval_secs"]
         }
       ]
     }
@@ -1462,6 +1488,44 @@
               }
             },
             "required": ["sha256", "enabled"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "network.probes_configured"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "target_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5
+              },
+              "interval_secs": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 3600
+              }
+            },
+            "required": ["revision", "enabled", "target_count", "interval_secs"]
           }
         }
       }

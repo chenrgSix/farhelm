@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "agent.network.probe.configured",
+  "body": {
+    "revision": 1
+  }
+}

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import NetworkProbesPanel from "./NetworkProbesPanel.vue";
 import { api } from "../api/client";
-import type { Device, NetworkResponse } from "../api/types";
+import type { Device, NetworkResponse, User } from "../api/types";
 import { formatTime } from "../model";
-const props = defineProps<{ device: Device }>();
+const props = defineProps<{ device: Device; user?: User }>();
 const emit = defineEmits<{ close: [] }>();
 const data = ref<NetworkResponse | null>(null);
 const before = ref<number | null>(null);
@@ -133,6 +134,7 @@ onBeforeUnmount(() => {
           <p v-else class="muted">
             {{ data.snapshot ? "未发现非回环网卡地址" : "尚未采集到 IP 地址" }}
           </p>
+          <NetworkProbesPanel :device="device" :user="user" />
           <h3>连接中断记录</h3>
           <p class="network-scroll-hint field-hint">
             左右滑动表格可查看完整时间记录

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/network-probes-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "config": {
+      "$ref": "network-probe-config.schema.json"
+    },
+    "applied_revision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "supported": {
+      "type": "boolean"
+    },
+    "device_online": {
+      "type": "boolean"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "network-probe-report.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_fresh": {
+      "type": "boolean"
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sample_id": {
+            "$ref": "common.schema.json#/$defs/uuid"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_at": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "platform_connected": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "healthy",
+              "platform_unreachable",
+              "partial_unreachable",
+              "checking",
+              "targets_unreachable",
+              "suspected_offline",
+              "disabled"
+            ]
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "results": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^(https?://[^\\s/@?#]+[^\\s#]*|tcp://[^\\s/@?#]+:[0-9]+/?)$"
+                },
+                "reachable": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "enum": [
+                    "TCP_CONNECTED",
+                    "HTTP_RESPONSE",
+                    "CONNECT_FAILED",
+                    "HTTP_OR_TLS_FAILED",
+                    "TIMEOUT"
+                  ]
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": ["target", "reachable", "reason", "duration_ms"]
+            }
+          },
+          "received_at": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "sample_id",
+          "seq",
+          "revision",
+          "observed_at",
+          "platform_connected",
+          "status",
+          "consecutive_failures",
+          "results",
+          "received_at"
+        ]
+      }
+    },
+    "next_before": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "v",
+    "config",
+    "applied_revision",
+    "supported",
+    "device_online",
+    "result",
+    "result_fresh",
+    "events",
+    "next_before"
+  ]
+}

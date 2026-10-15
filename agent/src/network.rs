@@ -84,6 +84,8 @@ pub struct Event {
 #[derive(Default, Serialize, Deserialize)]
 pub struct State {
     connected: bool,
+    #[serde(default)]
+    planned: bool,
     last_contact_at: Option<i64>,
     pending: Option<Event>,
 }
@@ -106,8 +108,9 @@ impl Monitor {
         }
         Ok(monitor)
     }
-    pub fn failed(&mut self, reason: &str, at: i64) -> Result<()> {
-        if self.state.pending.is_none() {
+    pub fn failed(&mut self, reason: &str, at: i64) -> Result<bool> {
+        let changed = self.state.pending.is_none();
+        if changed {
             self.state.pending = Some(Event {
                 event_id: uuid::Uuid::new_v4().to_string(),
                 reason: reason.into(),
@@ -117,7 +120,9 @@ impl Monitor {
             });
         }
         self.state.connected = false;
-        self.save()
+        self.state.planned = false;
+        self.save()?;
+        Ok(changed)
     }
     pub fn connected(&mut self, at: i64) -> Result<()> {
         if let Some(event) = &mut self.state.pending {
@@ -125,6 +130,7 @@ impl Monitor {
         }
         let completed = self.state.pending.take();
         self.state.connected = true;
+        self.state.planned = false;
         self.state.last_contact_at = Some(at);
         self.journal
             .network_save(&serde_json::to_string(&self.state)?, completed.as_ref())
@@ -135,6 +141,7 @@ impl Monitor {
     }
     pub fn planned(&mut self) -> Result<()> {
         self.state.connected = false;
+        self.state.planned = true;
         self.save()
     }
     fn save(&self) -> Result<()> {

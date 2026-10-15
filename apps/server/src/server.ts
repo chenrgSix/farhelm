@@ -21,6 +21,7 @@ import { Store } from "./store.js";
 import { registerTerminals } from "./terminal.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
+import { registerNetworkProbes } from "./network-probes.js";
 import { registerAgentNetwork } from "./agent-network.js";
 import { registerHealth } from "./health.js";
 import { registerDeviceConnections } from "./device-connections.js";
@@ -63,6 +64,7 @@ interface Connection {
   health: boolean;
   address: boolean;
   network: boolean;
+  networkProbes: boolean;
   upgrade?: UpgradeInfo;
   healthSession: string;
 }
@@ -387,6 +389,29 @@ export async function buildServer(config: ServerConfig) {
     requireDevice,
     availableStorage,
     rate,
+  });
+  const networkProbes = registerNetworkProbes(app, {
+    store,
+    userAuth,
+    operator,
+    requireScope,
+    requireDevice,
+    availableStorage,
+    rate,
+    agent(id) {
+      const c = connections.get(id);
+      if (
+        !c?.ready ||
+        !live(c) ||
+        Date.now() - c.lastHeartbeat > heartbeatTimeout
+      )
+        return undefined;
+      return {
+        supported: c.networkProbes,
+        connectionId: c.healthSession,
+        send: (type, body) => send(c, type, body),
+      };
+    },
   });
   const network = registerAgentNetwork(app, {
     store,
@@ -1376,6 +1401,7 @@ export async function buildServer(config: ServerConfig) {
         health: false,
         address: false,
         network: false,
+        networkProbes: false,
         healthSession: randomUUID(),
       };
       const old = connections.get(auth.id);
@@ -1421,6 +1447,9 @@ export async function buildServer(config: ServerConfig) {
               c.health = b.capabilities.includes("health.probes.v1");
               c.address = b.capabilities.includes("agent.address.v1");
               c.network = b.capabilities.includes("agent.network.v1");
+              c.networkProbes = b.capabilities.includes(
+                "agent.network.probes.v1",
+              );
             }
             const agentVersion = str(b.agent_version, 1, 128);
             if (env.type === "agent.hello")
@@ -1449,10 +1478,30 @@ export async function buildServer(config: ServerConfig) {
                   settings.current(),
                 );
               }
+              if (c.networkProbes)
+                send(
+                  c,
+                  "agent.network.probe.config",
+                  networkProbes.config(c.deviceId),
+                );
               dispatch(c.deviceId, true);
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
             }
+          } else if (String(env.type).startsWith("agent.network.probe.")) {
+            if (!c.ready || !c.networkProbes)
+              fail(400, "NETWORK_PROBES_HELLO_REQUIRED");
+            if (env.type === "agent.network.probe.configured")
+              networkProbes.applied(c.deviceId, b);
+            else if (env.type === "agent.network.probe.latest")
+              networkProbes.latest(c.deviceId, b);
+            else if (env.type === "agent.network.probe.event")
+              send(
+                c,
+                "agent.network.probe.ack",
+                networkProbes.event(c.deviceId, b),
+              );
+            else fail(400, "UNKNOWN_MESSAGE_TYPE");
           } else if (
             env.type === "agent.network" ||
             env.type === "agent.network.event"

@@ -42,7 +42,10 @@ const data: NetworkResponse = {
 afterEach(() => vi.restoreAllMocks());
 it("shows last reported IP and detected outage time without claiming whole-machine outage; pages and preserves data on failure", async () => {
   const request = vi.spyOn(api, "request").mockResolvedValue(data);
-  const wrapper = mount(DeviceNetworkPanel, { props: { device } });
+  const wrapper = mount(DeviceNetworkPanel, {
+    props: { device },
+    global: { stubs: { NetworkProbesPanel: true } },
+  });
   await flushPromises();
   expect(wrapper.text()).toContain("10.2.3.4");
   expect(wrapper.text()).toContain("离线");
@@ -77,7 +80,10 @@ it("does not restart polling when an outstanding request returns after close", a
   let resolve!: (value: NetworkResponse) => void;
   vi.spyOn(api, "request").mockReturnValue(new Promise((r) => (resolve = r)));
   const timer = vi.spyOn(globalThis, "setInterval");
-  const wrapper = mount(DeviceNetworkPanel, { props: { device } });
+  const wrapper = mount(DeviceNetworkPanel, {
+    props: { device },
+    global: { stubs: { NetworkProbesPanel: true } },
+  });
   wrapper.unmount();
   resolve(data);
   await flushPromises();

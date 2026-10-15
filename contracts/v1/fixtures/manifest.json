@@ -1023,5 +1023,65 @@
     "path": "invalid/network-spoof-device.json",
     "schema": "agent-network-envelope.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/network-probe-config.json",
+    "schema": "network-probe-config.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probe-report.json",
+    "schema": "network-probe-report.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probes-update.json",
+    "schema": "network-probes-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probes-response.json",
+    "schema": "network-probes-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probe-config-envelope.json",
+    "schema": "network-probe-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probe-configured-envelope.json",
+    "schema": "network-probe-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probe-event-envelope.json",
+    "schema": "network-probe-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probe-latest-envelope.json",
+    "schema": "network-probe-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-probe-ack-envelope.json",
+    "schema": "network-probe-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-network-probes.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/network-probe-single-target.json",
+    "schema": "network-probe-config.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/network-probe-fast-interval.json",
+    "schema": "network-probe-config.schema.json",
+    "valid": false
   }
 ]

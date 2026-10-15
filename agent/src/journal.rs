@@ -39,7 +39,8 @@ impl Journal {
           CREATE TABLE IF NOT EXISTS tasks(task_id TEXT PRIMARY KEY,payload_hash TEXT NOT NULL,request TEXT NOT NULL,status TEXT NOT NULL,seq INTEGER NOT NULL DEFAULT 0,cancel_requested INTEGER NOT NULL DEFAULT 0,started_at INTEGER,pid INTEGER,start_ticks INTEGER,stdout_path TEXT,stderr_path TEXT,result TEXT);
           CREATE TABLE IF NOT EXISTS outbox(event_id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(task_id),seq INTEGER NOT NULL,event TEXT NOT NULL,UNIQUE(task_id,seq));
           CREATE TABLE IF NOT EXISTS local_audit(id INTEGER PRIMARY KEY,at INTEGER NOT NULL,task_id TEXT,kind TEXT NOT NULL,detail TEXT NOT NULL);
-          CREATE TABLE IF NOT EXISTS network_events(event_id TEXT PRIMARY KEY,event TEXT NOT NULL,complete INTEGER NOT NULL,acked INTEGER NOT NULL DEFAULT 0);")?;
+          CREATE TABLE IF NOT EXISTS network_events(event_id TEXT PRIMARY KEY,event TEXT NOT NULL,complete INTEGER NOT NULL,acked INTEGER NOT NULL DEFAULT 0);
+          CREATE TABLE IF NOT EXISTS network_probe_events(sample_id TEXT PRIMARY KEY,seq INTEGER NOT NULL UNIQUE,report TEXT NOT NULL,acked INTEGER NOT NULL DEFAULT 0);")?;
         Ok(Self(Arc::new(Mutex::new(c))))
     }
     pub fn metadata(&self, key: &str) -> Result<Option<String>> {
@@ -104,6 +105,99 @@ impl Journal {
             tx.execute("INSERT INTO metadata(key,value) VALUES('agent_release',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value])?;
         }
         tx.commit()?;
+        Ok(())
+    }
+    pub fn network_probe_config(&self, value: &str) -> Result<()> {
+        self.0.lock().unwrap().execute("INSERT INTO metadata(key,value) VALUES('network_probe_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value])?;
+        Ok(())
+    }
+    pub fn network_probe_latest(&self) -> Result<Option<crate::network_probes::Report>> {
+        Ok(self
+            .metadata("network_probe_latest")?
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?)
+    }
+    pub fn network_probe_save(&self, mut report: crate::network_probes::Report) -> Result<()> {
+        let mut c = self.0.lock().unwrap();
+        let tx = c.transaction()?;
+        let config: Option<String> = tx
+            .query_row(
+                "SELECT value FROM metadata WHERE key='network_probe_config'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let revision = config
+            .map(|s| serde_json::from_str::<crate::network_probes::Settings>(&s))
+            .transpose()?
+            .unwrap_or_default()
+            .revision;
+        if report.revision != revision {
+            return Ok(());
+        }
+        let previous: Option<String> = tx
+            .query_row(
+                "SELECT value FROM metadata WHERE key='network_probe_latest'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let previous = previous
+            .map(|s| serde_json::from_str::<crate::network_probes::Report>(&s))
+            .transpose()?;
+        report.seq = previous.as_ref().map_or(1, |r| r.seq + 1);
+        ensure!(
+            report.seq <= 9_007_199_254_740_991,
+            "network probe sequence exhausted"
+        );
+        let signature = |r: &crate::network_probes::Report| {
+            json!([
+                r.revision,
+                r.status,
+                if r.status == "disabled" {
+                    false
+                } else {
+                    r.platform_connected
+                },
+                r.results
+                    .iter()
+                    .map(|x| (&x.target, x.reachable, &x.reason))
+                    .collect::<Vec<_>>()
+            ])
+        };
+        let changed = previous
+            .as_ref()
+            .is_none_or(|old| signature(old) != signature(&report));
+        let serialized = serde_json::to_string(&report)?;
+        tx.execute("INSERT INTO metadata(key,value) VALUES('network_probe_latest',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[&serialized])?;
+        if changed && report.revision > 0 {
+            tx.execute(
+                "INSERT INTO network_probe_events(sample_id,seq,report) VALUES(?,?,?)",
+                params![report.sample_id, report.seq, serialized],
+            )?;
+        }
+        tx.execute("DELETE FROM network_probe_events WHERE acked=1 AND seq NOT IN (SELECT seq FROM network_probe_events ORDER BY seq DESC LIMIT 1000)",[])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn network_probe_first(&self) -> Result<Option<crate::network_probes::Report>> {
+        let raw: Option<String> = self
+            .0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT report FROM network_probe_events WHERE acked=0 ORDER BY seq LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(raw.map(|s| serde_json::from_str(&s)).transpose()?)
+    }
+    pub fn network_probe_ack(&self, id: &str, seq: u64) -> Result<()> {
+        self.0.lock().unwrap().execute(
+            "UPDATE network_probe_events SET acked=1 WHERE sample_id=? AND seq=?",
+            params![id, seq],
+        )?;
         Ok(())
     }
     pub fn upgrade_idle(&self) -> Result<bool> {
