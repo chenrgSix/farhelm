@@ -8,6 +8,8 @@ Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出
 
 设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。EasyTier 私网可达仍未采集。
 
+Agent 自动采集本机网卡 IPv4 / IPv6，并在本地记录与平台断连的检测、恢复时间，恢复后补传。设备页「网络记录」可查看 IP 和中断历史；需要 Agent 0.2.2 或更新版本。详见[网络记录](docs/agent-network.md)。
+
 设备支持 **Agent / SSH 两种接入**。管理员可在前端添加 SSH 设备，配置地址、端口、账号、私钥和主机指纹；未安装 Agent 的机器也可通过网页终端及平台 SSH 入口操作，保留会话录制。Agent 可选 sudo 密码目前仅支持管理员加密保存，暂不提供查看或自动使用。详见[双接入配置](docs/device-connections.md)。
 
 ## 项目名称与兼容性

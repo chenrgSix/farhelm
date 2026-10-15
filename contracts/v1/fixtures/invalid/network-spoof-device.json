@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "agent.network.event",
+  "body": {
+    "event_id": "e230784a-741b-418f-9eee-eaf82339fc01",
+    "reason": "connection_lost",
+    "last_contact_at": 1792099980000,
+    "detected_at": 1792100000000,
+    "recovered_at": 1792100030000,
+    "device_id": "another-device"
+  }
+}

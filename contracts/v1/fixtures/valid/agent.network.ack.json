@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "agent.network.ack",
+  "body": {
+    "event_id": "e230784a-741b-418f-9eee-eaf82339fc01"
+  }
+}

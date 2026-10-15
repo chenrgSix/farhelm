@@ -21,6 +21,7 @@ import { Store } from "./store.js";
 import { registerTerminals } from "./terminal.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
+import { registerAgentNetwork } from "./agent-network.js";
 import { registerHealth } from "./health.js";
 import { registerDeviceConnections } from "./device-connections.js";
 import { registerAgentReleases, legacyArtifacts } from "./agent-releases.js";
@@ -61,6 +62,7 @@ interface Connection {
   terminal: boolean;
   health: boolean;
   address: boolean;
+  network: boolean;
   upgrade?: UpgradeInfo;
   healthSession: string;
 }
@@ -385,6 +387,21 @@ export async function buildServer(config: ServerConfig) {
     requireDevice,
     availableStorage,
     rate,
+  });
+  const network = registerAgentNetwork(app, {
+    store,
+    userAuth,
+    requireScope,
+    requireDevice,
+    online: (id) => {
+      const c = connections.get(id);
+      return (
+        !!c?.ready &&
+        live(c) &&
+        Date.now() - c.lastHeartbeat <= heartbeatTimeout
+      );
+    },
+    supported: (id) => !!connections.get(id)?.network,
   });
   const health = registerHealth(app, {
     store,
@@ -805,6 +822,12 @@ export async function buildServer(config: ServerConfig) {
         last_seen: d.last_seen,
         revoked_at: d.revoked_at,
         agent_version: d.agent_version,
+        ip_addresses:
+          d.connection_kind === "agent"
+            ? (network.snapshot(d.id)?.addresses ?? []).map(
+                (a: any) => a.address,
+              )
+            : [],
         connection_kind: d.connection_kind,
         terminal_available:
           !d.revoked_at &&
@@ -1352,6 +1375,7 @@ export async function buildServer(config: ServerConfig) {
         terminal: false,
         health: false,
         address: false,
+        network: false,
         healthSession: randomUUID(),
       };
       const old = connections.get(auth.id);
@@ -1396,6 +1420,7 @@ export async function buildServer(config: ServerConfig) {
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.health = b.capabilities.includes("health.probes.v1");
               c.address = b.capabilities.includes("agent.address.v1");
+              c.network = b.capabilities.includes("agent.network.v1");
             }
             const agentVersion = str(b.agent_version, 1, 128);
             if (env.type === "agent.hello")
@@ -1428,6 +1453,13 @@ export async function buildServer(config: ServerConfig) {
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
             }
+          } else if (
+            env.type === "agent.network" ||
+            env.type === "agent.network.event"
+          ) {
+            if (!c.ready || !c.network) fail(400, "NETWORK_HELLO_REQUIRED");
+            if (env.type === "agent.network") network.receive(c.deviceId, b);
+            else send(c, "agent.network.ack", network.event(c.deviceId, b));
           } else if (env.type === "agent.upgrade.result") {
             if (!c.ready || !c.upgrade?.supported) fail(400, "HELLO_REQUIRED");
             upgrades.result(c.deviceId, b);

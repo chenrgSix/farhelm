@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-network-envelope.schema.json",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.network"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "observed_at": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "addresses": {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "interface": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "address": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 45
+                  },
+                  "family": {
+                    "enum": ["ipv4", "ipv6"]
+                  },
+                  "up": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["interface", "address", "family", "up"],
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "family": {
+                          "const": "ipv4"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "address": {
+                          "format": "ipv4",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "address": {
+                          "format": "ipv6",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": ["observed_at", "addresses", "truncated"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.network.event"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "event_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "reason": {
+              "enum": ["connection_lost", "connection_failed", "agent_restart"]
+            },
+            "last_contact_at": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "detected_at": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "recovered_at": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "event_id",
+            "reason",
+            "last_contact_at",
+            "detected_at",
+            "recovered_at"
+          ]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.network.ack"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "event_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            }
+          },
+          "required": ["event_id"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    }
+  ]
+}

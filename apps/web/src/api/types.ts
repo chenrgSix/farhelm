@@ -6,6 +6,7 @@ export interface User {
   device_scope: "*" | string[];
 }
 export interface Device {
+  ip_addresses?: string[];
   connection_kind?: "agent" | "ssh";
   terminal_available?: boolean;
   ssh_status?: "unknown" | "connected" | "failed";
@@ -154,4 +155,33 @@ export interface TerminalSession {
   audit_complete: number;
   cols: number;
   rows: number;
+}
+
+export interface NetworkEvent {
+  event_id: string;
+  reason: "connection_lost" | "connection_failed" | "agent_restart";
+  last_contact_at: number | null;
+  detected_at: number;
+  recovered_at: number;
+  received_at: number;
+}
+export interface NetworkResponse {
+  v: 1;
+  device_id: string;
+  device_online: boolean;
+  supported: boolean;
+  last_seen: number | null;
+  snapshot: null | {
+    observed_at: number;
+    received_at: number;
+    truncated: boolean;
+    addresses: {
+      interface: string;
+      address: string;
+      family: "ipv4" | "ipv6";
+      up: boolean;
+    }[];
+  };
+  events: NetworkEvent[];
+  next_before: number | null;
 }

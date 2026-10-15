@@ -13,6 +13,7 @@ import HealthBadge from "./components/HealthBadge.vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
 import TaskDetail from "./components/TaskDetail.vue";
+import DeviceNetworkPanel from "./components/DeviceNetworkPanel.vue";
 import HealthChecksPanel from "./components/HealthChecksPanel.vue";
 import SshConnectionPanel from "./components/SshConnectionPanel.vue";
 import SessionDuration from "./components/SessionDuration.vue";
@@ -42,6 +43,7 @@ const terminalTarget = ref<{
 } | null>(null);
 const devices = ref<Device[]>([]);
 const sshTarget = ref<Device | null>(null);
+const networkTarget = ref<Device | null>(null);
 const healthTarget = ref<Device | null>(null);
 const connectionTarget = ref<Device | undefined>();
 const connectionOpen = ref(false);
@@ -87,7 +89,7 @@ const titles = {
 };
 const filteredDevices = computed(() =>
   devices.value.filter((d) =>
-    `${d.name} ${d.id} ${d.agent_version ?? ""}`
+    `${d.name} ${d.id} ${d.agent_version ?? ""} ${(d.ip_addresses ?? []).join(" ")}`
       .toLowerCase()
       .includes(search.value.toLowerCase()),
   ),
@@ -137,6 +139,7 @@ function logout(message = "") {
   selectedTask.value = null;
   terminalTarget.value = null;
   healthTarget.value = null;
+  networkTarget.value = null;
   connectionTarget.value = undefined;
   connectionOpen.value = false;
   addDeviceOpen.value = false;
@@ -626,6 +629,18 @@ onBeforeUnmount(() => {
                               >
                             </div>
                           </div>
+                          <small
+                            v-if="device.connection_kind !== 'ssh'"
+                            class="muted mono"
+                            :title="(device.ip_addresses ?? []).join(', ')"
+                          >
+                            {{ device.ip_addresses?.[0] ?? "IP 尚未上报"
+                            }}{{
+                              (device.ip_addresses?.length ?? 0) > 1
+                                ? ` +${device.ip_addresses!.length - 1}`
+                                : ""
+                            }}
+                          </small>
                           <span v-if="device.revoked_at" class="revoked"
                             >访问已撤销</span
                           >
@@ -690,6 +705,14 @@ onBeforeUnmount(() => {
                               "
                             >
                               接入配置
+                            </button>
+                            <button
+                              v-if="device.connection_kind !== 'ssh'"
+                              class="text-button"
+                              :disabled="!apiReady || !!networkTarget"
+                              @click="networkTarget = device"
+                            >
+                              网络记录
                             </button>
                             <button
                               v-if="device.connection_kind !== 'ssh'"
@@ -1083,6 +1106,12 @@ onBeforeUnmount(() => {
         :device="sshTarget"
         :user="user"
         @close="sshTarget = null"
+      />
+      <DeviceNetworkPanel
+        v-if="networkTarget && user"
+        :key="networkTarget.id"
+        :device="networkTarget"
+        @close="networkTarget = null"
       />
       <HealthChecksPanel
         v-if="healthTarget && user"

@@ -492,7 +492,11 @@ try {
     "Browser uploaded both architecture packages and manifests; selected a retained version; disabling a release preserved an already queued offline upgrade; fresh installation used the uploaded package",
   );
   // A valid static ELF with matching build metadata but a worker that crashes must roll back.
-  const brokenVersion = "0.2.2";
+  const targetVersion = JSON.parse(
+    readFileSync(join(target, "farhelm-agent-linux-aarch64.json"), "utf8"),
+  ).version;
+  const versionParts = targetVersion.split(".").map(Number);
+  const brokenVersion = `${versionParts[0]}.${versionParts[1]}.${versionParts[2] + 1}`;
   writeFileSync(
     join(temp, "broken.rs"),
     `fn main(){if std::env::args().any(|a|a=="--build-info"){println!("{{\\\"version\\\":\\\"${brokenVersion}\\\",\\\"arch\\\":\\\"aarch64\\\",\\\"upgrade_protocol\\\":1}}");}else{std::process::exit(42);}}`,

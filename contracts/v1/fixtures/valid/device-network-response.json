@@ -1,0 +1,37 @@
+{
+  "v": 1,
+  "device_id": "device",
+  "device_online": true,
+  "supported": true,
+  "last_seen": 1792100030000,
+  "snapshot": {
+    "observed_at": 1792100000000,
+    "addresses": [
+      {
+        "interface": "eth0",
+        "address": "192.168.1.8",
+        "family": "ipv4",
+        "up": true
+      },
+      {
+        "interface": "eth0",
+        "address": "fe80::1234",
+        "family": "ipv6",
+        "up": true
+      }
+    ],
+    "truncated": false,
+    "received_at": 1792100031000
+  },
+  "events": [
+    {
+      "event_id": "e230784a-741b-418f-9eee-eaf82339fc01",
+      "reason": "connection_lost",
+      "last_contact_at": 1792099980000,
+      "detected_at": 1792100000000,
+      "recovered_at": 1792100030000,
+      "received_at": 1792100031000
+    }
+  ],
+  "next_before": null
+}

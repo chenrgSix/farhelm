@@ -62,6 +62,14 @@
     "ssh_checked_at": {
       "type": ["integer", "null"],
       "minimum": 0
+    },
+    "ip_addresses": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "maxLength": 45
+      }
     }
   },
   "required": [

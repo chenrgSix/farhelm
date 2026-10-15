@@ -38,7 +38,8 @@ impl Journal {
           CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS tasks(task_id TEXT PRIMARY KEY,payload_hash TEXT NOT NULL,request TEXT NOT NULL,status TEXT NOT NULL,seq INTEGER NOT NULL DEFAULT 0,cancel_requested INTEGER NOT NULL DEFAULT 0,started_at INTEGER,pid INTEGER,start_ticks INTEGER,stdout_path TEXT,stderr_path TEXT,result TEXT);
           CREATE TABLE IF NOT EXISTS outbox(event_id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(task_id),seq INTEGER NOT NULL,event TEXT NOT NULL,UNIQUE(task_id,seq));
-          CREATE TABLE IF NOT EXISTS local_audit(id INTEGER PRIMARY KEY,at INTEGER NOT NULL,task_id TEXT,kind TEXT NOT NULL,detail TEXT NOT NULL);")?;
+          CREATE TABLE IF NOT EXISTS local_audit(id INTEGER PRIMARY KEY,at INTEGER NOT NULL,task_id TEXT,kind TEXT NOT NULL,detail TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS network_events(event_id TEXT PRIMARY KEY,event TEXT NOT NULL,complete INTEGER NOT NULL,acked INTEGER NOT NULL DEFAULT 0);")?;
         Ok(Self(Arc::new(Mutex::new(c))))
     }
     pub fn metadata(&self, key: &str) -> Result<Option<String>> {
@@ -70,6 +71,29 @@ impl Journal {
     }
     pub fn set_platform_address(&self, value: &str) -> Result<()> {
         self.0.lock().unwrap().execute("INSERT INTO metadata(key,value) VALUES('platform_address',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value])?;
+        Ok(())
+    }
+    pub fn network_save(&self, state: &str, event: Option<&crate::network::Event>) -> Result<()> {
+        let mut c = self.0.lock().unwrap();
+        let tx = c.transaction()?;
+        tx.execute("INSERT INTO metadata(key,value) VALUES('network_state',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[state])?;
+        if let Some(e) = event {
+            tx.execute("INSERT INTO network_events(event_id,event,complete) VALUES(?,?,?) ON CONFLICT(event_id) DO UPDATE SET event=excluded.event,complete=excluded.complete",params![e.event_id,serde_json::to_string(e)?,e.recovered_at.is_some()])?;
+        }
+        // Retain the newest 1,000 local observations; never prune unacknowledged records.
+        tx.execute("DELETE FROM network_events WHERE acked=1 AND rowid NOT IN (SELECT rowid FROM network_events ORDER BY rowid DESC LIMIT 1000)",[])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn network_first(&self) -> Result<Option<crate::network::Event>> {
+        let raw: Option<String> = self.0.lock().unwrap().query_row("SELECT event FROM network_events WHERE complete=1 AND acked=0 ORDER BY rowid LIMIT 1",[],|r|r.get(0)).optional()?;
+        Ok(raw.map(|s| serde_json::from_str(&s)).transpose()?)
+    }
+    pub fn network_ack(&self, id: &str) -> Result<()> {
+        self.0.lock().unwrap().execute(
+            "UPDATE network_events SET acked=1 WHERE event_id=? AND complete=1",
+            [id],
+        )?;
         Ok(())
     }
     pub fn set_upgrade(&self, state: &str, release: Option<&str>) -> Result<()> {

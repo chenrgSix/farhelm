@@ -4,6 +4,7 @@ use crate::{
     executor::{seal, Artifact},
     identity::{response_json, Access, Identity},
     journal::Journal,
+    network::{self, Monitor},
     now_ms,
     protocol::{envelope, Envelope, Event, Task, MAX_FRAME},
     upgrade::{self, Spec as UpgradeSpec, State as UpgradeState},
@@ -24,7 +25,8 @@ use tokio_tungstenite::{
 };
 
 enum SessionEnd {
-    Reconnect,
+    AddressChange,
+    ConnectionLost,
     Upgrade,
 }
 pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i32> {
@@ -33,9 +35,11 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i3
     let tls = cfg.tls_config()?;
     let mut failures = 0u32;
     let running_hash = upgrade::current_hash()?;
+    let mut network = Monitor::start(journal.clone())?;
     loop {
         let selected = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
-        let result = async {
+        let (contact, mut observed) = tokio::sync::watch::channel(None);
+        let attempt = async {
             let access = identity.authenticate(&http, &selected, &journal).await?;
             session(
                 &selected,
@@ -45,12 +49,27 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i3
                 tls.clone(),
                 identity.clone(),
                 &running_hash,
+                &mut network,
+                contact,
             )
             .await
-        }
-        .await;
+        };
+        let result = tokio::select! {
+            result = attempt => result,
+            _ = watch_connection(&mut observed) => Err(anyhow::anyhow!("platform heartbeat timeout")),
+        };
         if matches!(result, Ok(SessionEnd::Upgrade)) {
             return Ok(upgrade::RESTART_EXIT);
+        }
+        if matches!(result, Err(_) | Ok(SessionEnd::ConnectionLost)) {
+            network.failed(
+                if observed.borrow().is_some() {
+                    "connection_lost"
+                } else {
+                    "connection_failed"
+                },
+                now_ms(),
+            )?;
         }
         if let Err(error) = result {
             AddressState::load(&cfg, &journal)?.rollback(&journal)?;
@@ -64,6 +83,21 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<i3
         tokio::time::sleep(Duration::from_millis(base + jitter)).await;
     }
 }
+async fn watch_connection(rx: &mut tokio::sync::watch::Receiver<Option<tokio::time::Instant>>) {
+    loop {
+        let last = *rx.borrow_and_update();
+        if let Some(last) = last {
+            match tokio::time::timeout_at(last + Duration::from_secs(20), rx.changed()).await {
+                Err(_) => return,
+                Ok(Err(_)) => std::future::pending::<()>().await,
+                Ok(Ok(_)) => (),
+            }
+        } else if rx.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
 type Socket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 async fn connect(
@@ -136,6 +170,8 @@ async fn session(
     tls: Arc<rustls::ClientConfig>,
     identity: Arc<Identity>,
     running_hash: &str,
+    network: &mut Monitor,
+    contact: tokio::sync::watch::Sender<Option<tokio::time::Instant>>,
 ) -> Result<SessionEnd> {
     let mut access = access.clone();
     let mut socket = connect(cfg, &access, tls, "/agent/ws").await?;
@@ -143,12 +179,14 @@ async fn session(
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash}}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash}}),
             )?
             .into(),
         ))
         .await?;
     ready(&mut socket, journal).await?;
+    network.connected(now_ms())?;
+    contact.send_replace(Some(tokio::time::Instant::now()));
     if let Some(state) = upgrade::connected(journal, running_hash)? {
         socket
             .send(Message::Text(
@@ -169,6 +207,10 @@ async fn session(
     let mut probes = tokio::task::JoinSet::<(AddressUpdate, Result<()>)>::new();
     eprintln!("control connected; device {}", access.device_id);
     let mut heartbeat = tokio::time::interval(Duration::from_millis(cfg.heartbeat_ms));
+    let mut ping = tokio::time::interval(Duration::from_secs(5));
+    let mut pending_ping: Option<Vec<u8>> = None;
+    let mut inventory = tokio::time::interval(Duration::from_secs(30));
+    let mut network_events = tokio::time::interval(Duration::from_secs(1));
     let mut outbox = tokio::time::interval(Duration::from_millis(250));
     // Artifact transfer must not block incoming cancellations or heartbeats.
     // JoinSet aborts pending uploads when this authenticated session closes.
@@ -185,6 +227,26 @@ async fn session(
     tokio::pin!(renew);
     loop {
         tokio::select! {
+            _=ping.tick(), if pending_ping.is_none()=>{
+                let bytes=uuid::Uuid::new_v4().as_bytes().to_vec();
+                pending_ping=Some(bytes.clone());
+                socket.send(Message::Ping(bytes.into())).await?;
+            }
+            _=inventory.tick()=>{
+                match network::addresses() {
+                    Ok(addresses)=>{
+                        let truncated=addresses.len()>128;
+                        let addresses:Vec<_>=addresses.into_iter().take(128).collect();
+                        socket.send(Message::Text(envelope("agent.network",json!({"observed_at":now_ms(),"addresses":addresses,"truncated":truncated}))?.into())).await?;
+                    }
+                    Err(error)=>eprintln!("local interface collection failed: {error}"),
+                }
+            }
+            _=network_events.tick()=>{
+                if let Some(event)=journal.network_first()? {
+                    socket.send(Message::Text(envelope("agent.network.event",event)?.into())).await?;
+                }
+            }
             Some(downloaded)=downloads.join_next(), if !downloads.is_empty()=>{
                 let (spec,result)=downloaded?;
                 let state=UpgradeState{spec,status:if result.is_ok(){"WAITING_IDLE"}else{"FAILED"}.into(),reason:if result.is_ok(){None}else{Some("DOWNLOAD_FAILED".into())}};
@@ -235,13 +297,15 @@ async fn session(
                         if state.status=="WAITING_IDLE" {
                             state.status="RESTARTING".into();state.save(journal)?;
                             let _=socket.send(Message::Text(envelope("agent.upgrade.result",state.receipt())?.into())).await;
+                            network.planned()?;
                             let _=socket.close(None).await;return Ok(SessionEnd::Upgrade);
                         }
                     }
                 }
                 if address.pending.is_some() && probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
-                    socket.close(None).await?;
-                    return Ok(SessionEnd::Reconnect);
+                    network.planned()?;
+                    let _=socket.close(None).await;
+                    return Ok(SessionEnd::AddressChange);
                 }
                 if let Some(event)=journal.first_outbox()?{
                     let cfg=cfg.clone();let journal=journal.clone();let http=http.clone();let access=access.clone();
@@ -261,6 +325,10 @@ async fn session(
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.network.ack"=>{
+                                #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{event_id:String}
+                                let ack:Ack=serde_json::from_value(envelope.body)?;journal.network_ack(&ack.event_id)?;
+                            }
                             "agent.upgrade"=>{
                                 ensure!(upgrade::supervised(),"upgrade requires supervisor");
                                 let spec:UpgradeSpec=serde_json::from_value(envelope.body)?;spec.validate()?;
@@ -304,8 +372,13 @@ async fn session(
                         }
                     }
                     Message::Ping(bytes)=>socket.send(Message::Pong(bytes)).await?,
-                    Message::Pong(_)=>(),
-                    Message::Close(_)=>return Ok(SessionEnd::Reconnect),
+                    Message::Pong(bytes)=>{
+                        if pending_ping.as_deref()==Some(bytes.as_ref()) {
+                            pending_ping=None; network.contact(now_ms())?;
+                            contact.send_replace(Some(tokio::time::Instant::now()));
+                        }
+                    },
+                    Message::Close(_)=>return Ok(SessionEnd::ConnectionLost),
                     _=>anyhow::bail!("unexpected non-text control message"),
                 }
             }

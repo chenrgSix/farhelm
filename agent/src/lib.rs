@@ -6,6 +6,7 @@ pub mod executor;
 pub mod health;
 pub mod identity;
 pub mod journal;
+pub mod network;
 pub mod protocol;
 pub mod terminal;
 pub mod upgrade;

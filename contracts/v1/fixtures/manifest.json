@@ -993,5 +993,35 @@
     "path": "valid/agent-release-audit.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/agent.network.json",
+    "schema": "agent-network-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent.network.event.json",
+    "schema": "agent-network-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent.network.ack.json",
+    "schema": "agent-network-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-network-response.json",
+    "schema": "device-network-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/network-invalid-ip.json",
+    "schema": "agent-network-envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/network-spoof-device.json",
+    "schema": "agent-network-envelope.schema.json",
+    "valid": false
   }
 ]
