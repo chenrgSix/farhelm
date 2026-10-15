@@ -4,6 +4,12 @@
 
 「命令任务」继续保留原有持久化执行、幂等、取消与任务结果流程。终端输入不会自动重放；浏览器、Agent 或服务端断连后关闭会话，需要重新点击连接。设备访问凭据在现有 WSS 上续期，正常续期不会打断终端。
 
+## 本地开发容器
+
+本地容器使用 `deploy/dev/Dockerfile.agent` 中的普通用户 `fleet`，UID/GID 与启动者一致；HOME 和初始工作目录为 `/home/fleet`。该目录绑定到项目 `.dev/agent-home/`，可以直接 `touch t.txt`、编辑文件和创建目录，重建容器后文件保留。设备身份与 journal 仍保存在独立的 `.dev/agent/`。系统目录按正常 Linux 账号权限管理。
+
+已有本地服务端、`.dev/agent.env`、开发 CA 和 Linux Agent 二进制时，执行 `npm run dev:agent:container` 可以构建并更新本地容器。默认二进制路径为 `.dev/linux-target/debug/fleet-agent`，可用 `FLEET_AGENT_BIN` 覆盖。该命令会结束当前本地终端会话，更新后重新连接。它核对现有容器的状态目录，不覆盖其他项目的容器。
+
 ## 授权和录制
 
 - 只允许 admin 和设备范围内的 ops 建立终端；业务与审计角色不能执行。每次输入及定期检查平台会话、角色、设备范围和撤销状态。

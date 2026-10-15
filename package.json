@@ -6,6 +6,7 @@
   "scripts": {
     "setup": "npm ci && npm --prefix apps/server ci && npm --prefix apps/web ci && npm --prefix tests/contracts ci && cargo build --manifest-path agent/Cargo.toml --locked",
     "dev": "bash scripts/dev.sh",
+    "dev:agent:container": "bash scripts/dev-agent-container.sh",
     "test:e2e": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs --test tests/e2e/fleet.test.ts",
     "check": "npm --prefix apps/server run typecheck && npm --prefix apps/server test && npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix tests/contracts test && cargo test --manifest-path agent/Cargo.toml --locked",
     "build": "npm --prefix apps/server run build && npm --prefix apps/web run build && cargo build --manifest-path agent/Cargo.toml --locked --release",

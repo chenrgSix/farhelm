@@ -54,6 +54,11 @@ try {
   await keyboard.focus();
   await page.keyboard.type("stty -echo;printf '__BROWSER_%s__\\n' READY\r");
   await waitText("__BROWSER_READY__");
+  const probe = `fleet-browser-write-${process.pid}.txt`;
+  await page.keyboard.type(
+    `touch ${probe} && printf 'file-write-check' > ${probe} && grep -q '^file-write-check$' ${probe} && rm ${probe} && printf '__FILE_WRITE_%s__\\n' OK\r`,
+  );
+  await waitText("__FILE_WRITE_OK__");
   await page.keyboard.type("cd /tm");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
@@ -127,6 +132,7 @@ try {
         steps: [
           "login",
           "connect actual Linux PTY",
+          "create, write, read and remove a file in the initial directory",
           "Tab completion and persistent cd/pwd",
           "Ctrl-C",
           "Chinese output",

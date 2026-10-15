@@ -1,0 +1,12 @@
+FROM rust:bookworm
+
+ARG FLEET_UID=1000
+ARG FLEET_GID=1000
+RUN test "$FLEET_UID" -ne 0 \
+    && (getent group "$FLEET_GID" >/dev/null || groupadd --gid "$FLEET_GID" fleet) \
+    && useradd --uid "$FLEET_UID" --gid "$FLEET_GID" --create-home --shell /bin/bash fleet
+
+ENV HOME=/home/fleet
+WORKDIR /home/fleet
+USER fleet
+ENTRYPOINT ["/usr/local/bin/fleet-agent"]
