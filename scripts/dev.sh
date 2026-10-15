@@ -28,5 +28,5 @@ node --import ./apps/server/node_modules/tsx/dist/loader.mjs apps/server/src/ind
 export FLEET_ENROLLMENT_TOKEN="$(node scripts/dev-enroll.mjs)"
 env -u FLEET_ADMIN_PASSWORD -u FLEET_ADMIN_USER ./agent/target/debug/farhelm-agent & pids+=("$!")
 NODE_EXTRA_CA_CERTS="$FLEET_CA_CERT" FLEET_DEV_API_TARGET="$FLEET_SERVER_URL" env -u FLEET_ADMIN_PASSWORD -u FLEET_ADMIN_USER node "$ROOT/apps/web/node_modules/vite/bin/vite.js" "$ROOT/apps/web" --host 127.0.0.1 & pids+=("$!")
-printf '\nLocal console: http://127.0.0.1:5173 (loopback development only)\nHTTPS server: %s (explicit CA trust needed in browser)\nSingle-account mode shares Agent and command permissions. Only run trusted commands.\nCtrl-C stops this demo only.\n' "$FLEET_SERVER_URL"
+printf '\nFarhelm console: http://127.0.0.1:5173 (loopback development only)\nFarhelm HTTPS server: %s (explicit CA trust needed in browser)\nSingle-account mode shares Agent and command permissions. Only run trusted commands.\nCtrl-C stops this demo only.\n' "$FLEET_SERVER_URL"
 wait -n "${pids[@]}"

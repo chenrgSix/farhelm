@@ -39,4 +39,4 @@ docker run --detach --init --name "$CONTAINER" --hostname local-linux --restart 
   --mount "type=bind,source=$BINARY,target=/usr/local/bin/farhelm-agent,readonly" \
   --mount "type=bind,source=$DEV/tls/ca.crt,target=/etc/fleet/ca.crt,readonly" \
   "$IMAGE"
-printf 'Local Agent: %s; user: fleet; sudo enabled inside this development container; writable home: /home/fleet (persisted at %s/agent-home).\n' "$CONTAINER" "$DEV"
+printf 'Farhelm Agent: %s; user: fleet; sudo enabled inside this development container; writable home: /home/fleet (persisted at %s/agent-home).\n' "$CONTAINER" "$DEV"

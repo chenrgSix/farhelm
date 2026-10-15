@@ -18,6 +18,8 @@ Agent 0.2.3 起可在设备「网络记录」中配置多个网络探测地址�
 
 项目名称为 **Farhelm（遥舵）**，npm 包为 `farhelm`、`@farhelm/server`、`@farhelm/web`，Rust Agent 包及可执行文件为 `farhelm-agent`。
 
+GitHub 仓库为 [chenrgSix/farhelm](https://github.com/chenrgSix/farhelm)，本地项目目录统一使用 `farhelm/`。新环境可用 `git clone https://github.com/chenrgSix/farhelm.git` 获取代码，然后进入 `farhelm/` 执行下方命令。
+
 现有 `FLEET_*` 环境变量、服务端 `fleet.sqlite` 数据库文件、开发容器中的 `fleet` 账号和路径继续沿用。v1 签名域 `fleet-v1`、JSON Schema 的 `https://fleet.local/contracts/v1/` 标识与公开测试向量保持兼容；这些是已有配置、数据和协议的固定标识。历史验证日志保留当时的名称和输出。
 
 ## 已确认的单账号边界
@@ -44,6 +46,8 @@ npm run dev
 ```
 
 启动脚本只在项目 `.dev/` 下生成 7 天本地开发 CA、服务端证书和状态；不修改系统信任、账号、权限、systemd 或生产服务。控制台 http://127.0.0.1:5173 仅监听 loopback，Vite 把 API 代理到校验证书的 HTTPS 服务；Agent 通过 HTTPS/WSS 访问 https://localhost:8443。此 HTTP 控制台只供本机开发，不能暴露到网络。
+
+已有目录更名时，应先停止本地服务，连同 `.dev/` 一起移动，并从新目录重新启动。Docker 的绑定挂载保存绝对路径，开发容器也需要重新创建并指向新目录；重新创建前保留容器内自行安装的工具及文件。保留原有 Agent 状态目录和服务端数据库，即可继续使用已有设备身份、配置和会话录制。
 
 浏览器直接访问 HTTPS 服务时，需要用户自行把 `.dev/tls/ca.crt` 加入受控开发信任或使用受信正式证书。请勿绕过浏览器证书警告、设置 `NODE_TLS_REJECT_UNAUTHORIZED=0` 或关闭 Agent TLS 校验。Agent 用 `FLEET_CA_CERT` 指定受信 CA，默认使用公共根证书。
 
