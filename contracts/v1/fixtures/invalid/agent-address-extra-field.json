@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "agent.address.update",
+  "body": {
+    "request_id": "2d117acc-4a61-4f53-851e-89c9d8708626",
+    "revision": 1,
+    "server_url": "https://fleet.example.com",
+    "insecure": true
+  }
+}

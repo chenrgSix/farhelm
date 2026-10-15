@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "revision": 1,
+  "devices": [
+    {
+      "device_id": "device-1",
+      "name": "test",
+      "revision": 1,
+      "server_url": "https://fleet.example.com",
+      "status": "saved",
+      "reason": null,
+      "online": true,
+      "updated_at": 1700000000000
+    }
+  ]
+}

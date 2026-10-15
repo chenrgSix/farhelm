@@ -20,7 +20,9 @@ it("loads and explicitly saves a platform address once, then displays the persis
           resolve = r;
         }),
     );
-  const wrapper = mount(SystemSettingsPanel);
+  const wrapper = mount(SystemSettingsPanel, {
+    global: { stubs: { AgentAddressSyncPanel: true } },
+  });
   await flushPromises();
   expect(wrapper.get<HTMLInputElement>("input").element.value).toBe(
     initial.platform_server_url,
@@ -73,7 +75,9 @@ it("preserves a conflicting draft and requires reloading the current revision be
       revision: 3,
       platform_server_url: "https://draft.example.com",
     });
-  const wrapper = mount(SystemSettingsPanel);
+  const wrapper = mount(SystemSettingsPanel, {
+    global: { stubs: { AgentAddressSyncPanel: true } },
+  });
   await flushPromises();
   await wrapper.get("input").setValue("https://draft.example.com");
   await wrapper.get("form").trigger("submit");
@@ -101,7 +105,9 @@ it("blocks blind retries when the save response is lost", async () => {
     .spyOn(api, "request")
     .mockResolvedValueOnce(initial)
     .mockRejectedValueOnce(new ApiError("network lost", 0));
-  const wrapper = mount(SystemSettingsPanel);
+  const wrapper = mount(SystemSettingsPanel, {
+    global: { stubs: { AgentAddressSyncPanel: true } },
+  });
   await flushPromises();
   await wrapper.get("form").trigger("submit");
   await flushPromises();

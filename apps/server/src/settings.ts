@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
 import { fail, integer, keys, object, str, version } from "./util.js";
+import { agentAddressSync } from "./agent-address.js";
 
 export function platformServerUrl(value: unknown) {
   const input = str(value, 1, 2048).trim();
@@ -31,9 +32,15 @@ export function registerSettings(
     store: Store;
     admin: (req: FastifyRequest) => User;
     initialServerUrl?: string;
+    agent?: (
+      id: string,
+    ) =>
+      | { supported: boolean; send(type: string, body: unknown): boolean }
+      | undefined;
   },
 ) {
   const { db } = d.store;
+  const sync = agentAddressSync(d.store, d.agent ?? (() => undefined));
   function current() {
     const row = db
       .prepare(
@@ -66,7 +73,7 @@ export function registerSettings(
     keys(b, ["v", "revision", "platform_server_url"]);
     const expected = integer(b.revision, 0, Number.MAX_SAFE_INTEGER - 1);
     const url = platformServerUrl(b.platform_server_url);
-    return d.store.transaction(() => {
+    const saved = d.store.transaction(() => {
       const previous = current();
       if (previous.revision !== expected)
         fail(409, "SETTINGS_REVISION_CONFLICT");
@@ -81,8 +88,32 @@ export function registerSettings(
         revision,
         platform_server_url: url,
       });
+      sync.enqueue({ revision, platform_server_url: url });
       return current();
     });
+    sync.flush();
+    return saved;
   });
-  return { current };
+  app.get("/api/v1/settings/agent-sync", async (req) => {
+    d.admin(req);
+    return sync.snapshot(current());
+  });
+  app.post("/api/v1/settings/agent-sync", async (req) => {
+    const user = d.admin(req),
+      b = object(req.body);
+    version(b);
+    keys(b, ["v", "revision"]);
+    const target = current();
+    if (integer(b.revision, 1, Number.MAX_SAFE_INTEGER) !== target.revision)
+      fail(409, "SETTINGS_REVISION_CONFLICT");
+    d.store.transaction(() => {
+      sync.enqueue(target, true);
+      d.store.audit("settings.sync_requested", user.id, null, null, {
+        revision: target.revision,
+      });
+    });
+    sync.flush();
+    return sync.snapshot(target);
+  });
+  return { current, sync };
 }

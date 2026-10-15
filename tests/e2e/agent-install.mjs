@@ -4,7 +4,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createServer } from "node:net";
+import { createServer, connect as tcpConnect } from "node:net";
 import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 
@@ -18,7 +18,8 @@ execFileSync("bash", [join(root, "deploy/dev/generate-tls.sh"), tls], {
 });
 const password = "isolated-agent-install-password";
 const containers = [];
-let server, vite, browser;
+let server, vite, browser, wrongServer;
+const proxies = [];
 const errors = [],
   steps = [];
 async function run(command, args) {
@@ -344,10 +345,252 @@ try {
       );
     }
   }
-  const audit = assertValid("audit-response", await api("GET", "/audit"));
+  // Change the advertised address while keeping an interactive PTY open.
+  let forwarded = 0;
+  const proxy = createServer((client) => {
+    forwarded++;
+    const upstream = tcpConnect({ host: "127.0.0.1", port });
+    client.pipe(upstream).pipe(client);
+    client.on("error", () => upstream.destroy());
+    upstream.on("error", () => client.destroy());
+    client.on("close", () => upstream.destroy());
+    upstream.on("close", () => client.destroy());
+  });
+  proxies.push(proxy);
+  await new Promise((r) => proxy.listen(0, "127.0.0.1", r));
+  const nextUrl = `https://host.docker.internal:${proxy.address().port}`;
+  const initialUrl = `https://host.docker.internal:${port}`;
+  const installedDevices = (await api("GET", "/devices")).devices;
+  const arm = installedDevices.find((d) => d.name === "安装验证 ARM64");
+  const amd = installedDevices.find((d) => d.name === "安装验证 x86_64");
+  async function statuses() {
+    return assertValid(
+      "agent-address-sync-response",
+      await api("GET", "/settings/agent-sync"),
+    ).devices;
+  }
+  await until(
+    async () => (await statuses()).every((d) => d.status === "applied"),
+    "initial address confirmations",
+  );
+  await page
+    .locator("tbody tr")
+    .filter({ hasText: arm.name })
+    .getByRole("button", { name: "连接终端", exact: true })
+    .click();
+  const active = page.getByRole("dialog");
+  await active.getByText("已连接", { exact: true }).waitFor();
+  await active.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("printf '__BEFORE_%s__\\n' SYNC\r");
+  let setting = await api("GET", "/settings");
+  setting = await api("PUT", "/settings", {
+    v: 1,
+    revision: setting.revision,
+    platform_server_url: nextUrl,
+  });
+  await until(
+    async () => {
+      const rows = await statuses();
+      return (
+        rows.find((d) => d.device_id === arm.id)?.status === "saved" &&
+        rows.find((d) => d.device_id === amd.id)?.status === "applied"
+      );
+    },
+    "idle Agent switched while active PTY waits",
+    40000,
+  );
   assert.equal(
-    audit.audit.filter((e) => e.action === "settings.updated").length,
+    (await api("GET", "/terminal-sessions")).sessions.filter(
+      (s) => s.status === "OPEN",
+    ).length,
     1,
+  );
+  await active.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("printf '__AFTER_%s__\\n' SYNC; exit\r");
+  await active.getByText("会话已结束", { exact: true }).waitFor();
+  const migratedSession = (
+    await api("GET", "/terminal-sessions")
+  ).sessions.find((s) => s.device_id === arm.id);
+  const recorded = (
+    await api("GET", `/terminal-sessions/${migratedSession.id}/recording`)
+  ).events
+    .filter((e) => e.kind === "output")
+    .map((e) => Buffer.from(e.data.data, "base64").toString())
+    .join("");
+  assert.ok(
+    recorded.includes("__BEFORE_SYNC__") && recorded.includes("__AFTER_SYNC__"),
+  );
+  assert.equal(migratedSession.audit_complete, 1);
+  await active.getByRole("button", { name: "关闭终端", exact: true }).click();
+  await until(
+    async () => (await statuses()).every((d) => d.status === "applied"),
+    "all Agents switched",
+    40000,
+  );
+  await page.getByRole("button", { name: "系统设置", exact: false }).click();
+  await page.getByText("Agent 地址同步", { exact: true }).waitFor();
+  await until(
+    async () =>
+      (await page.locator(".sync-devices").innerText()).includes("已切换"),
+    "browser sync confirmation",
+  );
+  await page.screenshot({
+    path: join(out, "agent-address-sync-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(
+    await page
+      .locator(".settings-panel")
+      .evaluate(
+        (el) =>
+          el.scrollWidth <= el.clientWidth + 1 &&
+          document.documentElement.scrollWidth <= innerWidth,
+      ),
+  );
+  await page.screenshot({
+    path: join(out, "agent-address-sync-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // A different platform with a trusted TLS certificate must still be rejected.
+  wrongServer = await buildServer({
+    dataDir: join(temp, "wrong-server"),
+    tlsCert: join(tls, "server.crt"),
+    tlsKey: join(tls, "server.key"),
+  });
+  await wrongServer.app.listen({ host: "127.0.0.1", port: 0 });
+  setting = await api("PUT", "/settings", {
+    v: 1,
+    revision: setting.revision,
+    platform_server_url: `https://host.docker.internal:${wrongServer.app.server.address().port}`,
+  });
+  await until(
+    async () =>
+      (await statuses()).every(
+        (d) => d.status === "failed" && d.reason === "PROBE_FAILED",
+      ),
+    "wrong platform refused",
+    40000,
+  );
+  assert.ok(
+    (await api("GET", "/devices")).devices.every((d) => d.control_online),
+  );
+  await wrongServer.close();
+  wrongServer = undefined;
+  // Restart the Agent with its unchanged original environment; persisted address wins.
+  const beforeRestart = forwarded;
+  assert.equal(
+    (
+      await run("docker", [
+        "exec",
+        containers[0],
+        "pkill",
+        "-TERM",
+        "-x",
+        "farhelm-agent",
+      ])
+    ).code,
+    0,
+  );
+  await until(
+    async () =>
+      !(await api("GET", "/devices")).devices.find((d) => d.id === arm.id)
+        .control_online,
+    "Agent stopped",
+  );
+  assert.equal(
+    (
+      await run("docker", [
+        "exec",
+        "-d",
+        containers[0],
+        "/usr/local/libexec/farhelm-agent-background",
+      ])
+    ).code,
+    0,
+  );
+  await until(
+    async () =>
+      (await api("GET", "/devices")).devices.find((d) => d.id === arm.id)
+        .control_online,
+    "Agent restarted on saved address",
+  );
+  assert.ok(
+    forwarded > beforeRestart,
+    "restart must connect through the newly configured endpoint",
+  );
+  const originalEnv = await run("docker", [
+    "exec",
+    containers[0],
+    "bash",
+    "-c",
+    "grep '^FLEET_SERVER_URL=' /etc/farhelm-agent/agent.env",
+  ]);
+  assert.ok(originalEnv.output.includes(initialUrl));
+  // Offline Agents receive the latest setting when they next reach the old endpoint.
+  assert.equal(
+    (
+      await run("docker", [
+        "exec",
+        containers[1],
+        "pkill",
+        "-TERM",
+        "-x",
+        "farhelm-agent",
+      ])
+    ).code,
+    0,
+  );
+  await until(
+    async () =>
+      !(await api("GET", "/devices")).devices.find((d) => d.id === amd.id)
+        .control_online,
+    "second Agent stopped",
+  );
+  await page.getByRole("button", { name: "重新加载配置", exact: true }).click();
+  await until(
+    async () =>
+      (await page
+        .getByLabel("平台服务端地址", { exact: true })
+        .inputValue()) !== nextUrl,
+    "load latest revision",
+  );
+  await page.getByLabel("平台服务端地址", { exact: true }).fill(initialUrl);
+  await page.getByRole("button", { name: "保存设置", exact: true }).click();
+  await page.locator(".settings-panel").getByRole("status").waitFor();
+  await until(async () => {
+    const rows = await statuses();
+    return (
+      rows.find((d) => d.device_id === arm.id)?.status === "applied" &&
+      rows.find((d) => d.device_id === amd.id)?.status === "pending"
+    );
+  }, "online sync and offline pending");
+  assert.equal(
+    (
+      await run("docker", [
+        "exec",
+        "-d",
+        containers[1],
+        "/usr/local/libexec/farhelm-agent-background",
+      ])
+    ).code,
+    0,
+  );
+  await until(
+    async () => (await statuses()).every((d) => d.status === "applied"),
+    "offline Agent catches up",
+    40000,
+  );
+  steps.push(
+    "Address sync: verified TLS/platform identity and WSS before save, preserved active PTY and recording, switched idle Agents, rejected wrong platform without disconnecting, survived Agent restart, caught up offline Agent",
+  );
+  const audit = assertValid("audit-response", await api("GET", "/audit"));
+  assert.ok(
+    audit.audit.some(
+      (e) =>
+        e.action === "settings.agent_sync" && e.detail.status === "applied",
+    ),
   );
   assert.deepEqual(errors, []);
   writeFileSync(
@@ -370,4 +613,6 @@ try {
   for (const container of containers)
     await run("docker", ["rm", "--force", container]);
   await server?.close();
+  await wrongServer?.close();
+  for (const proxy of proxies) await new Promise((r) => proxy.close(r));
 }

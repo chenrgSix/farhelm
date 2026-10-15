@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "../api/client";
 import { formatTime } from "../model";
+import AgentAddressSyncPanel from "./AgentAddressSyncPanel.vue";
 
 type Settings = {
   v: 1;
@@ -55,7 +56,7 @@ async function save() {
     if (disposed) return;
     settings.value = result;
     serverUrl.value = result.platform_server_url;
-    message.value = "已保存，新的 Agent 安装命令会自动使用此地址。";
+    message.value = "已保存，新的安装命令将使用此地址，并已开始向 Agent 同步。";
     emit("saved");
   } catch (e) {
     if (disposed) return;
@@ -116,8 +117,8 @@ onBeforeUnmount(() => {
           时会自动带入。
         </p>
         <div class="notice settings-scope">
-          保存后立即用于新生成的安装命令，无需重启服务。已生成的命令保留原地址；已有
-          Agent 的连接地址需在对应服务器同步更新。
+          保存后立即用于新生成的安装命令，并自动同步到支持此功能的
+          Agent，无需重启平台。已生成的安装命令保留原地址。
         </div>
         <p class="field-hint">
           此设置保存后会随平台数据持久化。{{
@@ -151,6 +152,10 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </form>
+    <AgentAddressSyncPanel
+      v-if="settings && settings.revision > 0"
+      :revision="settings.revision"
+    />
   </section>
 </template>
 

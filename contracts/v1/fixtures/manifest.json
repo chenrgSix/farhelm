@@ -858,5 +858,50 @@
     "path": "valid/audit-settings-updated.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/agent-address-update.json",
+    "schema": "agent-address-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-address-result.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-address-ready.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-address-sync-request.json",
+    "schema": "agent-address-sync-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-address-sync-response.json",
+    "schema": "agent-address-sync-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/agent-address-http.json",
+    "schema": "agent-address-envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-address-extra-field.json",
+    "schema": "agent-address-envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/audit-settings-agent_sync.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-settings-sync_requested.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

@@ -1,0 +1,13 @@
+{
+  "id": 1,
+  "at": 1700000000000,
+  "actor_id": null,
+  "device_id": null,
+  "task_id": null,
+  "action": "settings.agent_sync",
+  "detail": {
+    "revision": 1,
+    "status": "failed",
+    "reason": "PROBE_FAILED"
+  }
+}

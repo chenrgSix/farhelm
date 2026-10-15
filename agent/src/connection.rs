@@ -1,4 +1,5 @@
 use crate::{
+    address::{Receipt as AddressReceipt, State as AddressState, Update as AddressUpdate},
     config::Config,
     executor::{seal, Artifact},
     identity::{response_json, Access, Identity},
@@ -27,10 +28,11 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<()
     let tls = cfg.tls_config()?;
     let mut failures = 0u32;
     loop {
+        let selected = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
         let result = async {
-            let access = identity.authenticate(&http, &cfg, &journal).await?;
+            let access = identity.authenticate(&http, &selected, &journal).await?;
             session(
-                &cfg,
+                &selected,
                 &journal,
                 &http,
                 &access,
@@ -41,6 +43,7 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<()
         }
         .await;
         if let Err(error) = result {
+            AddressState::load(&cfg, &journal)?.rollback(&journal)?;
             eprintln!("control connection unavailable: {error:#}");
             failures = (failures + 1).min(6);
         } else {
@@ -51,16 +54,15 @@ pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<()
         tokio::time::sleep(Duration::from_millis(base + jitter)).await;
     }
 }
-async fn session(
+type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+async fn connect(
     cfg: &Config,
-    journal: &Journal,
-    http: &reqwest::Client,
     access: &Access,
     tls: Arc<rustls::ClientConfig>,
-    identity: Arc<Identity>,
-) -> Result<()> {
-    let mut access = access.clone();
-    let mut url = cfg.url("/agent/ws")?;
+    path: &str,
+) -> Result<Socket> {
+    let mut url = cfg.url(path)?;
     url.set_scheme("wss")
         .map_err(|_| anyhow::anyhow!("invalid WSS URL"))?;
     let mut request = url.as_str().into_client_request()?;
@@ -72,7 +74,7 @@ async fn session(
     ws_config.max_frame_size = Some(MAX_FRAME);
     ws_config.max_write_buffer_size = 128 * 1024;
     ws_config.write_buffer_size = 0;
-    let (mut socket, _) = tokio::time::timeout(
+    let (socket, _) = tokio::time::timeout(
         Duration::from_secs(15),
         connect_async_tls_with_config(
             request,
@@ -82,15 +84,70 @@ async fn session(
         ),
     )
     .await??;
+    Ok(socket)
+}
+async fn ready(socket: &mut Socket, journal: &Journal) -> Result<()> {
+    let msg = tokio::time::timeout(Duration::from_secs(15), socket.next())
+        .await?
+        .context("missing address handshake")??;
+    let Message::Text(text) = msg else {
+        anyhow::bail!("invalid address handshake")
+    };
+    let frame = Envelope::parse(text.as_bytes())?;
+    ensure!(
+        frame.r#type == "agent.address.ready"
+            && frame.body.get("server_instance").and_then(|v| v.as_str())
+                == journal.metadata("server_instance")?.as_deref(),
+        "platform identity mismatch"
+    );
+    Ok(())
+}
+async fn probe(
+    cfg: Config,
+    journal: Journal,
+    identity: Arc<Identity>,
+    update: &AddressUpdate,
+) -> Result<()> {
+    let mut next = cfg;
+    next.server = update.validate()?;
+    let http = next.http_client()?;
+    // Authentication checks the existing server_instance and device identity before signing.
+    let access = identity.authenticate(&http, &next, &journal).await?;
+    let mut socket = connect(&next, &access, next.tls_config()?, "/agent/address-probe").await?;
+    ready(&mut socket, &journal).await?;
+    let _ = socket.close(None).await;
+    Ok(())
+}
+async fn session(
+    cfg: &Config,
+    journal: &Journal,
+    http: &reqwest::Client,
+    access: &Access,
+    tls: Arc<rustls::ClientConfig>,
+    identity: Arc<Identity>,
+) -> Result<()> {
+    let mut access = access.clone();
+    let mut socket = connect(cfg, &access, tls, "/agent/ws").await?;
     socket
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":["terminal.pty.v1","health.probes.v1"]}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":["terminal.pty.v1","health.probes.v1","agent.address.v1"],"server_url":cfg.server.origin().ascii_serialization()}),
             )?
             .into(),
         ))
         .await?;
+    ready(&mut socket, journal).await?;
+    let mut address = AddressState::load(cfg, journal)?;
+    address.confirmed(cfg, journal)?;
+    if let Some(receipt) = &address.receipt {
+        socket
+            .send(Message::Text(
+                envelope("agent.address.result", receipt)?.into(),
+            ))
+            .await?;
+    }
+    let mut probes = tokio::task::JoinSet::<(AddressUpdate, Result<()>)>::new();
     eprintln!("control connected; device {}", access.device_id);
     let mut heartbeat = tokio::time::interval(Duration::from_millis(cfg.heartbeat_ms));
     let mut outbox = tokio::time::interval(Duration::from_millis(250));
@@ -109,6 +166,29 @@ async fn session(
     tokio::pin!(renew);
     loop {
         tokio::select! {
+            Some(probed)=probes.join_next(), if !probes.is_empty()=>{
+                let (update,result)=probed?;
+                let previous=address.clone();
+                if result.is_ok() {
+                    address.pending=Some(update.clone());
+                    address.receipt=Some(AddressReceipt::new(&update,"saved",None));
+                    if update.validate()?==cfg.server {
+                        address.active_url=cfg.server.origin().ascii_serialization();
+                        address.pending=None;
+                        address.receipt=Some(AddressReceipt::new(&update,"applied",None));
+                    }
+                } else {
+                    address.pending=None;
+                    address.receipt=Some(AddressReceipt::new(&update,"failed",Some("PROBE_FAILED")));
+                }
+                if address.save(journal).is_err() {
+                    address=previous;
+                    let receipt=AddressReceipt::new(&update,"failed",Some("PERSIST_FAILED"));
+                    socket.send(Message::Text(envelope("agent.address.result",receipt)?.into())).await?;
+                } else if let Some(receipt)=&address.receipt {
+                    socket.send(Message::Text(envelope("agent.address.result",receipt)?.into())).await?;
+                }
+            }
             _=&mut renew, if renewal.is_empty()=>{
                 let identity=identity.clone();let http=http.clone();let cfg=cfg.clone();let journal=journal.clone();
                 renewal.spawn(async move { identity.authenticate(&http,&cfg,&journal).await });
@@ -125,6 +205,10 @@ async fn session(
             Some(body)=health_events.recv()=>{socket.send(Message::Text(envelope("health.result",body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
             _=outbox.tick(), if uploads.is_empty()=>{
+                if address.pending.is_some() && probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
+                    socket.close(None).await?;
+                    return Ok(());
+                }
                 if let Some(event)=journal.first_outbox()?{
                     let cfg=cfg.clone();let journal=journal.clone();let http=http.clone();let access=access.clone();
                     uploads.spawn(async move {
@@ -143,6 +227,22 @@ async fn session(
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.address.update"=>{
+                                let update:AddressUpdate=serde_json::from_value(envelope.body)?;update.validate()?;
+                                if let Some(receipt)=&address.receipt {
+                                    if receipt.request_id==update.request_id {
+                                        socket.send(Message::Text(crate::protocol::envelope("agent.address.result",receipt)?.into())).await?;
+                                        continue;
+                                    }
+                                    if receipt.revision>update.revision {continue;}
+                                }
+                                probes.abort_all();while probes.join_next().await.is_some() {}
+                                let cfg=cfg.clone();let journal=journal.clone();let identity=identity.clone();
+                                probes.spawn(async move {
+                                    let result=tokio::time::timeout(Duration::from_secs(30),probe(cfg,journal,identity,&update)).await.map_err(anyhow::Error::from).and_then(|x|x);
+                                    (update,result)
+                                });
+                            }
                             "task.assign"=>{let task:Task=serde_json::from_value(envelope.body)?;task.validate(&access.device_id)?;let fresh=journal.accept(&task)?;if fresh{cfg.fault("after_accept")?;}}
                             "task.cancel"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Cancel{task_id:String}let body:Cancel=serde_json::from_value(envelope.body)?;journal.cancel(&body.task_id)?;}
                             "event.ack"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{event_id:String,task_id:String,seq:i64}let ack:Ack=serde_json::from_value(envelope.body)?;journal.ack(&ack.event_id,&ack.task_id,ack.seq)?;}

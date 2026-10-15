@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "agent.address.ready",
+  "body": {
+    "server_instance": "instance-1"
+  }
+}

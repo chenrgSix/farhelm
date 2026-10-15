@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-address-envelope.schema.json",
+  "title": "Farhelm v1 agent-address-envelope",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.address.update"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "request_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "server_url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "^https://[^\\s/@?#]+/?$"
+            }
+          },
+          "required": [
+            "request_id",
+            "revision",
+            "server_url"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.address.result"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "request_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "status": {
+              "enum": [
+                "saved",
+                "applied",
+                "failed"
+              ]
+            },
+            "reason": {
+              "enum": [
+                null,
+                "PROBE_FAILED",
+                "PERSIST_FAILED",
+                "CONNECT_FAILED"
+              ]
+            }
+          },
+          "required": [
+            "request_id",
+            "revision",
+            "status",
+            "reason"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.address.ready"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "server_instance": {
+              "$ref": "common.schema.json#/$defs/id"
+            }
+          },
+          "required": [
+            "server_instance"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    }
+  ]
+}

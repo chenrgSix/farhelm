@@ -68,7 +68,9 @@
         "connection.configured",
         "connection.host_key_scanned",
         "connection.tested",
-        "settings.updated"
+        "settings.updated",
+        "settings.agent_sync",
+        "settings.sync_requested"
       ]
     },
     "detail": {
@@ -408,6 +410,44 @@
             }
           },
           "required": ["revision", "platform_server_url"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "status": {
+              "enum": ["saved", "applied", "failed"]
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["revision", "status", "reason"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["revision"]
         }
       ]
     }
@@ -1066,6 +1106,70 @@
               }
             },
             "required": ["revision", "platform_server_url"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "settings.agent_sync"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "status": {
+                "enum": ["saved", "applied", "failed"]
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["revision", "status", "reason"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "settings.sync_requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["revision"]
           }
         }
       }

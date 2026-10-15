@@ -58,6 +58,7 @@ interface Connection {
   ready: boolean;
   terminal: boolean;
   health: boolean;
+  address: boolean;
   healthSession: string;
 }
 const MAX_OBJECT = 1048576;
@@ -339,6 +340,12 @@ export async function buildServer(config: ServerConfig) {
     store,
     admin,
     initialServerUrl: config.agentInstall?.publicUrl,
+    agent: (id) => {
+      const c = connections.get(id);
+      return c?.ready && live(c)
+        ? { supported: c.address, send: (type, body) => send(c, type, body) }
+        : undefined;
+    },
   });
   registerAgentInstall(app, {
     store,
@@ -1274,6 +1281,28 @@ export async function buildServer(config: ServerConfig) {
     });
   }
   app.get(
+    "/agent/address-probe",
+    {
+      websocket: true,
+      preValidation: async (req) => {
+        deviceAuth(req);
+        if (Object.keys(req.query as object).length)
+          fail(400, "WS_QUERY_NOT_ALLOWED");
+      },
+    },
+    (socket) => {
+      socket.on("error", () => {});
+      socket.send(
+        JSON.stringify({
+          v: 1,
+          type: "agent.address.ready",
+          body: { server_instance: store.instance },
+        }),
+      );
+      socket.close(1000, "Probe complete");
+    },
+  );
+  app.get(
     "/agent/ws",
     {
       websocket: true,
@@ -1294,6 +1323,7 @@ export async function buildServer(config: ServerConfig) {
         ready: false,
         terminal: false,
         health: false,
+        address: false,
         healthSession: randomUUID(),
       };
       const old = connections.get(auth.id);
@@ -1325,7 +1355,7 @@ export async function buildServer(config: ServerConfig) {
             String(env.type).startsWith("terminal.") ? 12000 : 1200,
           );
           if (env.type === "agent.hello" || env.type === "agent.heartbeat") {
-            keys(b, ["agent_version", "capabilities"]);
+            keys(b, ["agent_version", "capabilities", "server_url"]);
             if (b.capabilities !== undefined) {
               if (
                 !Array.isArray(b.capabilities) ||
@@ -1337,6 +1367,7 @@ export async function buildServer(config: ServerConfig) {
                 fail(400, "INVALID_CAPABILITIES");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.health = b.capabilities.includes("health.probes.v1");
+              c.address = b.capabilities.includes("agent.address.v1");
             }
             const agentVersion = str(b.agent_version, 1, 128);
             if (env.type === "agent.heartbeat" && !c.ready)
@@ -1347,10 +1378,23 @@ export async function buildServer(config: ServerConfig) {
             ).run(c.lastHeartbeat, agentVersion, c.deviceId);
             if (!c.ready) {
               c.ready = true;
+              if (c.address) {
+                send(c, "agent.address.ready", {
+                  server_instance: store.instance,
+                });
+                settings.sync.connected(
+                  c.deviceId,
+                  b.server_url,
+                  settings.current(),
+                );
+              }
               dispatch(c.deviceId, true);
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
             }
+          } else if (env.type === "agent.address.result") {
+            if (!c.ready || !c.address) fail(400, "HELLO_REQUIRED");
+            settings.sync.result(c.deviceId, b);
           } else if (env.type === "agent.reauth") {
             keys(b, ["access_token"]);
             const th = hash(str(b.access_token, 43, 43));
@@ -1454,6 +1498,7 @@ export async function buildServer(config: ServerConfig) {
       const now = Date.now();
       ++ticks;
       terminals.tick();
+      settings.sync.flush();
       for (const c of connections.values()) {
         if (!live(c) || now - c.lastHeartbeat > heartbeatTimeout) {
           terminals.disconnect(c.deviceId);

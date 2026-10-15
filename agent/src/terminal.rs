@@ -71,6 +71,9 @@ struct Close {
 }
 
 impl Terminals {
+    pub fn is_idle(&self) -> bool {
+        self.entries.values().all(|e| e.task.is_finished())
+    }
     pub fn new(cfg: Config, output: mpsc::Sender<Output>) -> Self {
         Self {
             cfg,

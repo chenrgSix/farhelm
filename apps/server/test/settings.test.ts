@@ -71,6 +71,22 @@ test("only admins can read or change settings; URLs and revisions are validated"
       });
       const auth = await f.login(role);
       assert.equal(
+        (await f.api("GET", "/settings/agent-sync", undefined, auth))
+          .statusCode,
+        403,
+      );
+      assert.equal(
+        (
+          await f.api(
+            "POST",
+            "/settings/agent-sync",
+            { v: 1, revision: 1 },
+            auth,
+          )
+        ).statusCode,
+        403,
+      );
+      assert.equal(
         (await f.api("GET", "/settings", undefined, auth)).statusCode,
         403,
       );

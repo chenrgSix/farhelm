@@ -68,6 +68,10 @@ impl Journal {
         }
         Ok(())
     }
+    pub fn set_platform_address(&self, value: &str) -> Result<()> {
+        self.0.lock().unwrap().execute("INSERT INTO metadata(key,value) VALUES('platform_address',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value])?;
+        Ok(())
+    }
     pub fn accept(&self, t: &Task) -> Result<bool> {
         let mut c = self.0.lock().unwrap();
         let tx = c.transaction()?;

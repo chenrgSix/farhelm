@@ -244,6 +244,7 @@ describe("login and real-data-only console", () => {
       if (path === "/devices") return { devices: [] };
       if (path === "/tasks") return { tasks: [] };
       if (path === "/terminal-sessions") return { sessions: [] };
+      if (path === "/settings/agent-sync") return { revision: 1, devices: [] };
       if (path === "/settings")
         return {
           v: 1,
