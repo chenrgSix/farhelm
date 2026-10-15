@@ -121,6 +121,7 @@ export interface CommandResponse {
   status: TaskStatus;
 }
 export interface TerminalSession {
+  transport?: "web" | "ssh";
   id: string;
   device_id: string;
   actor_id: string;

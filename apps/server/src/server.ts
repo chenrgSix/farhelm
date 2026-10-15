@@ -19,6 +19,7 @@ import {
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
 import { registerTerminals } from "./terminal.js";
+import { createSshGateway } from "./ssh.js";
 import { registerHealth } from "./health.js";
 import {
   ApiError,
@@ -417,13 +418,11 @@ export async function buildServer(config: ServerConfig) {
     ok: true,
     server_instance: store.instance,
   }));
-  app.post("/api/v1/login", async (req) => {
+  function passwordUser(username: string, password: string, ip: string) {
     rate.check("login-global", 100);
-    rate.check("login-ip:" + req.ip, 20);
-    const b = object(req.body);
-    keys(b, ["username", "password"]);
-    const username = str(b.username, 1, 128);
-    const password = str(b.password, 1, 1024);
+    rate.check("login-ip:" + ip, 20);
+    str(username, 1, 128);
+    str(password, 1, 1024);
     rate.check("login-user:" + hash(username), 10);
     const row = db
       .prepare("SELECT * FROM users WHERE username=?")
@@ -435,12 +434,83 @@ export async function buildServer(config: ServerConfig) {
       });
       fail(401, "INVALID_CREDENTIALS");
     }
+    return store.user(row);
+  }
+  function loginSession(user: User) {
     const accessToken = token();
-    db.prepare(
-      "INSERT INTO user_sessions(token_hash,user_id,expires_at) VALUES(?,?,?)",
-    ).run(hash(accessToken), row.id, Date.now() + sessionTtl);
-    store.audit("user.login", row.id, null, null);
-    return { access_token: accessToken, user: store.user(row) };
+    store.transaction(() => {
+      db.prepare(
+        "INSERT INTO user_sessions(token_hash,user_id,expires_at) VALUES(?,?,?)",
+      ).run(hash(accessToken), user.id, Date.now() + sessionTtl);
+      store.audit("user.login", user.id, null, null);
+    });
+    return accessToken;
+  }
+  app.post("/api/v1/login", async (req) => {
+    const b = object(req.body);
+    keys(b, ["username", "password"]);
+    const user = passwordUser(b.username, b.password, req.ip);
+    return { access_token: loginSession(user), user };
+  });
+  let ssh: ReturnType<typeof createSshGateway> | undefined;
+  const prepareSsh = () =>
+    config.ssh
+      ? createSshGateway(config.dataDir, config.ssh, {
+          terminals,
+          authenticate(username, password, target, ip) {
+            const user = passwordUser(username, password, ip);
+            str(target, 1, 128);
+            // Prefer stable device IDs; a name is accepted only if globally unique.
+            const exact = db
+              .prepare("SELECT id,revoked_at FROM devices WHERE id=?")
+              .get(target) as any;
+            const matches = exact
+              ? [exact]
+              : (db
+                  .prepare(
+                    "SELECT id,revoked_at FROM devices WHERE name=? LIMIT 2",
+                  )
+                  .all(target) as any[]);
+            const device = matches.length === 1 ? matches[0] : undefined;
+            if (
+              !device ||
+              device.revoked_at ||
+              !inScope(user, device.id) ||
+              !["admin", "ops"].includes(user.role)
+            ) {
+              store.audit(
+                "authorization.denied",
+                user.id,
+                device?.id ?? null,
+                null,
+                { reason: "SSH_TARGET_DENIED", method: "SSH", route: "ssh" },
+              );
+              fail(403, "SSH_TARGET_DENIED");
+            }
+            return {
+              user,
+              deviceId: device.id,
+              sessionHash: hash(loginSession(user)),
+            };
+          },
+          release(sessionHash) {
+            db.prepare("DELETE FROM user_sessions WHERE token_hash=?").run(
+              sessionHash,
+            );
+          },
+        })
+      : undefined;
+  app.get("/api/v1/ssh", async (req) => {
+    userAuth(req);
+    return {
+      v: 1,
+      ...(ssh?.info() ?? {
+        enabled: false,
+        host: null,
+        port: null,
+        fingerprint: null,
+      }),
+    };
   });
   app.get("/api/v1/me", async (req) => ({ v: 1, ...userAuth(req) }));
   app.post("/api/v1/enrollment-tokens", async (req) => {
@@ -1305,6 +1375,7 @@ export async function buildServer(config: ServerConfig) {
   app.addHook("onClose", async () => {
     clearInterval(timer);
     terminals.close();
+    await ssh?.close();
     for (const c of connections.values()) c.socket.terminate();
     connections.clear();
     store.close();
@@ -1327,5 +1398,12 @@ export async function buildServer(config: ServerConfig) {
       }
     : undefined;
   await app.ready();
-  return { app, store, testHooks, close: () => app.close() };
+  try {
+    ssh = prepareSsh();
+    await ssh?.listen();
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
+  return { app, store, testHooks, ssh, close: () => app.close() };
 }

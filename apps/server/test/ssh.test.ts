@@ -1,0 +1,421 @@
+import { test } from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { once } from "node:events";
+import ssh2 from "ssh2";
+import type { ClientChannel } from "ssh2";
+import { WebSocket } from "ws";
+import { buildServer } from "../src/server.js";
+import { hash, token } from "../src/util.js";
+const root = mkdtempSync(join(tmpdir(), "fleet-ssh-test-"));
+execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
+  stdio: "ignore",
+});
+async function until(fn: () => unknown, label: string) {
+  for (let i = 0; i < 200; i++) {
+    if (fn()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("Timed out: " + label);
+}
+async function fixture() {
+  const dataDir = mkdtempSync(join(root, "data-"));
+  const config = {
+    dataDir,
+    tlsCert: join(root, "tls/server.crt"),
+    tlsKey: join(root, "tls/server.key"),
+    adminUsername: "admin",
+    adminPassword: "ssh-test-password",
+    ssh: { host: "127.0.0.1", port: 0 },
+  };
+  const s = await buildServer(config);
+  await s.app.listen({ host: "127.0.0.1", port: 0 });
+  s.store.db
+    .prepare(
+      "INSERT INTO devices(id,public_key,name,created_at) VALUES('device','test-key','local-linux',?)",
+    )
+    .run(Date.now());
+  const access = token();
+  s.store.db
+    .prepare(
+      "INSERT INTO device_tokens(token_hash,device_id,expires_at,scope) VALUES(?,'device',?,'agent-control-output')",
+    )
+    .run(hash(access), Date.now() + 60000);
+  const agent = new WebSocket(
+    `wss://localhost:${(s.app.server.address() as any).port}/agent/ws`,
+    {
+      ca: readFileSync(join(root, "tls/ca.crt")),
+      headers: { authorization: "Bearer " + access },
+    },
+  );
+  const messages: any[] = [];
+  agent.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+  agent.on("error", () => {});
+  await once(agent, "open");
+  const send = (type: string, body: unknown) =>
+    agent.send(JSON.stringify({ v: 1, type, body }));
+  send("agent.hello", {
+    agent_version: "ssh-test-double",
+    capabilities: ["terminal.pty.v1"],
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  async function wait(type: string) {
+    await until(() => messages.some((m) => m.type === type), type);
+    return messages.splice(
+      messages.findIndex((m) => m.type === type),
+      1,
+    )[0].body;
+  }
+  const clients: ssh2.Client[] = [];
+  async function connect(
+    username = "admin:device",
+    password = "ssh-test-password",
+  ) {
+    const c = new ssh2.Client();
+    clients.push(c);
+    c.on("error", () => {});
+    const ready = once(c, "ready");
+    c.connect({
+      host: "127.0.0.1",
+      port: s.ssh!.info().port,
+      username,
+      password,
+      hostVerifier: (raw) =>
+        "SHA256:" +
+          Buffer.from(hash(raw), "hex")
+            .toString("base64")
+            .replace(/=+$/, "") ===
+        s.ssh!.info().fingerprint,
+    });
+    await ready;
+    return c;
+  }
+  async function open(username?: string) {
+    const client = await connect(username);
+    const channel = await new Promise<ClientChannel>((resolve, reject) =>
+      client.shell({ cols: 80, rows: 24 }, (err, stream) =>
+        err ? reject(err) : resolve(stream),
+      ),
+    );
+    const request = await wait("terminal.open");
+    send("terminal.opened", { session_id: request.session_id });
+    await wait("terminal.resize");
+    return { client, channel, id: request.session_id };
+  }
+  async function close() {
+    for (const c of clients) c.destroy();
+    agent.terminate();
+    await s.close();
+  }
+  return {
+    ...s,
+    config,
+    dataDir,
+    agent,
+    send,
+    wait,
+    messages,
+    clients,
+    connect,
+    open,
+    close,
+  };
+}
+test("SSH enforces platform password, role, scope, revocation and unambiguous target selection", async () => {
+  const f = await fixture();
+  try {
+    f.store.seedUser({
+      username: "business",
+      password: "ssh-test-password",
+      role: "business",
+      deviceScope: "*",
+    });
+    f.store.seedUser({
+      username: "ops",
+      password: "ssh-test-password",
+      role: "ops",
+      deviceScope: [],
+    });
+    for (const name of ["admin:missing", "business:device", "ops:device"])
+      await assert.rejects(f.connect(name), /authentication/);
+    await assert.rejects(
+      f.connect("admin:device", "wrong-password"),
+      /authentication/,
+    );
+    const named = await f.connect("admin:local-linux");
+    named.destroy();
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('device2','test-key2','local-linux',?)",
+      )
+      .run(Date.now());
+    await assert.rejects(f.connect("admin:local-linux"), /authentication/);
+    f.store.db
+      .prepare("UPDATE devices SET revoked_at=? WHERE id='device'")
+      .run(Date.now());
+    await assert.rejects(f.connect(), /authentication/);
+    assert.equal(
+      f.store.db.prepare("SELECT count(*) n FROM terminal_sessions").get()!.n,
+      0,
+    );
+    assert.ok(
+      f.store.db
+        .prepare("SELECT id FROM audit WHERE action='authorization.denied'")
+        .get(),
+    );
+    assert.equal(
+      statSync(join(f.dataDir, "ssh_host_ed25519_key")).mode & 0o777,
+      0o600,
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("SSH shares durable recording, raw input privacy, resize, web close and privilege revocation", async () => {
+  const f = await fixture();
+  try {
+    const { channel, id } = await f.open();
+    let output = "";
+    channel.on("data", (data) => {
+      output += data.toString();
+    });
+    channel.write("hidden-password\r");
+    const input = await f.wait("terminal.input");
+    assert.equal(
+      Buffer.from(input.data, "base64").toString(),
+      "hidden-password\r",
+    );
+    f.send("terminal.output", {
+      session_id: id,
+      seq: 1,
+      data: Buffer.from("SSH output 中文\r\n").toString("base64"),
+    });
+    await f.wait("terminal.ack");
+    await until(() => output.includes("中文"), "SSH output");
+    const events = f.store.db
+      .prepare("SELECT kind,data FROM terminal_recordings WHERE session_id=?")
+      .all(id);
+    assert.ok(events.some((e) => e.kind === "output"));
+    assert.equal(JSON.stringify(events).includes("hidden-password"), false);
+    channel.setWindow(40, 120, 0, 0);
+    assert.deepEqual(await f.wait("terminal.resize"), {
+      session_id: id,
+      rows: 40,
+      cols: 120,
+    });
+    assert.equal(
+      f.store.db
+        .prepare("SELECT transport FROM terminal_sessions WHERE id=?")
+        .get(id)!.transport,
+      "ssh",
+    );
+    const login = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/login",
+      payload: { username: "admin", password: "ssh-test-password" },
+    });
+    const closed = once(channel, "close");
+    assert.equal(
+      (
+        await f.app.inject({
+          method: "POST",
+          url: `/api/v1/terminal-sessions/${id}/close`,
+          headers: { authorization: "Bearer " + login.json().access_token },
+          payload: { v: 1 },
+        })
+      ).statusCode,
+      200,
+    );
+    await closed;
+    await f.wait("terminal.close");
+    assert.equal(
+      f.store.db
+        .prepare("SELECT status FROM terminal_sessions WHERE id=?")
+        .get(id)!.status,
+      "CLOSED",
+    );
+    f.store.seedUser({
+      username: "scoped",
+      password: "ssh-test-password",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const active = await f.open("scoped:device");
+    f.store.db
+      .prepare("UPDATE users SET device_scope='[]' WHERE username='scoped'")
+      .run();
+    active.channel.write("must-not-run\r");
+    await f.wait("terminal.close");
+    assert.equal(
+      f.messages.some((m) => m.type === "terminal.input"),
+      false,
+    );
+    assert.equal(
+      f.store.db
+        .prepare("SELECT status FROM terminal_sessions WHERE id=?")
+        .get(active.id)!.status,
+      "INTERRUPTED",
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("SSH refuses exec, SFTP, forwarding and shells without PTY; cleans auth sessions and persists host key", async () => {
+  const f = await fixture();
+  const fingerprint = f.ssh!.info().fingerprint;
+  try {
+    const c = await f.connect();
+    await assert.rejects(
+      new Promise((resolve, reject) =>
+        c.forwardOut("127.0.0.1", 12345, "127.0.0.1", 22, (err, stream) =>
+          err ? reject(err) : resolve(stream),
+        ),
+      ),
+    );
+    await assert.rejects(
+      new Promise((resolve, reject) =>
+        c.forwardIn("127.0.0.1", 0, (err, port) =>
+          err ? reject(err) : resolve(port),
+        ),
+      ),
+    );
+    await assert.rejects(
+      new Promise((resolve, reject) =>
+        c.exec("touch /tmp/must-not-run", (err, stream) =>
+          err ? reject(err) : resolve(stream),
+        ),
+      ),
+    );
+    const sftp = await f.connect();
+    await assert.rejects(
+      new Promise((resolve, reject) =>
+        sftp.sftp((err, stream) => (err ? reject(err) : resolve(stream))),
+      ),
+    );
+    const plain = await f.connect();
+    await assert.rejects(
+      new Promise((resolve, reject) =>
+        plain.shell(false, (err, stream) =>
+          err ? reject(err) : resolve(stream),
+        ),
+      ),
+    );
+    for (const client of f.clients) client.destroy();
+    await until(
+      () =>
+        f.store.db.prepare("SELECT count(*) n FROM user_sessions").get()!.n ===
+        0,
+      "SSH session credentials released",
+    );
+    assert.equal(
+      f.messages.some((m) => m.type === "terminal.open"),
+      false,
+    );
+  } finally {
+    await f.close();
+  }
+  const restarted = await buildServer(f.config);
+  try {
+    assert.equal(restarted.ssh!.info().fingerprint, fingerprint);
+  } finally {
+    await restarted.close();
+  }
+});
+test("SSH loss and Agent loss interrupt sessions; out-of-sequence output fails closed", async () => {
+  const f = await fixture();
+  try {
+    const a = await f.open();
+    a.client.destroy();
+    await f.wait("terminal.close");
+    assert.equal(
+      f.store.db
+        .prepare("SELECT reason FROM terminal_sessions WHERE id=?")
+        .get(a.id)!.reason,
+      "SSH_DISCONNECTED",
+    );
+    const b = await f.open();
+    f.send("terminal.output", {
+      session_id: b.id,
+      seq: 2,
+      data: Buffer.from("must not display").toString("base64"),
+    });
+    await f.wait("terminal.close");
+    assert.equal(
+      f.store.db
+        .prepare("SELECT output_bytes FROM terminal_sessions WHERE id=?")
+        .get(b.id)!.output_bytes,
+      0,
+    );
+    const c = await f.open();
+    f.agent.terminate();
+    await until(
+      () =>
+        f.store.db
+          .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
+          .get(c.id)!.ended_at,
+      "Agent disconnect",
+    );
+    assert.equal(
+      f.store.db
+        .prepare("SELECT reason FROM terminal_sessions WHERE id=?")
+        .get(c.id)!.reason,
+      "AGENT_DISCONNECTED",
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("SSH server shutdown drains client cleanup before SQLite is closed", async () => {
+  const f = await fixture();
+  const { client, id } = await f.open();
+  const closed = new Promise<void>((resolve) =>
+    client.once("close", () => resolve()),
+  );
+  await f.app.close();
+  await closed;
+  const db = new DatabaseSync(join(f.dataDir, "fleet.sqlite"), {
+    readOnly: true,
+  });
+  try {
+    assert.equal(
+      db.prepare("SELECT reason FROM terminal_sessions WHERE id=?").get(id)!
+        .reason,
+      "SERVER_SHUTDOWN",
+    );
+    assert.equal(
+      db.prepare("SELECT count(*) n FROM user_sessions").get()!.n,
+      0,
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("SSH key generation validates candidates before saving the persistent identity", async (t) => {
+  const original = ssh2.utils.generateKeyPairSync;
+  let attempts = 0;
+  t.mock.method(
+    ssh2.utils,
+    "generateKeyPairSync",
+    (...args: Parameters<typeof original>) => {
+      attempts++;
+      return attempts === 1
+        ? { private: "malformed-key", public: "unused" }
+        : original(...args);
+    },
+  );
+  const f = await fixture();
+  try {
+    assert.ok(attempts >= 2);
+    assert.match(f.ssh!.info().fingerprint, /^SHA256:/);
+    const c = await f.connect();
+    c.destroy();
+  } finally {
+    await f.close();
+  }
+});

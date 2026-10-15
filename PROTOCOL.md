@@ -40,3 +40,9 @@ Agents advertise `health.probes.v1`. Server sends `health.config {revision,check
 ## Config
 Server env FLEET_HOST (127.0.0.1), FLEET_PORT(8443), FLEET_DATA_DIR, FLEET_TLS_CERT, FLEET_TLS_KEY, FLEET_ADMIN_USER/PASSWORD. Optional FLEET_TEST_MODE=1 permits narrowly scoped fault injection only loopback. Export buildServer(config) app/store/close helpers for tests.
 Agent env FLEET_SERVER_URL=https://localhost:8443, FLEET_CA_CERT=path (custom trusted CA, never skip verify), FLEET_STATE_DIR, FLEET_ENROLLMENT_TOKEN, FLEET_DEVICE_NAME, FLEET_EXECUTION_BACKEND=same-uid|disabled. Default same-uid per explicit user choice; account is configured by user, agent refuses root. No identity isolation is claimed; arbitrary commands can access same-UID Agent secrets/state. No production privilege creation. FLEET_HEARTBEAT_MS optional, FLEET_TEST_FAULT optional, only with FLEET_TEST_MODE=1, crash point.
+
+## SSH gateway
+
+- Optional SSH TCP listener authenticates `platform-user:device-id` (or unique device name) with the platform password, then bridges a PTY shell to the same Agent terminal messages. Each SSH connection owns one shell and a server-only expiring user session. Roles/scope/device revocation are rechecked before opening and during input/output/ticks. Unsupported exec, subsystem and forwarding requests reject.
+- `GET /api/v1/ssh` requires a platform login and returns `{v:1,enabled,host,port,fingerprint}` (`ssh-info-response.schema.json`). `host:null` means use the console hostname; disabled uses null host/port/fingerprint. The fingerprint is the persistent gateway Ed25519 host key's SHA256 fingerprint. No credentials or private key are returned.
+- Terminal list/recording session metadata adds `transport:"web"|"ssh"`; historical rows default to web. Recorded terminal events and Agent contracts are unchanged. SSH shares create/input/output/recording limits and close/replay/export HTTP APIs. Operational limits and compatibility: `docs/ssh-gateway.md`.

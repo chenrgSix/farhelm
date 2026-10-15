@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "enabled": true,
+  "host": "fleet.example.com",
+  "port": 2222,
+  "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

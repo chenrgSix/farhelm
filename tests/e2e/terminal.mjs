@@ -1,3 +1,4 @@
+import { checkSsh } from "./ssh-client.mjs";
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
@@ -61,6 +62,7 @@ const server = await buildServer({
   adminUsername: "admin",
   adminPassword: "isolated-terminal-e2e-password",
   deviceTokenTtlMs: 2500,
+  ssh: { host: "127.0.0.1", port: 0 },
 });
 await server.app.listen({ host: "127.0.0.1", port: 0 });
 const port = server.app.server.address().port;
@@ -305,6 +307,7 @@ try {
   steps.push(
     "durable recordings preserve output/timing/resize; hidden password input is absent; normal exit vs interruption is explicit",
   );
+  await checkSsh({ server, deviceId: device.id, temp, until, steps });
   assertValid(
     "audit-response",
     await api("GET", "/api/v1/audit", undefined, admin),

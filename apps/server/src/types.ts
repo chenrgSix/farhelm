@@ -40,6 +40,12 @@ export interface ServerConfig {
   logger?: boolean;
   webDist?: string;
   consoleOrigin?: string;
+  ssh?: {
+    host: string;
+    port: number;
+    publicHost?: string;
+    publicPort?: number;
+  };
 }
 export const TERMINAL = new Set([
   "SUCCEEDED",

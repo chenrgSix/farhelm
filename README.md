@@ -1,8 +1,8 @@
 # Linux Fleet · P0/P1 本地最小版本
 
-Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，无 SSH、MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
+Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，支持可选 SSH 统一入口；不依赖 MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
-这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。现提供基础交互终端、会话录制与回放；P2 完整验收和 P3 EasyTier 私网优先、公网回退仍有剩余工作。实际验证清单见 [测试报告](docs/test-report.md)和[终端验证](docs/terminal.md)。
+这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。现提供网页/SSH 交互终端、会话录制与回放；P2 完整验收和 P3 EasyTier 私网优先、公网回退仍有剩余工作。实际验证清单见 [测试报告](docs/test-report.md)和[终端验证](docs/terminal.md)。
 
 设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。EasyTier 私网可达仍未采集。
 
@@ -34,6 +34,8 @@ npm run dev
 浏览器直接访问 HTTPS 服务时，需要用户自行把 `.dev/tls/ca.crt` 加入受控开发信任或使用受信正式证书。请勿绕过浏览器证书警告、设置 `NODE_TLS_REJECT_UNAUTHORIZED=0` 或关闭 Agent TLS 校验。Agent 用 `FLEET_CA_CERT` 指定受信 CA，默认使用公共根证书。
 
 登录 → 设备页 → 点击「连接终端」→ 像普通终端一样输入命令。连续命令共享 Shell 和工作目录，支持 Tab 补全、Ctrl-C、窗口缩放与中文。输入 `exit` 退出；「终端会话」可以查看回放与导出记录。运维角色仍受设备范围约束。
+
+设备页「SSH 连接」提供标准客户端命令，使用平台账号和密码连接统一入口；目标设备通过 Agent 通道接入，无需开放 SSH。开发默认入口 `127.0.0.1:2222`，功能和部署边界见 [SSH 统一入口](docs/ssh-gateway.md)。
 
 原有「命令任务」保留用于需要超时、幂等重试和独立结果的操作，可输入 argv JSON 数组，例如 `["/usr/bin/uptime"]`。任务模式不自动拼接 Shell。`journalctl` 的可见范围取决于用户配置的系统账号，失败不会自动 sudo 或加组。
 

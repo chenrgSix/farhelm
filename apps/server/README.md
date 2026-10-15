@@ -1,4 +1,4 @@
-# Fleet HTTPS / WSS server
+# Fleet HTTPS / WSS / SSH server
 
 P0/P1 development implementation. Node.js **24+** is required for `node:sqlite` (`DatabaseSync`; availability/experimental status depends on the exact Node 24 release). SQLite runs WAL, `synchronous=FULL`, foreign keys and a five-second busy timeout. This is a single-process/single-host server, not a high-availability or production-security claim.
 
@@ -11,11 +11,12 @@ Run `npm ci`, `npm run build`, then `npm start` in this directory. Set:
 - `FLEET_TLS_CERT`, `FLEET_TLS_KEY`: certificate-chain and key file paths; TLS 1.2+ only, no HTTP downgrade
 - `FLEET_ADMIN_USER`, `FLEET_ADMIN_PASSWORD`: explicit initial admin; minimum password length 12, no defaults. Existing users are never reset from environment variables. Remove bootstrap password from the environment after first use
 - Optional `FLEET_WEB_DIST`: built Vue directory containing `index.html`; serves the console and APIs on the same HTTPS origin
+- Optional `FLEET_SSH_PORT` enables the SSH gateway; `FLEET_SSH_HOST` defaults to `FLEET_HOST`. `FLEET_SSH_PUBLIC_HOST` / `FLEET_SSH_PUBLIC_PORT` override the address displayed in the console. See [SSH gateway](../../docs/ssh-gateway.md).
 - Optional `FLEET_TEST_MODE=1`: in-process hooks only. CLI requires loopback binding. No fault-injection HTTP endpoint exists
 
 The UI uses explicit Bearer sessions. No CORS, cookies, query tokens or public user-provisioning endpoint is enabled. `/api/v1/me` returns the flat user object plus `v:1`. All JSON mutations except login require `v:1`. `/healthz` exposes the server instance identifier used in challenge domain separation.
 
-`buildServer(config)` from `src/server.ts` / `dist/server.js` returns `{app, store, close, testHooks}`. Call `await app.listen({host:'127.0.0.1',port:0})` in tests. Config accepts `dataDir`, `tlsCert`/`tlsKey` (paths, PEM strings or Buffers), optional `adminUsername`/`adminPassword`, `deviceTokenTtlMs` (default 300000), `sessionTtlMs` (28800000), `heartbeatTimeoutMs` (15000), `webDist`, `testMode`, `logger`.
+`buildServer(config)` from `src/server.ts` / `dist/server.js` returns `{app, store, close, testHooks, ssh}`. Call `await app.listen({host:'127.0.0.1',port:0})` in tests. Config accepts `dataDir`, `tlsCert`/`tlsKey` (paths, PEM strings or Buffers), optional `adminUsername`/`adminPassword`, `deviceTokenTtlMs` (default 300000), `sessionTtlMs` (28800000), `heartbeatTimeoutMs` (15000), `webDist`, `testMode`, `logger`, and `ssh: {host, port, publicHost?, publicPort?}` (omit to disable). With SSH configured, `buildServer` starts the TCP listener; tests may use port 0 and read `ssh.info().port`.
 
 The private test/admin seeding API is `store.seedUser({username,password,role,deviceScope})`. Roles: `admin`, `ops`, `business`, `auditor`; scope is `'*'` or explicit device ID array. This is an in-process API, not remotely callable. User/role lifecycle and SSO are future work. `store.db` is available for focused integration assertions and consistent SQLite backup tooling.
 

@@ -12,7 +12,12 @@ if (!tlsCert || !tlsKey)
   );
 if (
   process.env.FLEET_TEST_MODE === "1" &&
-  !["127.0.0.1", "::1", "localhost"].includes(host)
+  (!["127.0.0.1", "::1", "localhost"].includes(host) ||
+    (process.env.FLEET_SSH_PORT &&
+      process.env.FLEET_SSH_PORT !== "0" &&
+      !["127.0.0.1", "::1", "localhost"].includes(
+        process.env.FLEET_SSH_HOST ?? host,
+      )))
 )
   throw new Error("Test mode requires loopback binding");
 const server = await buildServer({
@@ -25,8 +30,26 @@ const server = await buildServer({
   logger: true,
   webDist: process.env.FLEET_WEB_DIST,
   consoleOrigin: process.env.FLEET_CONSOLE_ORIGIN,
+  ssh:
+    process.env.FLEET_SSH_PORT && process.env.FLEET_SSH_PORT !== "0"
+      ? {
+          host: process.env.FLEET_SSH_HOST ?? host,
+          port: Number(process.env.FLEET_SSH_PORT),
+          publicHost: process.env.FLEET_SSH_PUBLIC_HOST,
+          publicPort: process.env.FLEET_SSH_PUBLIC_PORT
+            ? Number(process.env.FLEET_SSH_PUBLIC_PORT)
+            : undefined,
+        }
+      : undefined,
 });
-await server.app.listen({ host, port });
+try {
+  await server.app.listen({ host, port });
+} catch (error) {
+  await server.close();
+  throw error;
+}
+if (server.ssh)
+  console.log(`Fleet SSH listening on port ${process.env.FLEET_SSH_PORT}`);
 console.log(`Fleet HTTPS listening at https://${host}:${port}`);
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {

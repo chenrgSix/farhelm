@@ -14,6 +14,7 @@ import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
 import TaskDetail from "./components/TaskDetail.vue";
 import HealthChecksPanel from "./components/HealthChecksPanel.vue";
+import SshConnectionPanel from "./components/SshConnectionPanel.vue";
 import SessionDuration from "./components/SessionDuration.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
@@ -26,6 +27,7 @@ const loginBusy = ref(false);
 const loginError = ref("");
 type View = "devices" | "tasks" | "audit" | "terminals";
 const view = ref<View>("devices");
+const closingSession = ref<string | null>(null);
 const terminalSessions = ref<TerminalSession[]>([]);
 const terminalTarget = ref<{
   id: string;
@@ -33,6 +35,7 @@ const terminalTarget = ref<{
   recording?: TerminalSession;
 } | null>(null);
 const devices = ref<Device[]>([]);
+const sshTarget = ref<Device | null>(null);
 const healthTarget = ref<Device | null>(null);
 const tasks = ref<Task[]>([]);
 const audit = ref<AuditEntry[]>([]);
@@ -120,6 +123,7 @@ function logout(message = "") {
   selectedTask.value = null;
   terminalTarget.value = null;
   healthTarget.value = null;
+  sshTarget.value = null;
   terminalSessions.value = [];
   enrollment.value = null;
   enrollOpen.value = false;
@@ -170,6 +174,21 @@ async function login() {
   } finally {
     password.value = "";
     loginBusy.value = false;
+  }
+}
+async function closeTerminalSession(session: TerminalSession) {
+  if (closingSession.value) return;
+  closingSession.value = session.id;
+  try {
+    await api.request(
+      `/terminal-sessions/${encodeURIComponent(session.id)}/close`,
+      { method: "POST", body: { v: 1 } },
+    );
+    await refresh();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "关闭会话失败";
+  } finally {
+    closingSession.value = null;
   }
 }
 async function refresh() {
@@ -735,6 +754,17 @@ onBeforeUnmount(() => {
                                 !device.revoked_at
                               "
                               class="text-button"
+                              :disabled="!apiReady || !!sshTarget"
+                              @click="sshTarget = device"
+                            >
+                              SSH 连接
+                            </button>
+                            <button
+                              v-if="
+                                canExecute(user, device.id) &&
+                                !device.revoked_at
+                              "
+                              class="text-button"
                               :disabled="execOpen"
                               @click="openExec(device.id)"
                             >
@@ -853,6 +883,7 @@ onBeforeUnmount(() => {
                         <th>操作人</th>
                         <th>连接时间</th>
                         <th>录制时长</th>
+                        <th>连接方式</th>
                         <th>状态</th>
                         <th>操作</th>
                       </tr>
@@ -871,6 +902,9 @@ onBeforeUnmount(() => {
                         </td>
                         <td class="small">
                           <SessionDuration :session="session" />
+                        </td>
+                        <td>
+                          {{ session.transport === "ssh" ? "SSH" : "网页" }}
                         </td>
                         <td>
                           <span
@@ -903,6 +937,22 @@ onBeforeUnmount(() => {
                             "
                           >
                             查看回放
+                          </button>
+                          <button
+                            v-if="
+                              !session.ended_at &&
+                              (user.role === 'admin' ||
+                                user.id === session.actor_id)
+                            "
+                            class="text-button"
+                            :disabled="!!closingSession"
+                            @click="closeTerminalSession(session)"
+                          >
+                            {{
+                              closingSession === session.id
+                                ? "正在结束…"
+                                : "结束会话"
+                            }}
                           </button>
                         </td>
                       </tr>
@@ -1019,6 +1069,13 @@ onBeforeUnmount(() => {
           refresh();
         "
         @changed="refresh"
+      />
+      <SshConnectionPanel
+        v-if="sshTarget && user"
+        :key="sshTarget.id"
+        :device="sshTarget"
+        :user="user"
+        @close="sshTarget = null"
       />
       <HealthChecksPanel
         v-if="healthTarget && user"

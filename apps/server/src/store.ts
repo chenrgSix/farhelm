@@ -42,6 +42,23 @@ export class Store {
         "utf8",
       ),
     );
+    if (
+      !(
+        this.db.prepare("PRAGMA table_info(terminal_sessions)").all() as any[]
+      ).some((c) => c.name === "transport")
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL(
+              "../migrations/005_terminal_transport.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",
