@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fleet.local/contracts/v1/enrollment-response.schema.json",
-  "title": "Fleet v1 enrollment-response",
+  "title": "Farhelm v1 enrollment-response",
   "type": "object",
   "additionalProperties": false,
   "properties": {

@@ -16,4 +16,4 @@ RUN printf 'Defaults:fleet !use_pty\nfleet ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc
 ENV HOME=/home/fleet
 WORKDIR /home/fleet
 USER fleet
-ENTRYPOINT ["/usr/local/bin/fleet-agent"]
+ENTRYPOINT ["/usr/local/bin/farhelm-agent"]

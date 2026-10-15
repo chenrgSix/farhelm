@@ -2,6 +2,8 @@
 
 日期：2026-10-14。版本：0.1.0（本地开发MVP）。
 
+2026-10-15 名称更新：项目更名为 **Farhelm · 遥舵**。控制台、SSH 标识、npm 包、Rust Agent、开发镜像和源码包采用新名称；配置、存储和 v1 协议固定标识的兼容范围见 [README](../README.md#项目名称与兼容性)。
+
 ## 交付内容
 
 源码、npm/Cargo锁文件、版本化JSON Schema、跨语言fixture、Linux进程与协议测试、真实Rust到Fastify端到端测试、Vue控制台、本地CA启动脚本、离线备份脚本、ADR及P0–P5验收规划。最终构建和运行证据见test-report.md及test-evidence/。

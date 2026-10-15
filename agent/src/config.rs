@@ -101,7 +101,7 @@ impl Config {
             state,
             ca_pem: env::var("FLEET_CA_CERT").ok().map(fs::read).transpose()?,
             enrollment_token: env::var("FLEET_ENROLLMENT_TOKEN").ok(),
-            name: env::var("FLEET_DEVICE_NAME").unwrap_or_else(|_| "fleet-device".into()),
+            name: env::var("FLEET_DEVICE_NAME").unwrap_or_else(|_| "farhelm-device".into()),
             execution_enabled,
             terminal_allow_privilege_escalation,
             heartbeat_ms,

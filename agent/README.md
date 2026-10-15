@@ -1,4 +1,4 @@
-# Fleet Agent (Linux, Rust/Tokio)
+# Farhelm Agent (Linux, Rust/Tokio)
 
 This is the real native Agent. It uses rustls HTTPS/WSS, Ed25519 identity, a SQLite WAL/FULL journal, and bounded raw output files. It does not depend on SSH or EasyTier.
 
@@ -19,7 +19,7 @@ export FLEET_CA_CERT=/absolute/path/to/ca.crt
 export FLEET_STATE_DIR=/absolute/path/to/private/agent-state
 export FLEET_ENROLLMENT_TOKEN='admin-issued-short-lived-token'
 export FLEET_DEVICE_NAME=test-linux
-./target/debug/fleet-agent
+./target/debug/farhelm-agent
 ```
 
 Existing state directories must be owned by the running UID and have no group/other permissions. The persisted identity seed is 32 bytes, mode 0600, and is never sent to the server. Enrollment first attempts key-based authentication, allowing recovery after a lost successful enrollment response. A pinned server instance prevents silently moving the identity to a different server database. Missing either the journal or identity while the other remains is a fail-closed recovery condition, not a fresh enrollment.

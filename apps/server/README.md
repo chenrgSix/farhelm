@@ -1,4 +1,4 @@
-# Fleet HTTPS / WSS / SSH server
+# Farhelm HTTPS / WSS / SSH server
 
 P0/P1 development implementation. Node.js **24+** is required for `node:sqlite` (`DatabaseSync`; availability/experimental status depends on the exact Node 24 release). SQLite runs WAL, `synchronous=FULL`, foreign keys and a five-second busy timeout. This is a single-process/single-host server, not a high-availability or production-security claim.
 

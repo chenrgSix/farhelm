@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fleet.local/contracts/v1/challenge-request.schema.json",
-  "title": "Fleet v1 challenge-request",
+  "title": "Farhelm v1 challenge-request",
   "oneOf": [
     {
       "type": "object",

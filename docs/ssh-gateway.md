@@ -1,9 +1,9 @@
 # SSH 统一入口
 
-用户用标准 SSH 客户端连接 Fleet 服务端，服务端认证平台账号、检查设备授权后，通过目标 Agent 已建立的出站 WSS 通道创建 PTY。目标设备无需运行 sshd 或开放 22 端口，平台不需要保存目标主机的 SSH 密码/私钥。与 Warpgate 的入口体验类似，但这一版的下游是 Agent PTY，不是 SSH 到 SSH 的透明代理。
+用户用标准 SSH 客户端连接 Farhelm 服务端，服务端认证平台账号、检查设备授权后，通过目标 Agent 已建立的出站 WSS 通道创建 PTY。目标设备无需运行 sshd 或开放 22 端口，平台不需要保存目标主机的 SSH 密码/私钥。与 Warpgate 的入口体验类似，但这一版的下游是 Agent PTY，不是 SSH 到 SSH 的透明代理。
 
 ```text
-OpenSSH / SSH 客户端 ── SSH ── Fleet 服务端 ── 已认证 WSS ── Agent PTY
+OpenSSH / SSH 客户端 ── SSH ── Farhelm 服务端 ── 已认证 WSS ── Agent PTY
 浏览器终端          ── WSS ────────┘
 ```
 

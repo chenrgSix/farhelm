@@ -1,4 +1,4 @@
-# Fleet protocol v1 implementation contract
+# Farhelm protocol v1 implementation contract
 
 All HTTPS/WSS; timestamps Unix milliseconds integers. JSON UTF-8, snake_case. All API bodies use v:1 except user login. HTTP headers Bearer auth (never query tokens). WSS JSON envelope: {v:1,type:string,body:object}; maximum 64KiB. Agent identity public_key is raw 32-byte Ed25519 in base64; signatures 64-byte base64. SHA256 lowercase hex.
 

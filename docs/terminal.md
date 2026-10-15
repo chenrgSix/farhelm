@@ -20,7 +20,9 @@ Bash 提示符显示真实用户名、主机名和当前目录，例如 `fleet@l
 
 其他环境默认 `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=0`，PTY 设置 `no_new_privs`，禁止通过 setuid/文件 capabilities 提权。显式配置为 1 后，终端可以使用系统已授予的 sudo 权限；Agent 不自动为真实主机安装 sudo 或配置 sudoers。该选项只影响交互终端，命令任务仍强制 `no_new_privs`。若父进程已设置 `no_new_privs`，不能通过该选项解除，启动会明确报错。
 
-已有本地服务端、`.dev/agent.env`、开发 CA 和 Linux Agent 二进制时，执行 `npm run dev:agent:container` 可以构建并更新本地容器。默认二进制路径为 `.dev/linux-target/debug/fleet-agent`，可用 `FLEET_AGENT_BIN` 覆盖。该命令会结束当前本地终端会话，更新后重新连接。它核对现有容器的状态目录，不覆盖其他项目的容器。
+已有本地服务端、`.dev/agent.env`、开发 CA 和 Linux Agent 二进制时，执行 `npm run dev:agent:container` 可以构建并更新本地容器。默认二进制路径为 `.dev/linux-target/debug/farhelm-agent`，可用 `FLEET_AGENT_BIN` 覆盖。该命令会结束当前本地终端会话，更新后重新连接。它核对现有容器的状态目录，不覆盖其他项目的容器。
+
+开发容器及镜像名称为 `farhelm-agent`、`farhelm-agent-dev:local`。更新脚本也会识别旧名称 `linux-fleet-agent`，核对属于同一状态目录后再替换，避免两个 Agent 争用同一设备身份；容器内的账号与持久化路径沿用原值。
 
 ## 授权和录制
 

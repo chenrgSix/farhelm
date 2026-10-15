@@ -1,10 +1,18 @@
-# Linux Fleet · P0/P1 本地最小版本
+# Farhelm · 遥舵
+
+**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前为 P0/P1 本地最小版本。
 
 Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，支持可选 SSH 统一入口；不依赖 MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
 这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。现提供网页/SSH 交互终端、会话录制与回放；P2 完整验收和 P3 EasyTier 私网优先、公网回退仍有剩余工作。实际验证清单见 [测试报告](docs/test-report.md)和[终端验证](docs/terminal.md)。
 
 设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。EasyTier 私网可达仍未采集。
+
+## 项目名称与兼容性
+
+项目名称为 **Farhelm（遥舵）**，npm 包为 `farhelm`、`@farhelm/server`、`@farhelm/web`，Rust Agent 包及可执行文件为 `farhelm-agent`。
+
+现有 `FLEET_*` 环境变量、服务端 `fleet.sqlite` 数据库文件、开发容器中的 `fleet` 账号和路径继续沿用。v1 签名域 `fleet-v1`、JSON Schema 的 `https://fleet.local/contracts/v1/` 标识与公开测试向量保持兼容；这些是已有配置、数据和协议的固定标识。历史验证日志保留当时的名称和输出。
 
 ## 已确认的单账号边界
 

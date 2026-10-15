@@ -16,7 +16,7 @@ assert.ok(
   "Supply explicit local administrator credentials",
 );
 const url = process.env.FLEET_CONSOLE_URL || "http://127.0.0.1:5173";
-const container = process.env.FLEET_HEALTH_CONTAINER || "linux-fleet-agent";
+const container = process.env.FLEET_HEALTH_CONTAINER || "farhelm-agent";
 const marker = `fleet-health-browser-${process.pid}`;
 const control = `/home/fleet/.${marker}.json`;
 const output = resolve(import.meta.dirname, "../../.test-output");

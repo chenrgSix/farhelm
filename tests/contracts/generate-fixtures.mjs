@@ -129,7 +129,7 @@ for (const purpose of ["enroll", "auth"]) {
 }
 save("challenge-signatures.json", {
   description:
-    "Public RFC 8032 key signs Fleet v1 domain-separated bytes; terminal LF and empty fields are significant",
+    "Public RFC 8032 key signs Farhelm v1 domain-separated bytes; terminal LF and empty fields are significant",
   seed_hex: seed,
   public_key_hex: publicKey,
   cases: challengeCases,

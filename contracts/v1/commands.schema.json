@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fleet.local/contracts/v1/commands.schema.json",
-  "title": "Fleet v1 commands",
+  "title": "Farhelm v1 commands",
   "type": "object",
   "additionalProperties": false,
   "properties": {

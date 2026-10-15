@@ -9,7 +9,7 @@ def common(name): return ref('common.schema.json#/$defs/' + name)
 def obj(props, required=None):
     return {'type':'object','additionalProperties':False,'properties':props,'required':list(props) if required is None else required}
 def schema(name, body, description=None):
-    doc={'$schema':DRAFT,'$id':BASE+name+'.schema.json','title':'Fleet v1 '+name, **body}
+    doc={'$schema':DRAFT,'$id':BASE+name+'.schema.json','title':'Farhelm v1 '+name, **body}
     if description: doc['description']=description
     (ROOT/(name+'.schema.json')).write_text(json.dumps(doc,indent=2,ensure_ascii=False)+'\n')
 

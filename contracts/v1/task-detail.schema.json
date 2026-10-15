@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fleet.local/contracts/v1/task-detail.schema.json",
-  "title": "Fleet v1 task-detail",
+  "title": "Farhelm v1 task-detail",
   "type": "object",
   "additionalProperties": false,
   "properties": {

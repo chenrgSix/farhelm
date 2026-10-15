@@ -1,4 +1,4 @@
-# Linux Fleet 架构审查与分阶段验收
+# Farhelm 架构审查与分阶段验收
 
 日期：2026-10-14。状态：实现前设计审查。实际实现与测试状态以 README 和 test-report.md 为准。
 
@@ -92,19 +92,19 @@
 
 **历史提议，已被用户单账号决定替代；见 adr/0006.md：** Agent 控制身份与 Exec/PTY 执行身份分离；执行目标是固定低权限账号，不是客户端任意 UID。全部经平台的操作仍按真实平台用户归属，不需要每员工 Linux 账号。
 
-- 建议固定 `fleet-agent` 保存设备密钥、journal/outbox；固定 `fleet-exec` 执行命令。仅 chmod 0600 无法防止同 UID 的任意命令读取密钥和改 journal，所以不能用同 UID 冒充身份隔离
+- 建议固定 `farhelm-agent` 保存设备密钥、journal/outbox；固定 `farhelm-exec` 执行命令。仅 chmod 0600 无法防止同 UID 的任意命令读取密钥和改 journal，所以不能用同 UID 冒充身份隔离
 - 通过范围极小、受审查的执行启动器/系统服务边界切换到固定执行 UID，并建立任务资源边界。它不接受 root shell、任意 UID、任意服务名或调用者指定的提权规则。代码可先实现接口与测试，真实安装及授权单独确认
 - 业务模板为版本化 action + schema + 固定程序/参数映射；不拼接 `sh -c`。运维显式 Shell 请求如允许，应记录 shell 程序和完整脚本文本/hash，不能与业务模板混用
 - 清理继承环境、关闭无关 fd、固定 PATH/工作目录策略；私钥、数据库和控制 socket 对执行账号不可读写。`journalctl` 无权限时明确返回权限失败，不能自动加组或 sudo
 - 每次任务建立独立进程组：取消/超时先 TERM，宽限后 KILL，wait/reap，并持续处理输出。Tokio 丢弃 Child 默认不会停止子进程，单杀主 PID 也不是子树清理；见 [Tokio Child 文档](https://docs.rs/tokio/latest/tokio/process/struct.Child.html)
 - `setsid`/double-fork 可脱离普通进程组；需要强子树清理时使用每任务受控 cgroup/系统服务单元，且执行账号不能把进程移出去。cgroup v2 的 kill 接口覆盖子 cgroup，参见 [Linux cgroup v2 文档](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html)。目标内核和权限须探测；不满足时禁止承诺“任意命令后代全部清理”
 - Agent 意外退出/重启必须检查残留任务边界；不能只保存 PID 后盲杀，防止 PID 复用。服务级清理与任务级清理都需测试
-- 同一 `fleet-exec` 下多个 PTY 可以分别录制、归属平台用户，但共享该账号的文件/进程权限，不构成互相强隔离。若业务要求不互信会话隔离，另议每会话身份/沙箱，不默默扩大本期范围
+- 同一 `farhelm-exec` 下多个 PTY 可以分别录制、归属平台用户，但共享该账号的文件/进程权限，不构成互相强隔离。若业务要求不互信会话隔离，另议每会话身份/沙箱，不默默扩大本期范围
 
 ## 推荐目录
 
 ```text
-linux-fleet/
+farhelm/
   README.md
   docs/
     architecture.md

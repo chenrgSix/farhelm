@@ -63,7 +63,7 @@ const enroll = await api(
 const children: ChildProcess[] = [];
 let browser: any;
 try {
-  const agent = spawn(path.join(root, "agent/target/debug/fleet-agent"), [], {
+  const agent = spawn(path.join(root, "agent/target/debug/farhelm-agent"), [], {
     env: {
       ...process.env,
       FLEET_SERVER_URL: `https://localhost:${port}`,

@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
-use fleet_agent::protocol::Task;
+use farhelm_agent::protocol::Task;
 use serde_json::Value;
 
 #[test]

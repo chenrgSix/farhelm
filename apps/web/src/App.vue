@@ -336,13 +336,13 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!user" class="login-shell">
     <section class="login-story">
-      <a class="brand" href="/" aria-label="Linux Fleet 首页"
+      <a class="brand" href="/" aria-label="Farhelm 遥舵首页"
         ><span class="brand-mark">f<span>•</span></span
-        ><span>linux fleet<small>设备管理控制台</small></span></a
+        ><span>Farhelm<small>遥舵 · 设备管理控制台</small></span></a
       >
       <div class="story-main">
         <div class="eyebrow">CONNECTED. CONTROLLED. ACCOUNTABLE.</div>
-        <h1>设备在远方<br />掌控在此刻<span>。</span></h1>
+        <h1>分散设备<br />一处掌控<span>。</span></h1>
         <p>
           主动连接，授权执行，结果留痕。<br />为每一台 Linux
           设备建立清晰的操作记录。
@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
     </section>
     <main class="login-main">
       <div class="login-card">
-        <div class="eyebrow">FLEET CONSOLE</div>
+        <div class="eyebrow">FARHELM CONSOLE</div>
         <h2>登录控制台</h2>
         <p class="muted">使用管理员配置的平台账号继续</p>
         <form @submit.prevent="login">
@@ -402,7 +402,7 @@ onBeforeUnmount(() => {
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark">f<span>•</span></span
-        ><span>linux fleet<small>设备管理控制台</small></span>
+        ><span>Farhelm<small>遥舵 · 设备管理控制台</small></span>
       </div>
       <div class="nav-label">工作空间</div>
       <nav aria-label="主导航">
@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
       <main class="main-content">
         <div class="page-heading">
           <div>
-            <div class="eyebrow">LINUX FLEET / {{ view.toUpperCase() }}</div>
+            <div class="eyebrow">FARHELM / {{ view.toUpperCase() }}</div>
             <h1>{{ titles[view][0] }}</h1>
             <p>{{ titles[view][1] }}</p>
           </div>
@@ -1054,7 +1054,7 @@ onBeforeUnmount(() => {
           />
         </div>
         <footer class="page-footer">
-          <span>LINUX FLEET <span class="footer-dot">·</span> 开发版本</span
+          <span>FARHELM <span class="footer-dot">·</span> 开发版本</span
           ><span>只审计经过平台的操作</span>
         </footer>
       </main>

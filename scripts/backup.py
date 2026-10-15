@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Consistent OFFLINE Fleet data backup. Stop the server first; never copy live WAL files."""
+"""Consistent OFFLINE Farhelm data backup. Stop the server first; never copy live WAL files."""
 import argparse, hashlib, json, shutil, sqlite3
 from pathlib import Path
 p=argparse.ArgumentParser(description=__doc__)

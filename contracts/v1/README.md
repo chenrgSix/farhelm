@@ -1,6 +1,8 @@
-# Fleet v1 JSON contracts
+# Farhelm v1 JSON contracts
 
 These Draft 2020-12 JSON Schemas implement `../../PROTOCOL.md`. Concrete JSON objects reject undeclared properties, including nested objects. Read this document alongside the protocol; a schema pass does **not** establish authorization, durable storage, or valid state transitions.
+
+The Farhelm rename retains the v1 schema IDs under `https://fleet.local/contracts/v1/`, the `fleet-v1` signing domain and the public cryptographic vectors for compatibility. Schema titles and validation messages use the current product name.
 
 ## Version and shape decisions
 

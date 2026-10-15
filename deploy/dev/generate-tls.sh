@@ -6,7 +6,7 @@ chmod 700 "$DEST"
 if [[ -f "$DEST/server.crt" || -f "$DEST/ca.key" ]]; then echo "Refusing to overwrite existing certificates in $DEST" >&2; exit 1; fi
 umask 077
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$DEST/ca.key" 2>/dev/null
-openssl req -x509 -new -sha256 -key "$DEST/ca.key" -days 7 -out "$DEST/ca.crt" -subj '/CN=Linux Fleet local development CA' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign'
+openssl req -x509 -new -sha256 -key "$DEST/ca.key" -days 7 -out "$DEST/ca.crt" -subj '/CN=Farhelm local development CA' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign'
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$DEST/server.key" 2>/dev/null
 openssl req -new -key "$DEST/server.key" -out "$DEST/server.csr" -subj '/CN=localhost'
 cat > "$DEST/extensions.cnf" <<'EXT'

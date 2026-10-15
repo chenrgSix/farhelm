@@ -49,8 +49,8 @@ try {
   throw error;
 }
 if (server.ssh)
-  console.log(`Fleet SSH listening on port ${process.env.FLEET_SSH_PORT}`);
-console.log(`Fleet HTTPS listening at https://${host}:${port}`);
+  console.log(`Farhelm SSH listening on port ${process.env.FLEET_SSH_PORT}`);
+console.log(`Farhelm HTTPS listening at https://${host}:${port}`);
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     void server.close().then(() => process.exit(0));

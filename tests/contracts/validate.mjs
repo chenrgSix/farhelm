@@ -30,7 +30,7 @@ export function getValidator(name) {
     ? name
     : base + (name.endsWith(".schema.json") ? name : name + ".schema.json");
   const validator = ajv.getSchema(id);
-  if (!validator) throw new Error(`Unknown Fleet v1 schema: ${name}`);
+  if (!validator) throw new Error(`Unknown Farhelm v1 schema: ${name}`);
   return validator;
 }
 
@@ -48,7 +48,7 @@ export function assertValid(name, value) {
   const validator = getValidator(name);
   if (!validator(value))
     throw new Error(
-      `Fleet v1 ${name} contract mismatch: ${ajv.errorsText(validator.errors, { separator: "; " })}`,
+      `Farhelm v1 ${name} contract mismatch: ${ajv.errorsText(validator.errors, { separator: "; " })}`,
     );
   return value;
 }

@@ -66,9 +66,9 @@ export function createSshGateway(
       .replace(/=+$/, "");
   const ssh = new ssh2.Server({
     hostKeys: [readFileSync(path)],
-    ident: "LinuxFleet",
+    ident: "Farhelm",
     banner:
-      "Linux Fleet: platform-user (device menu) or platform-user:device-id, platform password. Interactive terminal only.\r\n",
+      "Farhelm: platform-user (device menu) or platform-user:device-id, platform password. Interactive terminal only.\r\n",
   });
   const sockets = new Set<Socket>();
   const deadlines = new Map<Socket, ReturnType<typeof setTimeout>>();
@@ -284,7 +284,7 @@ export function createSshGateway(
             connect(authenticated.deviceId);
           } catch {
             channel.stderr.end(
-              "Fleet terminal unavailable; check device status and permissions in the console.\r\n",
+              "Farhelm terminal unavailable; check device status and permissions in the console.\r\n",
             );
             channel.exit(1);
             peer.close();

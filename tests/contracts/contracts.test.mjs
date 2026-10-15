@@ -328,5 +328,5 @@ test("public helper accepts names and reports errors without mutating inputs", (
     () => assertValid("task", { ...task, uid: 0 }),
     /contract mismatch/,
   );
-  assert.throws(() => validate("nonexistent", {}), /Unknown Fleet v1 schema/);
+  assert.throws(() => validate("nonexistent", {}), /Unknown Farhelm v1 schema/);
 });

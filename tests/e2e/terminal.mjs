@@ -68,7 +68,7 @@ await server.app.listen({ host: "127.0.0.1", port: 0 });
 const port = server.app.server.address().port;
 const origin = `https://localhost:${port}`;
 const docker = process.env.FLEET_AGENT_DOCKER_IMAGE;
-const name = `linux-fleet-pty-e2e-${process.pid}`;
+const name = `farhelm-pty-e2e-${process.pid}`;
 const state = join(temp, "agent");
 mkdirSync(state, { mode: 0o700 });
 mkdirSync(join(root, ".test-output"), { recursive: true });
@@ -163,7 +163,8 @@ try {
     )
   ).enrollment_token;
   const binary =
-    process.env.FLEET_AGENT_BIN || join(root, "agent/target/debug/fleet-agent");
+    process.env.FLEET_AGENT_BIN ||
+    join(root, "agent/target/debug/farhelm-agent");
   assert.ok(existsSync(binary), "Build the actual Rust agent first");
   const env = {
     FLEET_SERVER_URL: docker ? `https://host.docker.internal:${port}` : origin,

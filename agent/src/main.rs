@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fleet_agent::{config::Config, connection, executor, identity::Identity, journal::Journal};
+use farhelm_agent::{config::Config, connection, executor, identity::Identity, journal::Journal};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
     let _instance_lock = cfg.prepare_state()?;
     let identity = Identity::load_or_create(&cfg.state)?;
     let journal = Journal::open(&cfg.state.join("journal.sqlite3"))?;
-    fleet_agent::config::sync_dir(&cfg.state)?;
+    farhelm_agent::config::sync_dir(&cfg.state)?;
     let execution = tokio::spawn(executor::scheduler(cfg.clone(), journal.clone()));
     tokio::select! {
         result=connection::run(cfg,journal,identity)=>result,

@@ -1,4 +1,4 @@
-# Linux Fleet Web 控制台
+# Farhelm · 遥舵 Web 控制台
 
 Vue 3 + TypeScript + Vite。面板只从真实 `/api/v1` 读取数据；没有离线演示数据、默认账号、URL token 或本地持久化会话。
 

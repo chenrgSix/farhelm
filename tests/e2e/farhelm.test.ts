@@ -27,7 +27,7 @@ execFileSync("bash", [path.join(root, "deploy/dev/generate-tls.sh"), tls]);
 const ca = readFileSync(path.join(tls, "ca.crt"));
 const binary =
   process.env.FLEET_AGENT_BIN ||
-  path.join(root, "agent/target/debug/fleet-agent");
+  path.join(root, "agent/target/debug/farhelm-agent");
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until<T>(
   fn: () => Promise<T> | T,
@@ -137,7 +137,7 @@ async function stop(child: ChildProcess | undefined) {
 
 // This suite always launches the compiled Rust Agent; no JavaScript Agent substitutes.
 test(
-  "Linux Fleet real Rust / HTTPS / WSS vertical slice and fault recovery",
+  "Farhelm real Rust / HTTPS / WSS vertical slice and fault recovery",
   { timeout: 180000 },
   async (t) => {
     assert.ok(existsSync(binary), `Build the Rust Agent first: ${binary}`);
