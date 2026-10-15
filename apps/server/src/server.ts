@@ -19,7 +19,8 @@ import {
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
 import { registerTerminals } from "./terminal.js";
-import { createSshGateway } from "./ssh.js";
+import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
+import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerHealth } from "./health.js";
 import {
   ApiError,
@@ -452,6 +453,18 @@ export async function buildServer(config: ServerConfig) {
     const user = passwordUser(b.username, b.password, req.ip);
     return { access_token: loginSession(user), user };
   });
+  function sshUser(login: SshLogin) {
+    const row = db
+      .prepare(
+        "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>?",
+      )
+      .get(login.sessionHash, login.user.id, Date.now());
+    if (!row) fail(401, "SESSION_INVALID");
+    const user = store.user(row);
+    if (user.role !== "admin" && user.role !== "ops")
+      fail(403, "EXEC_ROLE_REQUIRED");
+    return user;
+  }
   let ssh: ReturnType<typeof createSshGateway> | undefined;
   const prepareSsh = () =>
     config.ssh
@@ -459,6 +472,16 @@ export async function buildServer(config: ServerConfig) {
           terminals,
           authenticate(username, password, target, ip) {
             const user = passwordUser(username, password, ip);
+            if (!["admin", "ops"].includes(user.role)) {
+              store.audit("authorization.denied", user.id, null, null, {
+                reason: "SSH_TARGET_DENIED",
+                method: "SSH",
+                route: "ssh",
+              });
+              fail(403, "SSH_TARGET_DENIED");
+            }
+            if (target === undefined)
+              return { user, sessionHash: hash(loginSession(user)) };
             str(target, 1, 128);
             // Prefer stable device IDs; a name is accepted only if globally unique.
             const exact = db
@@ -491,6 +514,42 @@ export async function buildServer(config: ServerConfig) {
               user,
               deviceId: device.id,
               sessionHash: hash(loginSession(user)),
+            };
+          },
+          currentUser: sshUser,
+          devices(login, page) {
+            rate.check("ssh-menu:" + login.sessionHash, 120);
+            const user = sshUser(login);
+            integer(page, 0, 1000000);
+            const rows = db
+              .prepare(
+                "SELECT id,name FROM devices WHERE revoked_at IS NULL AND (? OR id IN (SELECT value FROM json_each(?))) ORDER BY name,id LIMIT ? OFFSET ?",
+              )
+              .all(
+                Number(user.role === "admin" || user.device_scope === "*"),
+                JSON.stringify(
+                  user.device_scope === "*" ? [] : user.device_scope,
+                ),
+                SSH_MENU_PAGE_SIZE + 1,
+                page * SSH_MENU_PAGE_SIZE,
+              ) as { id: string; name: string }[];
+            return {
+              hasMore: rows.length > SSH_MENU_PAGE_SIZE,
+              devices: rows.slice(0, SSH_MENU_PAGE_SIZE).map((device) => {
+                const c = connections.get(device.id);
+                const online =
+                  c?.ready &&
+                  live(c) &&
+                  Date.now() - c.lastHeartbeat <= heartbeatTimeout;
+                return {
+                  ...device,
+                  status: !online
+                    ? "offline"
+                    : c.terminal
+                      ? "online"
+                      : "unsupported",
+                };
+              }),
             };
           },
           release(sessionHash) {

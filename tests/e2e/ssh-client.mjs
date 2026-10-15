@@ -45,7 +45,7 @@ export async function checkSsh({ server, deviceId, temp, until, steps }) {
       "-p",
       String(port),
       "-l",
-      `admin:${deviceId}`,
+      "admin",
       "--",
       "127.0.0.1",
     ],
@@ -76,6 +76,20 @@ export async function checkSsh({ server, deviceId, temp, until, steps }) {
   const client = new ssh2.Client();
   client.on("error", () => {});
   try {
+    await wait("输入设备编号");
+    assert.ok(text.includes(deviceId));
+    assert.equal(
+      server.store.db
+        .prepare(
+          "SELECT count(*) n FROM terminal_sessions WHERE transport='ssh' AND ended_at IS NULL",
+        )
+        .get().n,
+      0,
+    );
+    const listed = text.split("\n").find((line) => line.includes(deviceId));
+    const choice = listed?.match(/^\s*(\d+)\./)?.[1];
+    assert.ok(choice, "Device must have a visible selection number");
+    input(choice + "\r");
     await until(
       () => /[$#] $/m.test(text),
       "OpenSSH real shell: " + error,
@@ -124,10 +138,11 @@ export async function checkSsh({ server, deviceId, temp, until, steps }) {
         .map((e) => Buffer.from(JSON.parse(e.data).data, "base64")),
     ).toString();
     assert.ok(recording.includes("中".repeat(2000)));
+    assert.equal(recording.includes("可访问设备"), false);
     assert.ok(recording.includes("^SSH_RENEWED^"));
     assert.equal(recording.includes("not-in-ssh-recording"), false);
     steps.push(
-      "real OpenSSH with pinned host key: platform login, Rust PTY cwd/Ctrl-C/Unicode, token renewal, exit and durable recording without hidden password",
+      "real OpenSSH with pinned host key: bare username login, device selection, Rust PTY cwd/Ctrl-C/Unicode, token renewal, exit and durable recording without menu or hidden password",
     );
     const ready = once(client, "ready");
     client.connect({

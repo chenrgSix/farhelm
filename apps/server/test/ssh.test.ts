@@ -106,6 +106,30 @@ async function fixture() {
     await wait("terminal.resize");
     return { client, channel, id: request.session_id };
   }
+  async function menu(username = "admin") {
+    const client = await connect(username);
+    const channel = await new Promise<ClientChannel>((resolve, reject) =>
+      client.shell({ cols: 80, rows: 24 }, (err, stream) =>
+        err ? reject(err) : resolve(stream),
+      ),
+    );
+    channel.setEncoding("utf8");
+    let output = "";
+    channel.on("data", (data) => {
+      output += data;
+    });
+    const waitText = (text: string) => until(() => output.includes(text), text);
+    await waitText("输入设备编号");
+    return {
+      client,
+      channel,
+      text: () => output,
+      waitText,
+      clear() {
+        output = "";
+      },
+    };
+  }
   async function close() {
     for (const c of clients) c.destroy();
     agent.terminate();
@@ -122,6 +146,7 @@ async function fixture() {
     clients,
     connect,
     open,
+    menu,
     close,
   };
 }
@@ -415,6 +440,260 @@ test("SSH key generation validates candidates before saving the persistent ident
     assert.match(f.ssh!.info().fingerprint, /^SHA256:/);
     const c = await f.connect();
     c.destroy();
+  } finally {
+    await f.close();
+  }
+});
+
+test("SSH bare username lists only scoped devices, sanitizes names and opens the displayed device with an audited PTY", async () => {
+  const f = await fixture();
+  try {
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('hidden','hidden-key','secret-device',?)",
+      )
+      .run(Date.now());
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('offline','offline-key','z-offline',?)",
+      )
+      .run(Date.now());
+    f.store.db
+      .prepare("UPDATE devices SET name=? WHERE id='device'")
+      .run("local-linux\u001b[31m\nspoof");
+    f.store.seedUser({
+      username: "scoped",
+      password: "ssh-test-password",
+      role: "ops",
+      deviceScope: ["device", "offline"],
+    });
+    const m = await f.menu("scoped");
+    assert.ok(m.text().includes("[在线]"));
+    assert.ok(m.text().includes("[离线]"));
+    assert.equal(m.text().includes("secret-device"), false);
+    assert.equal(m.text().includes("\u001b"), false);
+    assert.equal(m.text().includes("\nspoof"), false);
+    assert.equal(
+      f.messages.some((x) => x.type === "terminal.open"),
+      false,
+    );
+    assert.equal(
+      f.store.db.prepare("SELECT count(*) n FROM terminal_sessions").get()!.n,
+      0,
+    );
+    // Invalid choices and function keys never leak into the selected shell.
+    m.channel.write("99\r\n");
+    await m.waitText("编号无效");
+    m.channel.write("\x1b[1~9\x7f1\r\nignored-paste\r");
+    const opened = await f.wait("terminal.open");
+    assert.equal(opened.cols, 80);
+    f.send("terminal.opened", { session_id: opened.session_id });
+    await f.wait("terminal.resize");
+    assert.equal(
+      f.messages.some((x) => x.type === "terminal.input"),
+      false,
+    );
+    const row = f.store.db
+      .prepare("SELECT * FROM terminal_sessions WHERE id=?")
+      .get(opened.session_id)!;
+    assert.equal(row.device_id, "device");
+    assert.equal(row.transport, "ssh");
+    assert.equal(
+      row.actor_id,
+      f.store.db.prepare("SELECT id FROM users WHERE username='scoped'").get()!
+        .id,
+    );
+    m.channel.write("pwd\r");
+    assert.equal(
+      Buffer.from((await f.wait("terminal.input")).data, "base64").toString(),
+      "pwd\r",
+    );
+    f.send("terminal.output", {
+      session_id: opened.session_id,
+      seq: 1,
+      data: Buffer.from("menu-shell-output").toString("base64"),
+    });
+    await f.wait("terminal.ack");
+    await m.waitText("menu-shell-output");
+    assert.equal(
+      f.store.db
+        .prepare(
+          "SELECT count(*) n FROM terminal_recordings WHERE session_id=? AND kind='output'",
+        )
+        .get(opened.session_id)!.n,
+      1,
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("SSH menu handles offline choices, refresh, pagination and quit without opening a shell", async () => {
+  const f = await fixture();
+  try {
+    for (let i = 0; i < 27; i++)
+      f.store.db
+        .prepare(
+          "INSERT INTO devices(id,public_key,name,created_at) VALUES(?,?,?,?)",
+        )
+        .run(
+          `offline-${i}`,
+          `key-${i}`,
+          `z-device-${String(i).padStart(2, "0")}`,
+          Date.now(),
+        );
+    const m = await f.menu();
+    assert.ok(m.text().includes("z-device-23"));
+    assert.equal(m.text().includes("z-device-24"), false);
+    m.clear();
+    m.channel.write("n\r");
+    await m.waitText("第 2 页");
+    assert.ok(m.text().includes("z-device-24"));
+    assert.equal(m.text().includes("local-linux"), false);
+    m.clear();
+    m.channel.write("1\r");
+    await m.waitText("设备离线");
+    assert.equal(
+      f.messages.some((x) => x.type === "terminal.open"),
+      false,
+    );
+    m.clear();
+    m.channel.write("p\r");
+    await m.waitText("第 1 页");
+    f.store.db
+      .prepare("UPDATE devices SET name='renamed-device' WHERE id='device'")
+      .run();
+    m.clear();
+    m.channel.write("r\r");
+    await m.waitText("renamed-device");
+    const closed = new Promise<void>((resolve) =>
+      m.client.once("close", () => resolve()),
+    );
+    m.channel.write("q\r");
+    await closed;
+    assert.equal(
+      f.store.db.prepare("SELECT count(*) n FROM terminal_sessions").get()!.n,
+      0,
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("SSH menu preserves displayed device identity and rechecks scope/revocation before connecting", async () => {
+  const f = await fixture();
+  try {
+    const m = await f.menu();
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('new','new-key','aaa-new-device',?)",
+      )
+      .run(Date.now());
+    m.channel.write("1\r");
+    const request = await f.wait("terminal.open");
+    assert.equal(
+      f.store.db
+        .prepare("SELECT device_id FROM terminal_sessions WHERE id=?")
+        .get(request.session_id)!.device_id,
+      "device",
+    );
+    m.client.destroy();
+    await f.wait("terminal.close");
+    f.store.seedUser({
+      username: "limited",
+      password: "ssh-test-password",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const limited = await f.menu("limited");
+    f.store.db
+      .prepare("UPDATE users SET device_scope='[]' WHERE username='limited'")
+      .run();
+    limited.clear();
+    limited.channel.write("1\r");
+    await limited.waitText("暂无可访问设备");
+    assert.equal(limited.text().includes("local-linux"), false);
+    assert.equal(
+      f.messages.some((x) => x.type === "terminal.open"),
+      false,
+    );
+    f.store.db
+      .prepare("UPDATE users SET device_scope=? WHERE username='limited'")
+      .run(JSON.stringify(["device"]));
+    limited.clear();
+    limited.channel.write("r\r");
+    await limited.waitText("local-linux");
+    f.store.db
+      .prepare("UPDATE devices SET revoked_at=? WHERE id='device'")
+      .run(Date.now());
+    limited.clear();
+    limited.channel.write("1\r");
+    await limited.waitText("暂无可访问设备");
+    assert.equal(
+      f.messages.some((x) => x.type === "terminal.open"),
+      false,
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("SSH menu rejects non-operators and closes expired/downgraded logins before revealing refreshed devices", async () => {
+  const f = await fixture();
+  try {
+    f.store.seedUser({
+      username: "business",
+      password: "ssh-test-password",
+      role: "business",
+      deviceScope: "*",
+    });
+    await assert.rejects(f.connect("business"), /authentication/);
+    for (const expire of [true, false]) {
+      const m = await f.menu();
+      if (expire)
+        f.store.db.prepare("UPDATE user_sessions SET expires_at=0").run();
+      else
+        f.store.db
+          .prepare("UPDATE users SET role='business' WHERE username='admin'")
+          .run();
+      const closed = new Promise<void>((resolve) =>
+        m.client.once("close", () => resolve()),
+      );
+      m.clear();
+      m.channel.write("r\r");
+      await closed;
+      assert.ok(m.text().includes("权限已失效"));
+      assert.equal(m.text().includes("local-linux"), false);
+    }
+    assert.equal(
+      f.messages.some((x) => x.type === "terminal.open"),
+      false,
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("SSH empty menu supports Ctrl-C/EOF and bounds oversized input without creating a PTY", async () => {
+  const f = await fixture();
+  try {
+    f.store.seedUser({
+      username: "empty",
+      password: "ssh-test-password",
+      role: "ops",
+      deviceScope: [],
+    });
+    for (const input of ["\x03", "9".repeat(100), null]) {
+      const m = await f.menu("empty");
+      assert.ok(m.text().includes("暂无可访问设备"));
+      assert.equal(m.text().includes("local-linux"), false);
+      const closed = new Promise<void>((resolve) =>
+        m.client.once("close", () => resolve()),
+      );
+      if (input === null) m.channel.end();
+      else m.channel.write(input);
+      await closed;
+    }
+    assert.equal(
+      f.messages.some((x) => x.type === "terminal.open"),
+      false,
+    );
   } finally {
     await f.close();
   }

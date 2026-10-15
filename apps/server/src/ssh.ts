@@ -6,20 +6,23 @@ import ssh2 from "ssh2";
 import type { ServerChannel } from "ssh2";
 import type { ServerConfig, User } from "./types.js";
 import type { registerTerminals, TerminalPeer } from "./terminal.js";
-import { integer, str } from "./util.js";
+import { createDeviceMenu, type SshDevicePage } from "./ssh-menu.js";
+import { ApiError, integer, str } from "./util.js";
 
-interface Login {
+export interface SshLogin {
   user: User;
   sessionHash: string;
-  deviceId: string;
+  deviceId?: string;
 }
 interface Dependencies {
   authenticate(
     username: string,
     password: string,
-    target: string,
+    target: string | undefined,
     ip: string,
-  ): Login;
+  ): SshLogin;
+  currentUser(login: SshLogin): User;
+  devices(login: SshLogin, page: number): SshDevicePage;
   release(sessionHash: string): void;
   terminals: ReturnType<typeof registerTerminals>;
 }
@@ -65,7 +68,7 @@ export function createSshGateway(
     hostKeys: [readFileSync(path)],
     ident: "LinuxFleet",
     banner:
-      "Linux Fleet: platform-user:device-id, platform password. Interactive terminal only.\r\n",
+      "Linux Fleet: platform-user (device menu) or platform-user:device-id, platform password. Interactive terminal only.\r\n",
   });
   const sockets = new Set<Socket>();
   const deadlines = new Map<Socket, ReturnType<typeof setTimeout>>();
@@ -101,7 +104,7 @@ export function createSshGateway(
     const socket = [...sockets].find(
       (s) => s.remoteAddress === info.ip && s.remotePort === info.port,
     )!;
-    let login: Login | undefined;
+    let login: SshLogin | undefined;
     let attempts = 0;
     let used = false;
     let handle: ReturnType<Dependencies["terminals"]["openSsh"]> | undefined;
@@ -121,13 +124,13 @@ export function createSshGateway(
         return;
       }
       try {
-        const composite = str(ctx.username, 3, 257);
+        const composite = str(ctx.username, 1, 257);
         const separator = composite.lastIndexOf(":");
-        if (separator <= 0) throw new Error("Target required");
+        if (separator === 0) throw new Error("Username required");
         login = d.authenticate(
-          composite.slice(0, separator),
+          separator < 0 ? composite : composite.slice(0, separator),
           ctx.password,
-          composite.slice(separator + 1),
+          separator < 0 ? undefined : composite.slice(separator + 1),
           info.ip,
         );
         deadline(socket, 30000); // Authenticated clients must open a shell promptly.
@@ -211,10 +214,17 @@ export function createSshGateway(
           connection.end();
         });
         channel.on("end", () => {
-          handle?.disconnect();
+          if (handle) handle.disconnect();
+          else connection.end();
         });
+        let menu: ReturnType<typeof createDeviceMenu> | undefined;
         channel.on("data", (data: Buffer) => {
-          if (!ready || closed) return;
+          if (closed) return;
+          if (menu) {
+            menu.input(data);
+            return;
+          }
+          if (!ready) return;
           for (let offset = 0; offset < data.length && !closed; offset += 8192)
             handle?.input("terminal.input", {
               data: data.subarray(offset, offset + 8192).toString("base64"),
@@ -253,22 +263,64 @@ export function createSshGateway(
             socket.destroy();
           },
         };
-        try {
-          deadline(socket, 3600000);
+        const authenticated = login;
+        function connect(deviceId: string) {
+          if (!size) throw new Error("PTY required");
+          channel!.pause();
+          const user = d.currentUser(authenticated);
           handle = d.terminals.openSsh(
-            login.user,
-            login.sessionHash,
-            login.deviceId,
+            user,
+            authenticated.sessionHash,
+            deviceId,
             size.cols,
             size.rows,
             peer,
           );
-        } catch (error) {
-          channel.stderr.end(
-            "Fleet terminal unavailable; check device status and permissions in the console.\r\n",
-          );
-          channel.exit(1);
-          peer.close();
+          menu = undefined;
+          if (!closed) deadline(socket, 3600000);
+        }
+        if (authenticated.deviceId) {
+          try {
+            connect(authenticated.deviceId);
+          } catch {
+            channel.stderr.end(
+              "Fleet terminal unavailable; check device status and permissions in the console.\r\n",
+            );
+            channel.exit(1);
+            peer.close();
+          }
+        } else {
+          deadline(socket, 300000);
+          menu = createDeviceMenu(channel, {
+            list: (page) => d.devices(authenticated, page),
+            select(deviceId) {
+              try {
+                connect(deviceId);
+                return undefined;
+              } catch (error) {
+                const messages: Record<string, string> = {
+                  DEVICE_OFFLINE: "设备离线，请刷新列表或选择其他设备。",
+                  TERMINAL_NOT_SUPPORTED_UPDATE_AGENT:
+                    "该设备暂不支持终端，请更新 Agent。",
+                  TERMINAL_SESSION_LIMIT: "终端会话数量已达上限，请稍后重试。",
+                  DEVICE_SCOPE_DENIED: "该设备的访问权限已变更，请重新选择。",
+                  TERMINAL_NOT_AUTHORIZED:
+                    "该设备已撤销或访问权限已变更，请重新选择。",
+                };
+                if (error instanceof ApiError && messages[error.code]) {
+                  channel!.resume();
+                  return messages[error.code];
+                }
+                throw error;
+              }
+            },
+            close(code) {
+              channel!.exit(code);
+              peer.close();
+            },
+          });
+          menu.start();
+          channel.resume();
         }
       });
     });
