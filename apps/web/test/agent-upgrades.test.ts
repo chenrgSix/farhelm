@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import AgentUpgradePanel from "../src/components/AgentUpgradePanel.vue";
 import { api, ApiError } from "../src/api/client";
+import type { ManagedDeviceGroup } from "../src/api/types";
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -46,8 +47,37 @@ const snapshot = {
   ],
   jobs: [],
 };
+const groups: ManagedDeviceGroup[] = [
+  {
+    id: "prod",
+    name: "生产组",
+    description: "",
+    revision: 1,
+    device_ids: ["one", "legacy"],
+  },
+  {
+    id: "region",
+    name: "地区组",
+    description: "",
+    revision: 1,
+    device_ids: ["one", "offline"],
+  },
+  { id: "empty", name: "空组", description: "", revision: 0, device_ids: [] },
+];
+function mockSnapshot(value = snapshot, tags = groups) {
+  return vi
+    .spyOn(api, "request")
+    .mockImplementation(
+      async (path) =>
+        structuredClone(
+          path === "/device-groups" ? { device_groups: tags } : value,
+        ) as any,
+    );
+}
+const all = '[aria-label="全选当前筛选的可升级设备"]';
+const filter = '[aria-label="按设备组筛选升级设备"]';
 it("selects capable devices including offline ones and submits one batch with bounded concurrency", async () => {
-  const request = vi.spyOn(api, "request").mockResolvedValue(snapshot);
+  const request = mockSnapshot();
   const w = mount(AgentUpgradePanel, {
     global: { stubs: { AgentReleasePanel: true } },
   });
@@ -77,7 +107,8 @@ it("retries a lost response with exactly the same batch id and stops polling aft
   const posts: unknown[] = [];
   const request = vi
     .spyOn(api, "request")
-    .mockImplementation(async (_path, options) => {
+    .mockImplementation(async (path, options) => {
+      if (path === "/device-groups") return { device_groups: groups } as any;
       if (options?.method === "POST") {
         posts.push(options.body);
         if (posts.length === 1) throw new ApiError("lost", 0);
@@ -94,6 +125,9 @@ it("retries a lost response with exactly the same batch id and stops polling aft
   await flushPromises();
   expect(w.text()).toContain("核对原批次");
   expect(w.get("fieldset").attributes("disabled")).toBeDefined();
+  expect(w.get(filter).element.closest("fieldset")!.disabled).toBe(true);
+  await vi.advanceTimersByTimeAsync(3000);
+  await flushPromises();
   await w.get("form").trigger("submit");
   await flushPromises();
   expect(posts).toHaveLength(2);
@@ -106,7 +140,7 @@ it("retries a lost response with exactly the same batch id and stops polling aft
 it("excludes devices newer than the published release from bulk selection", async () => {
   const value = structuredClone(snapshot);
   value.devices[0]!.version = "0.3.0";
-  vi.spyOn(api, "request").mockResolvedValue(value);
+  mockSnapshot(value);
   const w = mount(AgentUpgradePanel, {
     global: { stubs: { AgentReleasePanel: true } },
   });
@@ -120,7 +154,7 @@ it("excludes devices newer than the published release from bulk selection", asyn
 it("selects an explicit older release and clears selection when the target changes or lacks an architecture", async () => {
   const value = structuredClone(snapshot);
   value.releases.push({ ...release, version: "0.2.2", sha256: "c".repeat(64) });
-  const request = vi.spyOn(api, "request").mockResolvedValue(value);
+  const request = mockSnapshot(value);
   const w = mount(AgentUpgradePanel, {
     global: { stubs: { AgentReleasePanel: true } },
   });
@@ -139,5 +173,187 @@ it("selects an explicit older release and clears selection when the target chang
     (request.mock.calls.find((c) => c[1]?.method === "POST")![1]?.body as any)
       .targets[0].sha256,
   ).toBe(release.sha256);
+  w.unmount();
+});
+
+it("filters optional overlapping tags and selects only the visible eligible devices without losing selections in other groups", async () => {
+  const value = structuredClone(snapshot);
+  value.devices.push({
+    ...value.devices[0]!,
+    device_id: "ungrouped",
+    name: "无标签设备",
+  });
+  const request = mockSnapshot(value);
+  const w = mount(AgentUpgradePanel, {
+    global: { stubs: { AgentReleasePanel: true } },
+  });
+  await flushPromises();
+  await w.get(filter).setValue("prod");
+  expect(w.findAll("tbody tr")).toHaveLength(2);
+  await w.get(all).setValue(true);
+  expect(w.text()).toContain("已选择 1 台");
+  await w.get(filter).setValue("region");
+  expect((w.get(all).element as HTMLInputElement).indeterminate).toBe(true);
+  await w.get(all).setValue(true);
+  expect(w.text()).toContain("已选择 2 台");
+  await w.get(filter).setValue("prod");
+  expect(w.text()).toContain("1 台在当前筛选外");
+  await w.get(all).setValue(false);
+  expect(w.text()).toContain("已选择 1 台");
+  await w.get(filter).setValue("empty");
+  expect(w.text()).toContain("当前筛选下没有 Agent 设备");
+  expect(w.get(all).attributes("disabled")).toBeDefined();
+  await w.get(filter).setValue("__ungrouped__");
+  expect(w.findAll("tbody tr")).toHaveLength(1);
+  expect(w.get("tbody").text()).toContain("无标签设备");
+  await w.get(all).setValue(true);
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  const body = request.mock.calls.find((c) => c[1]?.method === "POST")![1]!
+    .body as any;
+  expect(body.targets.map((t: any) => t.device_id)).toEqual([
+    "offline",
+    "ungrouped",
+  ]);
+  w.unmount();
+});
+it("filters out current, newer, unsupported, active and missing-architecture devices from group select-all", async () => {
+  const value = {
+    ...structuredClone(snapshot),
+    devices: [
+      ...snapshot.devices,
+      {
+        ...snapshot.devices[0]!,
+        device_id: "current",
+        name: "已更新",
+        sha256: release.sha256,
+      },
+      {
+        ...snapshot.devices[0]!,
+        device_id: "newer",
+        name: "更高版本",
+        version: "9.0.0",
+      },
+      {
+        ...snapshot.devices[0]!,
+        device_id: "missing",
+        name: "缺少架构",
+        arch: "x86_64",
+      },
+      { ...snapshot.devices[0]!, device_id: "active", name: "升级中" },
+    ],
+    jobs: [
+      {
+        id: "job",
+        batch_id: "batch",
+        device_id: "active",
+        arch: "aarch64",
+        sha256: release.sha256,
+        size: 128,
+        version: "0.2.1",
+        status: "QUEUED",
+        reason: null,
+        created_at: 1,
+        updated_at: 1,
+      },
+    ],
+  };
+  const request = vi.spyOn(api, "request").mockImplementation(
+    async (path) =>
+      (path === "/device-groups"
+        ? {
+            device_groups: [
+              {
+                ...groups[0],
+                device_ids: value.devices.map((d) => d.device_id),
+              },
+            ],
+          }
+        : value) as any,
+  );
+  const w = mount(AgentUpgradePanel, {
+    global: { stubs: { AgentReleasePanel: true } },
+  });
+  await flushPromises();
+  await w.get(filter).setValue("prod");
+  await w.get(all).setValue(true);
+  expect(w.text()).toContain("当前 7 台，可升级 2 台");
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  const body = request.mock.calls.find((c) => c[1]?.method === "POST")![1]!
+    .body as any;
+  expect(body.targets.map((t: any) => t.device_id)).toEqual(["one", "offline"]);
+  w.unmount();
+});
+it("caps select-all at 100 across filters, displays partial selection and permits clearing it", async () => {
+  const value = structuredClone(snapshot);
+  value.devices = Array.from({ length: 103 }, (_, i) => ({
+    ...snapshot.devices[0]!,
+    device_id: `device-${i}`,
+    name: `设备 ${i}`,
+  }));
+  const tags = [{ ...groups[0]!, device_ids: ["device-0"] }];
+  const request = mockSnapshot(value, tags);
+  const w = mount(AgentUpgradePanel, {
+    global: { stubs: { AgentReleasePanel: true } },
+  });
+  await flushPromises();
+  await w.get(filter).setValue("prod");
+  await w.get(all).setValue(true);
+  await w.get(filter).setValue("__ungrouped__");
+  expect(w.text()).toContain("全选最多再选 99 台");
+  await w.get(all).setValue(true);
+  expect(w.text()).toContain("已选择 100 台");
+  expect(w.text()).toContain("1 台在当前筛选外");
+  expect(w.text()).toContain("已达每批 100 台上限");
+  expect((w.get(all).element as HTMLInputElement).checked).toBe(false);
+  expect((w.get(all).element as HTMLInputElement).indeterminate).toBe(true);
+  expect(w.get(all).attributes("disabled")).toBeDefined();
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  const body = request.mock.calls.find((c) => c[1]?.method === "POST")![1]!
+    .body as any;
+  expect(body.targets).toHaveLength(100);
+  expect(new Set(body.targets.map((t: any) => t.device_id)).size).toBe(100);
+  expect(body.targets[0].device_id).toBe("device-0");
+  await w.get(all).setValue(true);
+  await w
+    .findAll("button")
+    .find((b) => b.text() === "清空选择")!
+    .trigger("click");
+  expect(w.text()).toContain("已选择 0 台");
+  w.unmount();
+});
+it("refreshes tags without broadening a removed group or silently adding new group members to the batch", async () => {
+  const tags = structuredClone(groups);
+  const request = mockSnapshot(snapshot, tags);
+  const w = mount(AgentUpgradePanel, {
+    global: { stubs: { AgentReleasePanel: true } },
+  });
+  await flushPromises();
+  await w.get(filter).setValue("prod");
+  await w.get(all).setValue(true);
+  tags[0]!.device_ids = ["offline"];
+  const refresh = () =>
+    w
+      .findAll("button")
+      .find((b) => b.text() === "刷新升级状态")!
+      .trigger("click");
+  await refresh();
+  await flushPromises();
+  expect(w.get("tbody").text()).toContain("离线设备");
+  expect(w.text()).toContain("1 台在当前筛选外");
+  expect((w.get(all).element as HTMLInputElement).checked).toBe(false);
+  tags.splice(0, 1);
+  await refresh();
+  await flushPromises();
+  expect((w.get(filter).element as HTMLSelectElement).value).toBe("prod");
+  expect(w.text()).toContain("设备组已删除，请重新选择");
+  expect(w.get(all).attributes("disabled")).toBeDefined();
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  const body = request.mock.calls.find((c) => c[1]?.method === "POST")![1]!
+    .body as any;
+  expect(body.targets.map((t: any) => t.device_id)).toEqual(["one"]);
   w.unmount();
 });

@@ -288,7 +288,9 @@ try {
   await upgradePage
     .getByLabel("目标版本", { exact: true })
     .selectOption(armTarget.version);
-  await upgradePage.getByLabel("全选可升级设备", { exact: true }).check();
+  await upgradePage
+    .getByLabel("全选当前筛选的可升级设备", { exact: true })
+    .check();
   await upgradePage
     .getByRole("button", { name: "升级所选设备", exact: true })
     .click();

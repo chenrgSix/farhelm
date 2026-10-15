@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { api, ApiError } from "../api/client";
+import type { ManagedDeviceGroup } from "../api/types";
 import AgentReleasePanel from "./AgentReleasePanel.vue";
 import { formatTime } from "../model";
 type Release = { arch: string; version: string; sha256: string; size: number };
@@ -34,6 +35,8 @@ type Request = {
   targets: { device_id: string; sha256: string }[];
 };
 const data = ref<Snapshot>({ releases: [], devices: [], jobs: [] }),
+  groups = ref<ManagedDeviceGroup[]>([]),
+  groupFilter = ref(""),
   selected = ref<string[]>([]),
   selectedVersion = ref(""),
   concurrency = ref(2),
@@ -97,18 +100,68 @@ const eligible = (d: Device) =>
   !downgrade(d) &&
   target(d)!.sha256 !== d.sha256 &&
   !active(d.device_id);
-const candidates = computed(() => data.value.devices.filter(eligible));
+const groupOptions = computed(() =>
+  [...groups.value].sort((a, b) => a.name.localeCompare(b.name)),
+);
+const deviceGroups = computed(() => {
+  const result = new Map<string, ManagedDeviceGroup[]>();
+  for (const group of groupOptions.value)
+    for (const id of group.device_ids) {
+      const tags = result.get(id) ?? [];
+      tags.push(group);
+      result.set(id, tags);
+    }
+  return result;
+});
+const missingGroup = computed(
+  () =>
+    !!groupFilter.value &&
+    groupFilter.value !== "__ungrouped__" &&
+    !groups.value.some((g) => g.id === groupFilter.value),
+);
+const visibleDevices = computed(() =>
+  data.value.devices.filter((d) => {
+    const tags = deviceGroups.value.get(d.device_id) ?? [];
+    return (
+      !groupFilter.value ||
+      (groupFilter.value === "__ungrouped__"
+        ? !tags.length
+        : tags.some((g) => g.id === groupFilter.value))
+    );
+  }),
+);
+const candidates = computed(() => visibleDevices.value.filter(eligible));
+const selectedSet = computed(() => new Set(selected.value));
+const visibleSelectedCount = computed(
+  () =>
+    candidates.value.filter((d) => selectedSet.value.has(d.device_id)).length,
+);
+const hiddenSelectedCount = computed(
+  () =>
+    selected.value.length -
+    visibleDevices.value.filter((d) => selectedSet.value.has(d.device_id))
+      .length,
+);
 const allSelected = computed(
   () =>
     candidates.value.length > 0 &&
-    candidates.value
-      .slice(0, 100)
-      .every((d) => selected.value.includes(d.device_id)),
+    visibleSelectedCount.value === candidates.value.length,
 );
-function selectAll() {
-  selected.value = allSelected.value
-    ? []
-    : candidates.value.slice(0, 100).map((d) => d.device_id);
+function selectAll(event: Event) {
+  if (busy.value || pending.value) return;
+  if (allSelected.value) {
+    const ids = new Set(candidates.value.map((d) => d.device_id));
+    selected.value = selected.value.filter((id) => !ids.has(id));
+  } else {
+    const additions = candidates.value
+      .filter((d) => !selectedSet.value.has(d.device_id))
+      .slice(0, Math.max(0, 100 - selected.value.length));
+    selected.value = [...selected.value, ...additions.map((d) => d.device_id)];
+  }
+  // A capped selection can leave the computed state unchanged after the native toggle.
+  const checkbox = event.currentTarget as HTMLInputElement;
+  checkbox.checked = allSelected.value;
+  checkbox.indeterminate = visibleSelectedCount.value > 0 && !allSelected.value;
 }
 function status(d: Device) {
   const job = active(d.device_id);
@@ -130,9 +183,13 @@ async function load() {
   if (loading.value || disposed) return;
   loading.value = true;
   try {
-    const value = await api.request<Snapshot>("/agent-upgrades");
+    const [value, tags] = await Promise.all([
+      api.request<Snapshot>("/agent-upgrades"),
+      api.request<{ device_groups: ManagedDeviceGroup[] }>("/device-groups"),
+    ]);
     if (disposed) return;
     data.value = value;
+    groups.value = tags.device_groups;
     if (!selectedVersion.value && versions.value.length)
       selectedVersion.value = versions.value[0]!;
     loadError.value = "";
@@ -270,14 +327,41 @@ onBeforeUnmount(() => {
     </p>
     <form @submit.prevent="submit">
       <fieldset :disabled="busy || !!pending">
+        <div class="upgrade-filter">
+          <label class="inline"
+            >设备组
+            <select v-model="groupFilter" aria-label="按设备组筛选升级设备">
+              <option value="">全部设备</option>
+              <option value="__ungrouped__">未分组</option>
+              <option v-if="missingGroup" :value="groupFilter" disabled>
+                设备组已删除，请重新选择
+              </option>
+              <option
+                v-for="group in groupOptions"
+                :key="group.id"
+                :value="group.id"
+              >
+                {{ group.name }}
+              </option>
+            </select></label
+          >
+          <span class="muted"
+            >当前 {{ visibleDevices.length }} 台，可升级
+            {{ candidates.length }} 台</span
+          >
+        </div>
         <div class="upgrade-actions">
           <label class="inline"
             ><input
               type="checkbox"
+              aria-label="全选当前筛选的可升级设备"
               :checked="allSelected"
-              :disabled="!candidates.length"
+              :indeterminate="visibleSelectedCount > 0 && !allSelected"
+              :disabled="
+                !candidates.length || (!allSelected && selected.length >= 100)
+              "
               @change="selectAll"
-            />全选可升级设备</label
+            />全选当前可升级设备</label
           ><label class="inline"
             >同时升级
             <select v-model.number="concurrency" aria-label="同时升级数量">
@@ -285,6 +369,18 @@ onBeforeUnmount(() => {
             </select></label
           >
         </div>
+        <p v-if="selected.length >= 100" class="field-hint" role="status">
+          已达每批 100 台上限，请分批升级或取消部分选择。
+        </p>
+        <p
+          v-else-if="
+            candidates.length - visibleSelectedCount > 100 - selected.length
+          "
+          class="field-hint"
+        >
+          当前可升级设备超过本批剩余名额，全选最多再选
+          {{ 100 - selected.length }} 台，请分批升级。
+        </p>
         <div class="upgrade-table">
           <table>
             <thead>
@@ -297,7 +393,7 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="device in data.devices" :key="device.device_id">
+              <tr v-for="device in visibleDevices" :key="device.device_id">
                 <td>
                   <input
                     v-model="selected"
@@ -313,6 +409,12 @@ onBeforeUnmount(() => {
                 </td>
                 <td>
                   <strong>{{ device.name }}</strong
+                  ><small class="device-tags">{{
+                    deviceGroups
+                      .get(device.device_id)
+                      ?.map((g) => g.name)
+                      .join("、") || "未分组"
+                  }}</small
                   ><small
                     >{{ device.online ? "在线" : "离线" }} ·
                     {{ device.arch ?? "架构未知" }}</small
@@ -325,14 +427,34 @@ onBeforeUnmount(() => {
                 <td>{{ target(device)?.version ?? "—" }}</td>
                 <td>{{ status(device) }}</td>
               </tr>
+              <tr v-if="!visibleDevices.length">
+                <td colspan="5" class="muted">
+                  {{ loading ? "正在加载设备…" : "当前筛选下没有 Agent 设备" }}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
       </fieldset>
       <div class="upgrade-actions">
-        <span class="muted"
-          >已选择 {{ pending?.targets.length ?? selected.length }} 台</span
-        ><button
+        <div class="selection-summary">
+          <span class="muted"
+            >已选择 {{ pending?.targets.length ?? selected.length }} 台<span
+              v-if="hiddenSelectedCount"
+              >（{{ hiddenSelectedCount }} 台在当前筛选外）</span
+            ></span
+          >
+          <button
+            v-if="selected.length"
+            type="button"
+            class="button secondary"
+            :disabled="busy || !!pending"
+            @click="selected = []"
+          >
+            清空选择
+          </button>
+        </div>
+        <button
           type="submit"
           class="button primary"
           :disabled="busy || (!pending && !selected.length)"
@@ -373,12 +495,25 @@ onBeforeUnmount(() => {
   padding: 24px;
 }
 .upgrade-heading,
-.upgrade-actions {
+.upgrade-actions,
+.upgrade-filter,
+.selection-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+}
+.upgrade-filter,
+.selection-summary {
+  justify-content: flex-start;
+}
+.upgrade-filter select {
+  max-width: min(280px, 55vw);
+}
+.device-tags {
+  max-width: 280px;
+  overflow-wrap: anywhere;
 }
 .upgrade-heading h2 {
   margin: 0;

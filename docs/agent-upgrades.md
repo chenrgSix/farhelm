@@ -2,6 +2,8 @@
 
 管理员进入前端「Agent 升级」，选择设备（或全选）、设置同时升级数量，点击「升级所选设备」。页面显示各架构已发布版本、设备当前版本、在线状态及逐台升级记录，每 3 秒刷新。SSH 接入设备不参与 Agent 升级。
 
+设备列表可按「全部设备 / 未分组 / 指定设备组」筛选；设备组沿用设备页面的可选标签。「全选当前可升级设备」只选择筛选内符合目标版本条件的 Agent，离线但支持升级的设备也可选择。切换分组保留已选设备并显示筛选外数量，便于合并多个组；取消全选只取消当前筛选内的选择，也可用「清空选择」全部取消。设备组成员变化不会自动增加本批设备，提交使用具体设备 ID。全选最多补足本批 100 台名额，超过时显示部分选中和分批提示。
+
 每批最多 100 台，并发数为 1–5 台（默认 2），平台所有批次合计最多同时升级 5 台。离线且曾报告升级能力的设备可排队，上线后自动接收；未开始的任务排队超过 24 小时失败，可重新发起。网络丢失导致提交结果不明确时，前端以同一批次 ID 核对，不产生重复任务。
 
 ## 前端管理安装包
@@ -43,6 +45,8 @@
 - `PUT /api/v1/agent-releases/:sha256`：管理员上传 `application/octet-stream`，`X-Agent-Manifest` 头为构建生成的 JSON 清单。先鉴权，再接收最多 64 MiB 二进制；最多同时接收两个上传，相同内容可安全重传。
 - `POST /api/v1/agent-releases/:sha256`：管理员提交 `{v:1, enabled:boolean}`，设置包可用状态。
 - 审计动作：`agent.upgrade_requested`、`agent.upgrade_status`、`agent.release_uploaded`、`agent.release_imported`、`agent.release_availability`。
+
+`npm run test:agent:upgrade:groups` 使用独立 HTTPS 服务、隔离数据库和真实浏览器验证设备组筛选、跨组全选、空组与未分组、可升级设备过滤、移动端布局，以及提交后批次中的具体设备 ID。设备和安装包均为离线测试数据，不执行实际 Agent 更新。前端组件测试另覆盖每批 100 台限制、分组成员变化及原批次重试。
 
 `npm run test:agent:upgrade` 使用独立 HTTPS 服务、真实浏览器、ARM64/x86_64 Linux 容器验证浏览器上传双架构包、选择保留的版本、停用不影响已排队任务、新安装使用上传包，以及前端批量提交、离线排队、活动终端及录制保留、阻止新操作、非 root 升级、身份与配置不变、重启持久化，以及可启动但工作进程崩溃的坏版本自动回退。需先构建服务端、安装 Playwright Chromium；另提供之前支持升级的版本包到 `FLEET_AGENT_BASELINE_DIST_DIR`（默认 `.test-output/upgrade-baseline`），新版包放在 `FLEET_AGENT_DIST_DIR`（默认 `.dev/agent-dist`）。基线必须与目标包不同，可在旧版源码下设置输出目录后运行构建脚本生成。
 
