@@ -30,6 +30,8 @@ Interactive PTYs also default to `no_new_privs`. An operator can explicitly set 
 
 ## Important security boundary
 
+Agent-local health checks are configured from the console. The `health.probes.v1` capability enables bounded HTTP/HTTPS, TCP and read-only systemd probes over the existing authenticated control channel. Probes stop on connection loss and restart from the server's current configuration on reconnect; they never replay terminal input or restart services. See [health checks](../docs/health-checks.md).
+
 The chosen single Linux UID executes commands and owns Agent state. An arbitrary command under that UID can read the Agent key, change its local journal, and interfere with the process. Mode 0600 protects against other ordinary UIDs; it is not isolation from that account's own commands. Central records already received are separately persisted, but the server cannot prove an endpoint has provided untampered or complete evidence. This implementation must not be described as endpoint tamper-proof or production-hardened.
 
 Commands receive only PATH=/usr/bin:/bin, LANG=C.UTF-8 and LC_ALL=C.UTF-8, and no stdin. The executable must be an absolute path or a bare program name; slash-containing relative paths are rejected. Each command also receives Linux `no_new_privs`, preventing setuid/file-capability elevation to a more privileged UID. No shell is inserted. Explicitly requested `/bin/sh -c ...` is still a shell command and is audited as such.

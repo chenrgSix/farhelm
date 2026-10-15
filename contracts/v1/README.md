@@ -11,8 +11,8 @@ These Draft 2020-12 JSON Schemas implement `../../PROTOCOL.md`. Concrete JSON ob
 - `me-response.schema.json` is flat: `{ "v": 1, "id": ..., "username": ..., "role": ..., "device_scope": ... }`.
 - Artifact upload responses include `v`. Stored stdout/stderr references are exactly `{ "sha256": ..., "size": ... }`, without `v`.
 - `UNKNOWN` always has `audit_complete: false`. Its missing streams may be `null`. Terminal no-execution results use `cleanup: "not_started"`, `started_at: null`, `exit_code: null`; either stream may be a reference, `{}`, or `null`. Empty references are rejected after execution. `EXPIRED` is a no-execution state.
-- Control connectivity, private-data reachability, and business health are separate fields. The latter two are explicitly `null` in this milestone.
-- `audit.schema.json` models the 13 current server audit actions with exact action-specific `detail` structures. New actions or detail fields require an explicit schema update. This freezes current response validation, not the database's ability to persist future audit actions.
+- Control connectivity, private-data reachability, and business health are separate fields. Private-data reachability remains `null`. Business health is boolean only for fresh configured Agent-local probes, otherwise `null`; see `device-health-response`, `health-config`, `health-run-request`, `health-check`, `health-result` and `health-envelope` schemas and [health checks](../../docs/health-checks.md).
+- `audit.schema.json` models current server audit actions with exact action-specific `detail` structures. New actions or detail fields require an explicit schema update. This freezes current response validation, not the database's ability to persist future audit actions.
 
 ## Schema index
 

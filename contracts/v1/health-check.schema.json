@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/health-check.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "interval_secs": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 3600
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 30000
+    },
+    "failure_threshold": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "probe": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "http"
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "^https?://"
+            },
+            "expected_status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            "body_contains": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 256
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "expected_status",
+            "body_contains"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "tcp"
+            },
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[a-zA-Z0-9.:\\[\\]_-]+$"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "kind",
+            "host",
+            "port"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "systemd"
+            },
+            "unit": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[a-zA-Z0-9_][a-zA-Z0-9_.@-]*\\.service$"
+            }
+          },
+          "required": [
+            "kind",
+            "unit"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "enabled",
+    "interval_secs",
+    "timeout_ms",
+    "failure_threshold",
+    "probe"
+  ]
+}

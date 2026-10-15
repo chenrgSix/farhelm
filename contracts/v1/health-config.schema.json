@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/health-config.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "health-check.schema.json"
+      }
+    }
+  },
+  "required": [
+    "v",
+    "revision",
+    "checks"
+  ],
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "checks": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "health-check.schema.json"
+          }
+        }
+      },
+      "required": [
+        "revision",
+        "checks"
+      ]
+    }
+  }
+}

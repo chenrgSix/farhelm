@@ -456,7 +456,7 @@
     "path": "invalid/device-false-health.json",
     "schema": "device.schema.json",
     "valid": false,
-    "reason": "Unmeasured status must remain unknown"
+    "reason": "Offline devices cannot report fresh business health"
   },
   {
     "path": "invalid/user-unknown-role.json",
@@ -658,5 +658,75 @@
     "path": "invalid/terminal-resize-bounds.json",
     "schema": "terminal-envelope.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/health-check.json",
+    "schema": "health-check.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/health-config.json",
+    "schema": "health-config.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/health-result.json",
+    "schema": "health-result.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-health-response.json",
+    "schema": "device-health-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/health-config-envelope.json",
+    "schema": "health-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/health-run-envelope.json",
+    "schema": "health-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/health-result-envelope.json",
+    "schema": "health-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/health-systemd-injection.json",
+    "schema": "health-check.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/health-invalid-timeout.json",
+    "schema": "health-check.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/health-result-extra-field.json",
+    "schema": "health-result.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/device-measured-unhealthy.json",
+    "schema": "device.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/health-run-request.json",
+    "schema": "health-run-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-health-configured.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-health-run.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

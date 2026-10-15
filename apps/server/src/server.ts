@@ -19,6 +19,7 @@ import {
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
 import { registerTerminals } from "./terminal.js";
+import { registerHealth } from "./health.js";
 import {
   ApiError,
   fail,
@@ -51,6 +52,8 @@ interface Connection {
   lastHeartbeat: number;
   ready: boolean;
   terminal: boolean;
+  health: boolean;
+  healthSession: string;
 }
 const MAX_OBJECT = 1048576;
 const MAX_FRAME = 65536;
@@ -324,6 +327,29 @@ export async function buildServer(config: ServerConfig) {
       if (row.cancel_requested) send(c, "task.cancel", { task_id: row.id });
     }
   }
+  const health = registerHealth(app, {
+    store,
+    userAuth,
+    operator,
+    requireScope,
+    requireDevice,
+    availableStorage,
+    rate,
+    agent(id) {
+      const c = connections.get(id);
+      if (
+        !c?.ready ||
+        !live(c) ||
+        Date.now() - c.lastHeartbeat > heartbeatTimeout
+      )
+        return undefined;
+      return {
+        supported: c.health,
+        connectionId: c.healthSession,
+        send: (type, body) => send(c, type, body),
+      };
+    },
+  });
   const terminals = registerTerminals(app, {
     store,
     operator,
@@ -582,7 +608,7 @@ export async function buildServer(config: ServerConfig) {
         control_online:
           !!connections.get(d.id)?.ready && live(connections.get(d.id)!),
         private_data_reachable: null,
-        business_healthy: null,
+        business_healthy: health.summary(d.id),
         last_seen: d.last_seen,
         revoked_at: d.revoked_at,
         agent_version: d.agent_version,
@@ -1098,6 +1124,8 @@ export async function buildServer(config: ServerConfig) {
         lastHeartbeat: Date.now(),
         ready: false,
         terminal: false,
+        health: false,
+        healthSession: randomUUID(),
       };
       const old = connections.get(auth.id);
       if (old) terminals.disconnect(auth.id);
@@ -1139,6 +1167,7 @@ export async function buildServer(config: ServerConfig) {
               )
                 fail(400, "INVALID_CAPABILITIES");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
+              c.health = b.capabilities.includes("health.probes.v1");
             }
             const agentVersion = str(b.agent_version, 1, 128);
             if (env.type === "agent.heartbeat" && !c.ready)
@@ -1150,6 +1179,8 @@ export async function buildServer(config: ServerConfig) {
             if (!c.ready) {
               c.ready = true;
               dispatch(c.deviceId, true);
+              if (c.health)
+                send(c, "health.config", health.snapshot(c.deviceId));
             }
           } else if (env.type === "agent.reauth") {
             keys(b, ["access_token"]);
@@ -1162,6 +1193,9 @@ export async function buildServer(config: ServerConfig) {
             if (!renewed) fail(401, "DEVICE_AUTH_INVALID");
             c.tokenHash = th;
             c.expiresAt = renewed.expires_at;
+          } else if (env.type === "health.result") {
+            if (!c.ready || !c.health) fail(400, "HEALTH_HELLO_REQUIRED");
+            health.receive(c.deviceId, b);
           } else if (String(env.type).startsWith("terminal.")) {
             if (!c.ready) fail(400, "HELLO_REQUIRED");
             terminals.receive(c.deviceId, env.type, b);

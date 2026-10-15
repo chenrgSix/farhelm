@@ -2,6 +2,7 @@
 pub mod config;
 pub mod connection;
 pub mod executor;
+pub mod health;
 pub mod identity;
 pub mod journal;
 pub mod protocol;

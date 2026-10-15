@@ -4,6 +4,8 @@ Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出
 
 这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。现提供基础交互终端、会话录制与回放；P2 完整验收和 P3 EasyTier 私网优先、公网回退仍有剩余工作。实际验证清单见 [测试报告](docs/test-report.md)和[终端验证](docs/terminal.md)。
 
+设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。EasyTier 私网可达仍未采集。
+
 ## 已确认的单账号边界
 
 用户自行配置一个非 root Linux 账号，Agent 和 Exec 使用该账号。服务端用真实平台用户 ID 记录操作者、设备、任务、argv、cwd、结果和输出。业务/审计角色不能任意 Exec，运维还需设备范围授权。

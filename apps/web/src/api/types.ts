@@ -15,6 +15,37 @@ export interface Device {
   revoked_at: number | null;
   agent_version: string | null;
 }
+export interface HealthCheck {
+  id: string;
+  name: string;
+  enabled: boolean;
+  interval_secs: number;
+  timeout_ms: number;
+  failure_threshold: number;
+  probe:
+    | {
+        kind: "http";
+        url: string;
+        expected_status: number;
+        body_contains: string;
+      }
+    | { kind: "tcp"; host: string; port: number }
+    | { kind: "systemd"; unit: string };
+}
+export interface HealthResult {
+  status: "healthy" | "unhealthy" | "unknown" | "disabled";
+  last_checked_at: number | null;
+  duration_ms: number | null;
+  reason: string;
+  consecutive_failures: number;
+}
+export interface HealthResponse {
+  v: 1;
+  revision: number;
+  supported: boolean;
+  device_online: boolean;
+  checks: (HealthCheck & { result: HealthResult })[];
+}
 export type TaskStatus =
   | "QUEUED"
   | "SENT"

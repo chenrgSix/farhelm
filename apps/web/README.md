@@ -21,6 +21,7 @@ FLEET_DEV_API_TARGET=https://localhost:8443 npm run dev
 - 显式登录；Bearer session 只存当前页内存，刷新/退出后清除；服务端仍负责所有授权
 - 角色与设备范围控制：管理员注册/撤销，admin/ops 授权 Exec，business/auditor 不提供任意 Exec
 - 控制在线、私网数据可达、业务健康独立呈现，未采集为未知，刷新失败不冒充在线
+- 设备健康检查面板：配置 HTTP/HTTPS、TCP、systemd，支持启停、删除、立即探测与最近结果；配置及探测由服务端授权并下发到目标 Agent
 - 单次命令明确 argv JSON、cwd、执行超时、排队 TTL、合并输出硬上限，不自动拼接 Shell
 - 提交中与成功后锁定重复点击；响应丢失后保留精确请求与原 Idempotency-Key，重试使用同一键；新任务须明确重新开始
 - 真实任务、操作人、状态、取消请求、UNKNOWN、清理不确定和审计完整性；取消请求不等于执行已停止
@@ -33,7 +34,7 @@ FLEET_DEV_API_TARGET=https://localhost:8443 npm run dev
 - 单账号执行，命令与 Agent 共享主机权限；平台记录不代表端点强隔离
 - 刷新/关闭页面会失去内存中的会话与幂等键；提交结果未确认时会提示保留页面，重新登录应先核对任务历史
 - 读取输出是纯文本预览；二进制字节/非法 UTF-8 会被替代显示，中央原始对象不变
-- 页面展示服务端当前返回的列表；尚无服务端分页、批量、PTY、私网健康采集、业务模板或任务自动重试
+- 页面展示服务端当前返回的列表；尚无服务端分页、批量、私网健康采集、业务模板或任务自动重试
 - 10 秒轮询，后台标签页暂停刷新；取消与输出读取不自动重试
 
 Unit tests use isolated mocked API responses only; runtime never falls back to those test fixtures.

@@ -13,6 +13,7 @@ import HealthBadge from "./components/HealthBadge.vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
 import TaskDetail from "./components/TaskDetail.vue";
+import HealthChecksPanel from "./components/HealthChecksPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -31,6 +32,7 @@ const terminalTarget = ref<{
   recording?: TerminalSession;
 } | null>(null);
 const devices = ref<Device[]>([]);
+const healthTarget = ref<Device | null>(null);
 const tasks = ref<Task[]>([]);
 const audit = ref<AuditEntry[]>([]);
 const refreshing = ref(false);
@@ -116,6 +118,7 @@ function logout(message = "") {
   audit.value = [];
   selectedTask.value = null;
   terminalTarget.value = null;
+  healthTarget.value = null;
   terminalSessions.value = [];
   enrollment.value = null;
   enrollOpen.value = false;
@@ -699,6 +702,13 @@ onBeforeUnmount(() => {
                         <td>
                           <div class="row-actions">
                             <button
+                              class="text-button"
+                              :disabled="!apiReady || !!healthTarget"
+                              @click="healthTarget = device"
+                            >
+                              健康检查
+                            </button>
+                            <button
                               v-if="
                                 canExecute(user, device.id) &&
                                 !device.revoked_at
@@ -1001,6 +1011,17 @@ onBeforeUnmount(() => {
         :recording="terminalTarget.recording"
         @close="
           terminalTarget = null;
+          refresh();
+        "
+        @changed="refresh"
+      />
+      <HealthChecksPanel
+        v-if="healthTarget && user"
+        :key="healthTarget.id"
+        :device="healthTarget"
+        :user="user"
+        @close="
+          healthTarget = null;
           refresh();
         "
         @changed="refresh"

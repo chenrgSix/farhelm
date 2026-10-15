@@ -1,0 +1,12 @@
+{
+  "id": "00000000-0000-4000-8000-000000000009",
+  "name": "Web API",
+  "enabled": true,
+  "interval_secs": 30,
+  "timeout_ms": 3000,
+  "failure_threshold": 3,
+  "probe": {
+    "kind": "systemd",
+    "unit": "nginx.service;touch x"
+  }
+}

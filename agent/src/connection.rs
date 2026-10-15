@@ -86,7 +86,7 @@ async fn session(
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":["terminal.pty.v1"]}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":["terminal.pty.v1","health.probes.v1"]}),
             )?
             .into(),
         ))
@@ -99,6 +99,8 @@ async fn session(
     let mut uploads = tokio::task::JoinSet::<Result<Event>>::new();
     let (terminal_output, mut terminal_events) = tokio::sync::mpsc::channel(128);
     let mut terminals = crate::terminal::Terminals::new(cfg.clone(), terminal_output);
+    let (health_output, mut health_events) = tokio::sync::mpsc::channel(32);
+    let mut health = crate::health::Checks::new(health_output)?;
     let mut renewal = tokio::task::JoinSet::<Result<Access>>::new();
     // Refresh before expiration. Very short-lived test tokens renew at half-life.
     let remaining = (access.expires_at - now_ms()).max(1) as u64;
@@ -120,6 +122,7 @@ async fn session(
                 access=renewed;
             }
             Some((kind,body))=terminal_events.recv()=>{socket.send(Message::Text(envelope(&kind,body)?.into())).await?;}
+            Some(body)=health_events.recv()=>{socket.send(Message::Text(envelope("health.result",body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
             _=outbox.tick(), if uploads.is_empty()=>{
                 if let Some(event)=journal.first_outbox()?{
@@ -144,6 +147,8 @@ async fn session(
                             "task.cancel"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Cancel{task_id:String}let body:Cancel=serde_json::from_value(envelope.body)?;journal.cancel(&body.task_id)?;}
                             "event.ack"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{event_id:String,task_id:String,seq:i64}let ack:Ack=serde_json::from_value(envelope.body)?;journal.ack(&ack.event_id,&ack.task_id,ack.seq)?;}
                             kind if kind.starts_with("terminal.")=>{terminals.receive(kind,envelope.body).await?;}
+                            "health.config"=>{health.configure(serde_json::from_value(envelope.body)?)?;}
+                            "health.run"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Run{revision:u64}let body:Run=serde_json::from_value(envelope.body)?;health.run(body.revision);}
                             "error"=>{eprintln!("server rejected a control message; retaining outbox for replay");}
                             _=>anyhow::bail!("unknown control message type"),
                         }

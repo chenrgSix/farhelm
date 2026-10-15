@@ -1,0 +1,11 @@
+{
+  "id": 2,
+  "at": 2,
+  "actor_id": "admin",
+  "device_id": "device",
+  "task_id": null,
+  "action": "health.run_requested",
+  "detail": {
+    "revision": 1
+  }
+}

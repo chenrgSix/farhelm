@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "revision": 1,
+  "supported": true,
+  "device_online": true,
+  "checks": [
+    {
+      "id": "00000000-0000-4000-8000-000000000009",
+      "name": "Web API",
+      "enabled": true,
+      "interval_secs": 30,
+      "timeout_ms": 3000,
+      "failure_threshold": 3,
+      "probe": {
+        "kind": "http",
+        "url": "http://127.0.0.1:8080/healthz",
+        "expected_status": 200,
+        "body_contains": "ready"
+      },
+      "result": {
+        "status": "healthy",
+        "last_checked_at": 1735689600100,
+        "duration_ms": 4,
+        "reason": "OK",
+        "consecutive_failures": 0
+      }
+    }
+  ]
+}

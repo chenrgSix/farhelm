@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "health.result",
+  "body": {
+    "revision": 1,
+    "check_id": "00000000-0000-4000-8000-000000000009",
+    "seq": 1,
+    "healthy": true,
+    "reason": "OK",
+    "duration_ms": 4
+  }
+}

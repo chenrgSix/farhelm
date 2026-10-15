@@ -13,6 +13,7 @@
     "test:browser": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/browser-smoke.ts",
     "test:terminal": "node tests/e2e/terminal.mjs",
     "test:terminal:browser": "node tests/e2e/terminal-browser.mjs",
+    "test:health:browser": "node tests/e2e/health-browser.mjs",
     "format": "prettier --write \"apps/**/*.{ts,vue,css,json}\" \"tests/**/*.{ts,mjs,json}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"apps/**/*.{ts,vue,css,json}\" \"tests/**/*.{ts,mjs,json}\" --ignore-path .gitignore",
     "test:startup": "bash tests/e2e/dev-smoke.sh",

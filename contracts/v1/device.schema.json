@@ -18,7 +18,7 @@
       "type": "null"
     },
     "business_healthy": {
-      "type": "null"
+      "type": ["boolean", "null"]
     },
     "last_seen": {
       "anyOf": [
@@ -61,5 +61,23 @@
     "revoked_at",
     "agent_version"
   ],
-  "description": "Unmeasured private-data and business-health states are explicitly null in this milestone."
+  "description": "Business health comes from fresh Agent-local configured probes; offline, unconfigured, unsupported and expired states remain null. Private-data reachability is unmeasured.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "control_online": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "business_healthy": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
 }

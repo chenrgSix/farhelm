@@ -27,9 +27,15 @@ PUT /api/agent/tasks/:task_id/artifacts/:sha256 Authorization device token, cont
 
 ## User API
 POST /api/v1/login {username,password} -> {access_token,user:{id,username,role,device_scope}}. Bearer user sessions in memory UI only, server session hashes. roles admin/ops/business/auditor; admin all scope, ops restricted or *, business no arbitrary exec, auditor read only. Initial admin explicitly bootstrapped via env FLEET_ADMIN_USER + FLEET_ADMIN_PASSWORD, no defaults.
-GET /api/v1/me -> user. GET /api/v1/devices -> {devices:[{id,name,control_online,private_data_reachable:null,business_healthy:null,last_seen,revoked_at,agent_version}]}.
+GET /api/v1/me -> user. GET /api/v1/devices -> {devices:[{id,name,control_online,private_data_reachable:null,business_healthy:boolean|null,last_seen,revoked_at,agent_version}]}. Business health is aggregated only from fresh enabled Agent-local probes; offline, expired, unsupported and unconfigured states remain null.
 POST /api/v1/enrollment-tokens {name?,ttl_seconds?:integer} -> {enrollment_token,expires_at} admin only; POST /api/v1/devices/:id/revoke -> {ok:true} admin.
 POST /api/v1/commands Idempotency-Key header {device_id,argv,cwd,timeout_ms,max_output_bytes,ttl_seconds} -> {task_id,status}; key bound actor + normalized request hash, conflicts 409. Server supplies actor, expiry, hash. GET /api/v1/tasks -> {tasks:[...]}; GET /api/v1/tasks/:id -> task detail with result; POST /api/v1/tasks/:id/cancel -> {ok:true,status}. GET /api/v1/audit -> {audit:[...]} role/scope filtered.
+
+## Agent-local business health
+
+`GET /api/v1/devices/:id/health-checks` returns `device-health-response`; `PUT` accepts `health-config` (v, expected revision, at most 8 checks). Admin and scoped ops can mutate; all scoped users can read. Revision conflicts return 409. `POST .../health-checks/run` accepts `health-run-request`. Offline configs persist and dispatch at the next capable connection.
+
+Agents advertise `health.probes.v1`. Server sends `health.config {revision,checks}` on hello and config changes, and `health.run {revision}` on authorized manual requests. Agent sends `health.result {revision,check_id,seq,healthy:boolean|null,reason,duration_ms}`. Only current-revision, enabled-check reports on the current authenticated connection count; duplicate/out-of-order sequence numbers are ignored. Results expire after max(15s, 2*interval+timeout), and a new connection requires new results. Consecutive failure thresholds, aggregate semantics and probe bounds are described in [health checks](docs/health-checks.md). These metrics do not claim private-network reachability or endpoint tamper resistance.
 
 ## Config
 Server env FLEET_HOST (127.0.0.1), FLEET_PORT(8443), FLEET_DATA_DIR, FLEET_TLS_CERT, FLEET_TLS_KEY, FLEET_ADMIN_USER/PASSWORD. Optional FLEET_TEST_MODE=1 permits narrowly scoped fault injection only loopback. Export buildServer(config) app/store/close helpers for tests.
