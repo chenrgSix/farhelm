@@ -193,7 +193,7 @@ try {
     const form = page.locator(".settings-panel");
     assert.ok(
       await form
-        .getByRole("button", { name: "使用当前网页地址", exact: true })
+        .getByRole("button", { name: "使用当前网页地址并同步", exact: true })
         .isDisabled(),
     );
     await form

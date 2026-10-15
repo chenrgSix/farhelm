@@ -40,11 +40,10 @@ function platformEntry(value: string) {
   if (url.username || url.password) throw new Error("INVALID_PLATFORM_ADDRESS");
   return url.origin;
 }
-function usePageAddress() {
-  if (busy.value || !pageUsesHttps) return;
+async function usePageAddress() {
+  if (busy.value || !pageUsesHttps || !settings.value || conflict.value) return;
   serverUrl.value = pageOrigin;
-  error.value = "";
-  message.value = "";
+  await save(true);
 }
 let disposed = false;
 const dirty = computed(
@@ -68,33 +67,59 @@ async function load() {
     if (!disposed) busy.value = false;
   }
 }
-async function save() {
+async function save(syncUnchanged = false) {
   if (busy.value || !settings.value || conflict.value) return;
   busy.value = true;
   error.value = "";
   message.value = "";
+  let addressSaved = false;
+  const previousRevision = settings.value.revision;
   try {
     const address = platformEntry(serverUrl.value);
     const result = await api.request<Settings>("/settings", {
       method: "PUT",
       body: {
         v: 1,
-        revision: settings.value.revision,
+        revision: previousRevision,
         platform_server_url: address,
       },
     });
     if (disposed) return;
     settings.value = result;
     serverUrl.value = result.platform_server_url;
-    message.value = "已保存，新的安装命令将使用此地址，并已开始向 Agent 同步。";
+    addressSaved = true;
     emit("saved");
+    const changed = result.revision !== previousRevision;
+    if (syncUnchanged && !changed) {
+      await api.request("/settings/agent-sync", {
+        method: "POST",
+        body: { v: 1, revision: result.revision },
+      });
+      if (disposed) return;
+      message.value =
+        "平台地址已保存，已发起未完成的 Agent 地址同步，请在下方查看结果。";
+    } else {
+      message.value = changed
+        ? "已保存，新的安装命令将使用此地址，并已发起 Agent 地址同步，请在下方查看结果。"
+        : "平台地址未变化，可在下方查看或重试 Agent 地址同步。";
+    }
   } catch (e) {
     if (disposed) return;
     const raw = e instanceof Error ? e.message : "保存失败";
     if (raw.includes("SETTINGS_REVISION_CONFLICT")) {
       conflict.value = true;
-      error.value =
-        "配置已被其他管理员修改。请重新加载配置后再编辑，避免覆盖他人的修改。";
+      error.value = addressSaved
+        ? "平台地址已保存，但配置随后被其他管理员修改。请重新加载配置后核对同步状态。"
+        : "配置已被其他管理员修改。请重新加载配置后再编辑，避免覆盖他人的修改。";
+    } else if (addressSaved) {
+      if (e instanceof ApiError && e.status === 0) {
+        conflict.value = true;
+        error.value =
+          "平台地址已保存，但同步请求结果尚未确认。请重新加载配置并核对下方同步状态后再操作。";
+      } else {
+        error.value =
+          "平台地址已保存，但发起 Agent 地址同步失败，请在下方重试未完成的同步。";
+      }
     } else if (
       raw.includes("INVALID_AGENT_SERVER_URL") ||
       raw.includes("INVALID_STRING") ||
@@ -130,7 +155,7 @@ onBeforeUnmount(() => {
         <p class="muted">网页控制台与 Agent 共用同一个对外入口</p>
       </div>
     </div>
-    <form @submit.prevent="save">
+    <form @submit.prevent="save()">
       <p v-if="error" class="notice danger" role="alert">{{ error }}</p>
       <p v-if="message" class="settings-success" role="status">{{ message }}</p>
       <p v-if="!settings && busy" class="muted">正在读取系统设置…</p>
@@ -150,10 +175,10 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="button secondary small"
-            :disabled="busy || !pageUsesHttps"
+            :disabled="busy || conflict || !pageUsesHttps"
             @click="usePageAddress"
           >
-            使用当前网页地址
+            使用当前网页地址并同步
           </button>
           <span class="field-hint">{{ pageOrigin }}</span>
         </div>

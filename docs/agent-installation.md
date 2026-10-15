@@ -41,7 +41,7 @@ export FLEET_AGENT_CA_CERT=/srv/farhelm/tls/ca.crt
 
 `FLEET_PUBLIC_URL` 仅作为系统设置首次保存前的兼容默认值，可不设置；保存后数据库配置优先，之后无需修改环境变量。已生成的安装命令保留生成时的地址、脚本和包校验值；保存后自动向已有 Agent 同步新地址，详见下方「已有 Agent 地址同步」。
 
-可直接粘贴 HTTPS 网页链接，前端会提取域名和端口，也可点击「使用当前网页地址」。该入口须由网页服务同时转发 API 和 Agent WebSocket，见 [统一平台入口](platform-entry.md)。地址必须是目标机器可访问且证书覆盖的 HTTPS origin，不能使用前端 Vite 的 HTTP 地址；本地开发脚本默认 localhost，只适用于目标和平台在同一机器。Docker Desktop / OrbStack 本地测试可用 `https://host.docker.internal:8443`，开发证书包含该主机名。实际远程 Linux 必须配置可达地址、HTTPS 证书及监听/防火墙，不能直接使用这个 Docker 专用名称。
+可直接粘贴 HTTPS 网页链接，前端会提取域名和端口，也可点击「使用当前网页地址并同步」，一键保存当前 HTTPS 网页地址并发起 Agent 地址同步；地址不变时重试未完成的同步，逐设备结果在下方展示。该入口须由网页服务同时转发 API 和 Agent WebSocket，见 [统一平台入口](platform-entry.md)。地址必须是目标机器可访问且证书覆盖的 HTTPS origin，不能使用前端 Vite 的 HTTP 地址；本地开发脚本默认 localhost，只适用于目标和平台在同一机器。Docker Desktop / OrbStack 本地测试可用 `https://host.docker.internal:8443`，开发证书包含该主机名。实际远程 Linux 必须配置可达地址、HTTPS 证书及监听/防火墙，不能直接使用这个 Docker 专用名称。
 
 未配置 `FLEET_AGENT_DIST_DIR` 时，独立服务默认读取 `./data/agent-dist`；`scripts/dev.sh` 读取 `.dev/agent-dist`。未找到支持架构的有效 ELF 安装包时，前端禁止生成命令；版本库中的安装包按哈希固定，后续上传或停用不改变已生成命令；没有清单的历史目录包仍保留旧的哈希检查方式。
 

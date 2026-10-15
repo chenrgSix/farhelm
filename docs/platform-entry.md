@@ -2,7 +2,7 @@
 
 「系统设置 → 平台访问地址」填写的是目标服务器可访问的 **HTTPS 平台入口**，可以直接使用浏览器中的网页地址。它既可以是同时提供网页和 API 的 Farhelm 服务，也可以是转发到 Farhelm 的前端 Web 服务。用户无需填写后端内部地址或端口。
 
-例如网页位于 `https://fleet.example.com/devices?group=prod`，粘贴后会提示并保存 `https://fleet.example.com`。HTTPS 页面也可点击「使用当前网页地址」，再点击「保存设置」。此操作不会立即保存，也不会覆盖当前配置；管理员提交后才用于新安装命令并同步给已有 Agent。设备安装表单自动带入该值。后台接口的字段名仍为 `platform_server_url`，继续接受规范化的 HTTPS origin，原有配置兼容。
+例如网页位于 `https://fleet.example.com/devices?group=prod`，粘贴后会提示并保存 `https://fleet.example.com`。HTTPS 页面也可点击「使用当前网页地址并同步」，一键保存当前网页的域名和端口，并自动发起 Agent 地址同步，无需再次点击「保存设置」。地址不变时重试未完成的同步；正在校验、已保存和已切换的 Agent 不会重复迁移。保存成功仅表示配置已持久化，实际同步结果请查看下方逐设备状态；保存冲突或结果不确定时须先重新加载配置。设备安装表单自动带入该值。后台接口的字段名仍为 `platform_server_url`，继续接受规范化的 HTTPS origin，原有配置兼容。
 
 这里的转发由前端 **Web 服务** 完成，不依赖某个用户打开浏览器。浏览器关闭后 Agent 仍保持连接。前端入口需同时提供网页、API 和 Agent WebSocket；单纯把 Vue 静态文件上传到不支持 API 转发的网站不能作为 Agent 入口。当前支持从域名根路径部署，子目录中的页面链接只用于提取域名和端口。
 
@@ -27,7 +27,7 @@
 
 ## 本地开发
 
-现有 `http://127.0.0.1:5173` 仍是本机开发页面，Agent 不接受 HTTP，因此「使用当前网页地址」在该页面禁用并说明原因。需要测试统一入口时，可为 Vite 启用 HTTPS：
+现有 `http://127.0.0.1:5173` 仍是本机开发页面，Agent 不接受 HTTP，因此「使用当前网页地址并同步」在该页面禁用并说明原因。需要测试统一入口时，可为 Vite 启用 HTTPS：
 
 ```sh
 NODE_EXTRA_CA_CERTS=/absolute/path/.dev/tls/ca.crt \

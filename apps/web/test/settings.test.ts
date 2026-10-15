@@ -122,36 +122,200 @@ it("blocks blind retries when the save response is lost", async () => {
   expect(request).toHaveBeenCalledTimes(2);
   wrapper.unmount();
 });
-it("uses the HTTPS page origin without saving until the administrator submits", async () => {
+it("saves the HTTPS page origin and starts sync with one click without duplicate requests", async () => {
   vi.stubGlobal(
     "location",
     new URL("https://front.example.com:9443/devices?tab=online#details"),
   );
+  let resolve!: (value: unknown) => void;
   const request = vi
     .spyOn(api, "request")
     .mockResolvedValueOnce(initial)
-    .mockResolvedValueOnce({
-      ...initial,
-      revision: 1,
-      platform_server_url: "https://front.example.com:9443",
-    });
+    .mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
   const wrapper = mount(SystemSettingsPanel, {
     global: { stubs: { AgentAddressSyncPanel: true } },
   });
   await flushPromises();
-  await wrapper
+  const usePage = wrapper
     .findAll("button")
-    .find((b) => b.text() === "使用当前网页地址")!
-    .trigger("click");
+    .find((b) => b.text() === "使用当前网页地址并同步")!;
+  await usePage.trigger("click");
+  await usePage.trigger("click");
+  await wrapper.get("form").trigger("submit");
   expect(wrapper.get<HTMLInputElement>("input").element.value).toBe(
     "https://front.example.com:9443",
   );
-  expect(request).toHaveBeenCalledTimes(1);
-  await wrapper.get("form").trigger("submit");
-  await flushPromises();
-  expect(request.mock.calls[1][1]?.body).toMatchObject({
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request.mock.calls[1]).toEqual([
+    "/settings",
+    {
+      method: "PUT",
+      body: {
+        v: 1,
+        revision: 0,
+        platform_server_url: "https://front.example.com:9443",
+      },
+    },
+  ]);
+  resolve({
+    ...initial,
+    revision: 1,
     platform_server_url: "https://front.example.com:9443",
   });
+  await flushPromises();
+  // Saving a new revision already queues sync atomically on the server.
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(wrapper.get('[role="status"]').text()).toContain(
+    "已发起 Agent 地址同步",
+  );
+  expect(wrapper.emitted("saved")).toHaveLength(1);
+  expect(
+    wrapper.getComponent({ name: "AgentAddressSyncPanel" }).props("revision"),
+  ).toBe(1);
+  wrapper.unmount();
+});
+it("retries unfinished sync when the current page address is already saved", async () => {
+  vi.stubGlobal("location", new URL("https://front.example.com/settings"));
+  const current = {
+    ...initial,
+    revision: 4,
+    platform_server_url: "https://front.example.com",
+  };
+  let resolve!: (value: unknown) => void;
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce(current)
+    .mockResolvedValueOnce(current)
+    .mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+  const wrapper = mount(SystemSettingsPanel, {
+    global: { stubs: { AgentAddressSyncPanel: true } },
+  });
+  await flushPromises();
+  const usePage = wrapper
+    .findAll("button")
+    .find((b) => b.text() === "使用当前网页地址并同步")!;
+  await usePage.trigger("click");
+  await flushPromises();
+  expect(request.mock.calls[2]).toEqual([
+    "/settings/agent-sync",
+    { method: "POST", body: { v: 1, revision: 4 } },
+  ]);
+  expect(usePage.attributes("disabled")).toBeDefined();
+  await usePage.trigger("click");
+  expect(request).toHaveBeenCalledTimes(3);
+  expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  resolve({ v: 1, revision: 4, devices: [] });
+  await flushPromises();
+  expect(wrapper.get('[role="status"]').text()).toContain(
+    "已发起未完成的 Agent 地址同步",
+  );
+  expect(usePage.attributes("disabled")).toBeUndefined();
+  expect(wrapper.emitted("saved")).toHaveLength(1);
+  wrapper.unmount();
+});
+it.each([
+  [new ApiError("SETTINGS_REVISION_CONFLICT", 409), "其他管理员", true],
+  [new ApiError("network lost", 0), "保存结果尚未确认", true],
+  [new ApiError("INTERNAL_ERROR", 500), "INTERNAL_ERROR", false],
+])(
+  "does not request sync after saving fails: %s",
+  async (failure, notice, blocked) => {
+    vi.stubGlobal("location", new URL("https://front.example.com"));
+    const request = vi
+      .spyOn(api, "request")
+      .mockResolvedValueOnce(initial)
+      .mockRejectedValueOnce(failure);
+    const wrapper = mount(SystemSettingsPanel, {
+      global: { stubs: { AgentAddressSyncPanel: true } },
+    });
+    await flushPromises();
+    const usePage = wrapper
+      .findAll("button")
+      .find((b) => b.text() === "使用当前网页地址并同步")!;
+    await usePage.trigger("click");
+    await flushPromises();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(wrapper.get('[role="alert"]').text()).toContain(notice);
+    expect(wrapper.emitted("saved")).toBeUndefined();
+    expect(wrapper.find('[role="status"]').exists()).toBe(false);
+    if (blocked) {
+      expect(usePage.attributes("disabled")).toBeDefined();
+      await usePage.trigger("click");
+      await wrapper.get("form").trigger("submit");
+      expect(request).toHaveBeenCalledTimes(2);
+    }
+    wrapper.unmount();
+  },
+);
+it.each([
+  [
+    new ApiError("SETTINGS_REVISION_CONFLICT", 409),
+    "配置随后被其他管理员修改",
+    true,
+  ],
+  [new ApiError("network lost", 0), "同步请求结果尚未确认", true],
+  [new ApiError("INTERNAL_ERROR", 500), "发起 Agent 地址同步失败", false],
+])(
+  "distinguishes a saved address from a failed sync request: %s",
+  async (failure, notice, blocked) => {
+    vi.stubGlobal("location", new URL("https://front.example.com"));
+    const current = {
+      ...initial,
+      revision: 4,
+      platform_server_url: "https://front.example.com",
+    };
+    const request = vi
+      .spyOn(api, "request")
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(current)
+      .mockRejectedValueOnce(failure);
+    const wrapper = mount(SystemSettingsPanel, {
+      global: { stubs: { AgentAddressSyncPanel: true } },
+    });
+    await flushPromises();
+    const usePage = wrapper
+      .findAll("button")
+      .find((b) => b.text() === "使用当前网页地址并同步")!;
+    await usePage.trigger("click");
+    await flushPromises();
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(wrapper.get('[role="alert"]').text()).toContain("平台地址已保存");
+    expect(wrapper.get('[role="alert"]').text()).toContain(notice);
+    expect(wrapper.emitted("saved")).toHaveLength(1);
+    expect(wrapper.find('[role="status"]').exists()).toBe(false);
+    if (blocked) {
+      expect(usePage.attributes("disabled")).toBeDefined();
+      await usePage.trigger("click");
+      expect(request).toHaveBeenCalledTimes(3);
+    }
+    wrapper.unmount();
+  },
+);
+it("does not retry sync on an ordinary save when the normalized address is unchanged", async () => {
+  const current = { ...initial, revision: 4 };
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce(current)
+    .mockResolvedValueOnce(current);
+  const wrapper = mount(SystemSettingsPanel, {
+    global: { stubs: { AgentAddressSyncPanel: true } },
+  });
+  await flushPromises();
+  await wrapper.get("input").setValue("https://initial.example.com/settings");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(wrapper.get('[role="status"]').text()).toContain("平台地址未变化");
   wrapper.unmount();
 });
 it("extracts the HTTPS origin from pasted page links and rejects HTTP and embedded credentials", async () => {
@@ -170,7 +334,7 @@ it("extracts the HTTPS origin from pasted page links and rejects HTTP and embedd
   expect(
     wrapper
       .findAll("button")
-      .find((b) => b.text() === "使用当前网页地址")!
+      .find((b) => b.text() === "使用当前网页地址并同步")!
       .attributes("disabled"),
   ).toBeDefined();
   for (const value of [
