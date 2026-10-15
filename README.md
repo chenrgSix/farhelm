@@ -2,7 +2,7 @@
 
 Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，无 SSH、MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
-这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。实际验证清单与剩余缺口见 [测试报告](docs/test-report.md)。P2 PTY 强制录像、P3 EasyTier 私网优先和公网回退尚未实现，不以 P0/P1 名义宣称完成。
+这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。现提供基础交互终端、会话录制与回放；P2 完整验收和 P3 EasyTier 私网优先、公网回退仍有剩余工作。实际验证清单见 [测试报告](docs/test-report.md)和[终端验证](docs/terminal.md)。
 
 ## 已确认的单账号边界
 
@@ -31,7 +31,9 @@ npm run dev
 
 浏览器直接访问 HTTPS 服务时，需要用户自行把 `.dev/tls/ca.crt` 加入受控开发信任或使用受信正式证书。请勿绕过浏览器证书警告、设置 `NODE_TLS_REJECT_UNAUTHORIZED=0` 或关闭 Agent TLS 校验。Agent 用 `FLEET_CA_CERT` 指定受信 CA，默认使用公共根证书。
 
-登录 → 设备页 → 选择已注册设备 → 输入 argv JSON 数组，例如 `["/usr/bin/uptime"]` → 提交任务 → 查看 stdout/stderr、退出码、审计完整性。Shell 只有运维明确输入 `/bin/sh`, `-c`, `脚本` 才启动，不由前端拼接。`journalctl` 的可见范围取决于用户配置的系统账号，失败不会自动 sudo 或加组。
+登录 → 设备页 → 点击「连接终端」→ 像普通终端一样输入命令。连续命令共享 Shell 和工作目录，支持 Tab 补全、Ctrl-C、窗口缩放与中文。输入 `exit` 退出；「终端会话」可以查看回放与导出记录。运维角色仍受设备范围约束。
+
+原有「命令任务」保留用于需要超时、幂等重试和独立结果的操作，可输入 argv JSON 数组，例如 `["/usr/bin/uptime"]`。任务模式不自动拼接 Shell。`journalctl` 的可见范围取决于用户配置的系统账号，失败不会自动 sudo 或加组。
 
 Ctrl-C 停止本次开发服务。数据保留以便重新启动验证。开发密码只在首次 bootstrap 创建管理员，不会在每次启动时重置已有账号密码。
 
@@ -67,8 +69,11 @@ npm --prefix apps/web run build
 npm --prefix tests/contracts test
 cargo test --manifest-path agent/Cargo.toml --locked
 npm run test:e2e
+npm run test:terminal # 先构建服务端和真实 Linux Agent
 # 可选：需本机可运行 Chromium（FLEET_CHROMIUM_BIN 可覆盖路径）
 npm run test:browser
+# 针对已启动的本地实例，显式提供管理员凭据
+FLEET_ADMIN_USER=admin FLEET_ADMIN_PASSWORD='你的本地密码' npm run test:terminal:browser
 ```
 
 端到端测试启动真正的 Rust 可执行文件、TLS Fastify/WSS、SQLite 和 Linux 子进程，不用 JavaScript Agent 冒充。纯协议攻击测试会使用测试客户端，报告中单独标明。测试证书、账号、数据均为临时本地数据，不含真实生产密钥。故障注入须显式 FLEET_TEST_MODE=1，仅接受 loopback 测试服务。

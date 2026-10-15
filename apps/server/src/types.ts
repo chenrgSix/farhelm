@@ -39,6 +39,7 @@ export interface ServerConfig {
   testMode?: boolean;
   logger?: boolean;
   webDist?: string;
+  consoleOrigin?: string;
 }
 export const TERMINAL = new Set([
   "SUCCEEDED",

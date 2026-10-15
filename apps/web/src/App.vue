@@ -1,19 +1,35 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
 import { api } from "./api/client";
-import type { AuditEntry, Device, Task, User } from "./api/types";
+import type {
+  AuditEntry,
+  Device,
+  Task,
+  User,
+  TerminalSession,
+} from "./api/types";
 import { canExecute, formatTime, roleLabels, terminalStates } from "./model";
 import HealthBadge from "./components/HealthBadge.vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
 import TaskDetail from "./components/TaskDetail.vue";
+const TerminalPanel = defineAsyncComponent(
+  () => import("./components/TerminalPanel.vue"),
+);
 
 const user = ref<User | null>(null);
 const username = ref("");
 const password = ref("");
 const loginBusy = ref(false);
 const loginError = ref("");
-const view = ref<"devices" | "tasks" | "audit">("devices");
+type View = "devices" | "tasks" | "audit" | "terminals";
+const view = ref<View>("devices");
+const terminalSessions = ref<TerminalSession[]>([]);
+const terminalTarget = ref<{
+  id: string;
+  name: string;
+  recording?: TerminalSession;
+} | null>(null);
 const devices = ref<Device[]>([]);
 const tasks = ref<Task[]>([]);
 const audit = ref<AuditEntry[]>([]);
@@ -40,6 +56,7 @@ let taskGeneration = 0;
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 const navigation = [
   { id: "devices", label: "设备总览", icon: "▦" },
+  { id: "terminals", label: "终端会话", icon: ">_" },
   { id: "tasks", label: "任务中心", icon: "≡" },
   { id: "audit", label: "操作审计", icon: "◷" },
 ] as const;
@@ -47,6 +64,7 @@ const titles = {
   devices: ["设备总览", "连接状态清晰可见，每一次操作都有记录"],
   tasks: ["任务中心", "从授权到真实结果，追踪每条命令的生命周期"],
   audit: ["操作审计", "平台内操作、授权与输出查看的持久化记录"],
+  terminals: ["终端会话", "查看连接记录与会话回放"],
 };
 const filteredDevices = computed(() =>
   devices.value.filter((d) =>
@@ -65,6 +83,13 @@ const filteredTasks = computed(() =>
 const filteredAudit = computed(() =>
   audit.value.filter((a) =>
     `${a.action} ${a.actor_id} ${a.device_id} ${a.task_id}`
+      .toLowerCase()
+      .includes(search.value.toLowerCase()),
+  ),
+);
+const filteredSessions = computed(() =>
+  terminalSessions.value.filter((s) =>
+    `${deviceName(s.device_id)} ${s.actor_id} ${s.id}`
       .toLowerCase()
       .includes(search.value.toLowerCase()),
   ),
@@ -90,6 +115,8 @@ function logout(message = "") {
   tasks.value = [];
   audit.value = [];
   selectedTask.value = null;
+  terminalTarget.value = null;
+  terminalSessions.value = [];
   enrollment.value = null;
   enrollOpen.value = false;
   execOpen.value = false;
@@ -146,21 +173,25 @@ async function refresh() {
   const generation = sessionGeneration;
   refreshing.value = true;
   try {
-    const [deviceResponse, taskResponse, auditResponse] = await Promise.all([
-      api.request<{ devices: Device[] }>("/devices"),
-      api.request<{ tasks: Task[] }>("/tasks"),
-      api.request<{ audit: AuditEntry[] }>("/audit"),
-    ]);
+    const [deviceResponse, taskResponse, auditResponse, terminalResponse] =
+      await Promise.all([
+        api.request<{ devices: Device[] }>("/devices"),
+        api.request<{ tasks: Task[] }>("/tasks"),
+        api.request<{ audit: AuditEntry[] }>("/audit"),
+        api.request<{ sessions: TerminalSession[] }>("/terminal-sessions"),
+      ]);
     if (generation !== sessionGeneration) return;
     if (
       !Array.isArray(deviceResponse.devices) ||
       !Array.isArray(taskResponse.tasks) ||
-      !Array.isArray(auditResponse.audit)
+      !Array.isArray(auditResponse.audit) ||
+      !Array.isArray(terminalResponse.sessions)
     )
       throw new Error("API 列表响应格式错误");
     devices.value = deviceResponse.devices;
     tasks.value = taskResponse.tasks;
     audit.value = auditResponse.audit;
+    terminalSessions.value = terminalResponse.sessions;
     apiReady.value = true;
     lastUpdated.value = Date.now();
     error.value = "";
@@ -201,7 +232,7 @@ async function onCreated(id: string) {
   await refresh();
   await selectTask(id);
 }
-function switchView(id: "devices" | "tasks" | "audit") {
+function switchView(id: View) {
   view.value = id;
   search.value = "";
 }
@@ -367,9 +398,9 @@ onBeforeUnmount(() => {
         </button>
       </nav>
       <div class="sidebar-note">
-        <div class="eyebrow">P0 / P1</div>
-        <strong>一条可靠的执行链路</strong>
-        <p>PTY 录像、私网探测与批量调度尚未开放</p>
+        <div class="eyebrow">REMOTE TERMINAL</div>
+        <strong>连接设备，直接操作</strong>
+        <p>终端会话与命令任务均保留操作记录</p>
       </div>
       <div class="account">
         <span class="avatar">{{
@@ -425,12 +456,12 @@ onBeforeUnmount(() => {
             >
               ＋ 注册设备</button
             ><button
-              v-if="isExecAllowed"
+              v-if="isExecAllowed && view === 'tasks'"
               class="button primary"
               :disabled="execOpen"
               @click="openExec()"
             >
-              执行命令 <span aria-hidden="true">↗</span>
+              新建命令任务 <span aria-hidden="true">↗</span>
             </button>
           </div>
         </div>
@@ -547,13 +578,17 @@ onBeforeUnmount(() => {
                         ? "设备清单"
                         : view === "tasks"
                           ? "执行历史"
-                          : "审计记录"
+                          : view === "terminals"
+                            ? "终端会话"
+                            : "审计记录"
                     }}<span class="count">{{
                       view === "devices"
                         ? devices.length
                         : view === "tasks"
                           ? tasks.length
-                          : audit.length
+                          : view === "terminals"
+                            ? terminalSessions.length
+                            : audit.length
                     }}</span>
                   </h2>
                   <p v-if="view === 'devices'" class="field-hint">
@@ -668,11 +703,31 @@ onBeforeUnmount(() => {
                                 canExecute(user, device.id) &&
                                 !device.revoked_at
                               "
+                              class="button primary small"
+                              :disabled="
+                                !apiReady ||
+                                !device.control_online ||
+                                !!terminalTarget
+                              "
+                              @click="
+                                terminalTarget = {
+                                  id: device.id,
+                                  name: device.name,
+                                }
+                              "
+                            >
+                              连接终端
+                            </button>
+                            <button
+                              v-if="
+                                canExecute(user, device.id) &&
+                                !device.revoked_at
+                              "
                               class="text-button"
                               :disabled="execOpen"
                               @click="openExec(device.id)"
                             >
-                              执行</button
+                              命令任务</button
                             ><button
                               v-if="user.role === 'admin' && !device.revoked_at"
                               class="text-button muted"
@@ -773,6 +828,73 @@ onBeforeUnmount(() => {
                   </table>
                 </div></template
               >
+              <template v-else-if="view === 'terminals'">
+                <div v-if="!filteredSessions.length" class="empty-state">
+                  <span class="empty-icon">&gt;_</span>
+                  <h3>暂无终端会话</h3>
+                  <p>在设备页点击“连接终端”即可开始操作</p>
+                </div>
+                <div v-else class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>设备 / 会话</th>
+                        <th>操作人</th>
+                        <th>连接时间</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="session in filteredSessions" :key="session.id">
+                        <td>
+                          <strong>{{ deviceName(session.device_id) }}</strong
+                          ><small class="mono muted block"
+                            >{{ session.id.slice(0, 12) }}…</small
+                          >
+                        </td>
+                        <td class="mono small">{{ session.actor_id }}</td>
+                        <td class="small muted">
+                          {{ formatTime(session.created_at) }}
+                        </td>
+                        <td>
+                          <span
+                            :class="
+                              session.status === 'INTERRUPTED'
+                                ? 'text-warning'
+                                : 'muted'
+                            "
+                            >{{
+                              session.status === "OPEN"
+                                ? "已连接"
+                                : session.status === "OPENING"
+                                  ? "连接中"
+                                  : session.status === "CLOSED"
+                                    ? "已结束"
+                                    : "已中断"
+                            }}</span
+                          >
+                        </td>
+                        <td>
+                          <button
+                            class="text-button"
+                            :disabled="!session.ended_at || !!terminalTarget"
+                            @click="
+                              terminalTarget = {
+                                id: session.device_id,
+                                name: deviceName(session.device_id),
+                                recording: session,
+                              }
+                            "
+                          >
+                            查看回放
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
               <template v-else
                 ><div v-if="!filteredAudit.length" class="empty-state">
                   <span class="empty-icon">◷</span>
@@ -831,9 +953,11 @@ onBeforeUnmount(() => {
                 <span>{{
                   view === "tasks"
                     ? "最近最多 500 条可见任务"
-                    : view === "audit"
-                      ? "最近最多 1000 条可见审计记录"
-                      : "仅显示当前账号可见设备"
+                    : view === "terminals"
+                      ? "最近最多 500 条可见会话"
+                      : view === "audit"
+                        ? "最近最多 1000 条可见审计记录"
+                        : "仅显示当前账号可见设备"
                 }}</span
                 ><span
                   >10 秒自动刷新 ·
@@ -865,12 +989,22 @@ onBeforeUnmount(() => {
           />
         </div>
         <footer class="page-footer">
-          <span
-            >LINUX FLEET <span class="footer-dot">·</span> P0 / P1
-            开发版本</span
+          <span>LINUX FLEET <span class="footer-dot">·</span> 开发版本</span
           ><span>只审计经过平台的操作</span>
         </footer>
       </main>
+      <TerminalPanel
+        v-if="terminalTarget"
+        :key="terminalTarget.recording?.id ?? terminalTarget.id"
+        :device-id="terminalTarget.id"
+        :device-name="terminalTarget.name"
+        :recording="terminalTarget.recording"
+        @close="
+          terminalTarget = null;
+          refresh();
+        "
+        @changed="refresh"
+      />
     </div>
   </div>
 </template>

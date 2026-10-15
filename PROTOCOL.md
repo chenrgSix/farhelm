@@ -7,6 +7,15 @@ All HTTPS/WSS; timestamps Unix milliseconds integers. JSON UTF-8, snake_case. Al
 - POST /api/agent/enroll {v:1,challenge_id,signature,name} -> {v:1,device_id}. Challenge stores enrollment token binding. Redeemed same enrollment + same key with fresh proof recovers original ID even after token redeemed (until token expiry; afterward key recovery auth supported).
 - POST /api/agent/auth {v:1,challenge_id,signature} -> {v:1,device_id,access_token,expires_at}. Auth challenge may use public_key without device_id to recover ID after enrollment response loss; registered key is unique. Access token opaque random, server persists hash + device + expiry + scope, default 5 minutes.
 - WSS /agent/ws Authorization Bearer device access token. agent.hello {agent_version}; agent.heartbeat {agent_version}. Server expires/ revokes token and closes connection; newest connection owns sends. Heartbeat every 2 seconds dev / configured production.
+- `agent.hello` 可携带 `capabilities:["terminal.pty.v1"]`；未声明能力的 Agent 不开放终端。Agent 在凭据到期前通过同一身份的 HTTPS 挑战取得新 token，以 `agent.reauth {access_token}` 在原 WSS 上换绑；验证设备一致、scope、有效期和撤销状态。凭据不写日志或 URL。
+
+## Interactive terminal
+
+- `POST /api/v1/terminal-sessions {v:1,device_id,cols:20..500,rows:5..200}`：admin/范围内 ops，在线且声明终端能力；返回 `{v:1,session_id,ticket,expires_at}`。票据 30 秒有效、单次使用，服务端绑定真实平台用户和登录会话。
+- 浏览器同源 `WSS /api/v1/terminal/ws`，无 query，检查 Origin；首帧 `terminal.attach {session_id,ticket}`。就绪后接收 `terminal.ready {}`；输入 `terminal.input {data:base64}`，缩放 `terminal.resize {cols,rows}`，退出 `terminal.close {}`；输出 `terminal.output {data:base64}`，关闭 `terminal.closed {reason,audit_complete}`。不记录原始输入。
+- 服务端通过 Agent 控制 WSS 发 `terminal.open {session_id,cols,rows}`、`terminal.input {session_id,data}`、`terminal.resize {session_id,cols,rows}`、`terminal.close {session_id}`；Agent 回复 `terminal.opened {session_id}`、`terminal.output {session_id,seq,data}`、`terminal.closed {session_id,reason}`。输出 seq 从 1 连续递增，服务端事务提交录制后才转发并返回 `terminal.ack {session_id,seq}`；Agent 等待 ACK 后读下一块。序列缺口、写盘失败和超限关闭会话，不重放输入。
+- `GET /api/v1/terminal-sessions` 返回最多 500 个范围内会话；`GET /api/v1/terminal-sessions/:id/recording?after=0` 返回会话和最多 128 条带 seq/at/kind/data 的事件、next 游标；查看/导出必须有设备查看范围。`POST /:id/export {v:1}` 记录导出审计；`POST /:id/close {v:1}` 仅管理员或原会话所有者。重启时未结束会话标记 INTERRUPTED；无自动恢复。
+- 硬限额及安全边界见 `docs/terminal.md`。消息契约见 `terminal-envelope.schema.json`，按 64 KiB 字节限制处理帧，单块最多 8192 解码字节。
 
 ## Task and events
 Task object exact fields: {task_id,device_id,actor_id,action:"exec",argv:string[],cwd:string,created_at:integer,expires_at:integer,timeout_ms:integer,max_output_bytes:integer,payload_hash:string}. payload_hash is SHA256 of immutable task fields with canonical key-order JSON excluding payload_hash (RFC8785-compatible only these constrained values). Rust serde_json object sorting / TS recursively sorted keys equivalent. task.assign body is Task. task.cancel {task_id}. No exec.request shortcut.

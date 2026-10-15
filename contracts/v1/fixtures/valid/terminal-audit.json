@@ -1,0 +1,13 @@
+{
+  "id": 1,
+  "at": 1,
+  "actor_id": "user",
+  "device_id": "device",
+  "task_id": null,
+  "action": "terminal.closed",
+  "detail": {
+    "session_id": "f1e7be63-78f4-4c47-b8ab-7f66f32a8393",
+    "reason": "SHELL_EXIT",
+    "audit_complete": true
+  }
+}

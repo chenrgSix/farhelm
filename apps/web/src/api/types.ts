@@ -89,3 +89,15 @@ export interface CommandResponse {
   task_id: string;
   status: TaskStatus;
 }
+export interface TerminalSession {
+  id: string;
+  device_id: string;
+  actor_id: string;
+  status: "OPENING" | "OPEN" | "CLOSED" | "INTERRUPTED";
+  created_at: number;
+  ended_at: number | null;
+  reason: string | null;
+  audit_complete: number;
+  cols: number;
+  rows: number;
+}

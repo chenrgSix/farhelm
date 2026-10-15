@@ -11,7 +11,7 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     proxy: target
-      ? { "/api": { target, changeOrigin: true, secure: true } }
+      ? { "/api": { target, changeOrigin: true, secure: true, ws: true } }
       : undefined,
   },
   test: { environment: "jsdom", clearMocks: true },

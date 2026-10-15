@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "terminal.resize",
+  "body": {
+    "cols": 10000,
+    "rows": 24
+  }
+}

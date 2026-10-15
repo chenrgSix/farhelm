@@ -5,6 +5,7 @@ pub mod executor;
 pub mod identity;
 pub mod journal;
 pub mod protocol;
+pub mod terminal;
 
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()

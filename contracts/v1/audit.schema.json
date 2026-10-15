@@ -57,7 +57,12 @@
         "authorization.denied",
         "task.accepted",
         "task.started",
-        "task.finished"
+        "task.finished",
+        "terminal.created",
+        "terminal.opened",
+        "terminal.closed",
+        "terminal.recording_viewed",
+        "terminal.recording_exported"
       ]
     },
     "detail": {
@@ -72,18 +77,10 @@
               "maxLength": 128
             },
             "role": {
-              "enum": [
-                "admin",
-                "ops",
-                "business",
-                "auditor"
-              ]
+              "enum": ["admin", "ops", "business", "auditor"]
             }
           },
-          "required": [
-            "username",
-            "role"
-          ]
+          "required": ["username", "role"]
         },
         {
           "$ref": "common.schema.json#/$defs/empty"
@@ -96,9 +93,7 @@
               "$ref": "common.schema.json#/$defs/sha256"
             }
           },
-          "required": [
-            "username_hash"
-          ]
+          "required": ["username_hash"]
         },
         {
           "type": "object",
@@ -118,10 +113,7 @@
               ]
             }
           },
-          "required": [
-            "expires_at",
-            "name"
-          ]
+          "required": ["expires_at", "name"]
         },
         {
           "type": "object",
@@ -131,9 +123,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "recovered"
-          ]
+          "required": ["recovered"]
         },
         {
           "$ref": "common.schema.json#/$defs/empty"
@@ -152,12 +142,7 @@
               "$ref": "common.schema.json#/$defs/cwd"
             },
             "role": {
-              "enum": [
-                "admin",
-                "ops",
-                "business",
-                "auditor"
-              ]
+              "enum": ["admin", "ops", "business", "auditor"]
             },
             "authorized": {
               "const": true
@@ -183,10 +168,7 @@
           "additionalProperties": false,
           "properties": {
             "stream": {
-              "enum": [
-                "stdout",
-                "stderr"
-              ]
+              "enum": ["stdout", "stderr"]
             },
             "sha256": {
               "$ref": "common.schema.json#/$defs/sha256"
@@ -197,11 +179,7 @@
               "maximum": 1048576
             }
           },
-          "required": [
-            "stream",
-            "sha256",
-            "size"
-          ]
+          "required": ["stream", "sha256", "size"]
         },
         {
           "type": "object",
@@ -220,11 +198,7 @@
               "minLength": 1
             }
           },
-          "required": [
-            "reason",
-            "method",
-            "route"
-          ]
+          "required": ["reason", "method", "route"]
         },
         {
           "type": "object",
@@ -243,12 +217,7 @@
               "$ref": "common.schema.json#/$defs/empty"
             }
           },
-          "required": [
-            "event_id",
-            "seq",
-            "at",
-            "payload"
-          ]
+          "required": ["event_id", "seq", "at", "payload"]
         },
         {
           "type": "object",
@@ -267,12 +236,7 @@
               "$ref": "common.schema.json#/$defs/empty"
             }
           },
-          "required": [
-            "event_id",
-            "seq",
-            "at",
-            "payload"
-          ]
+          "required": ["event_id", "seq", "at", "payload"]
         },
         {
           "type": "object",
@@ -291,12 +255,73 @@
               "$ref": "result.schema.json"
             }
           },
-          "required": [
-            "event_id",
-            "seq",
-            "at",
-            "payload"
-          ]
+          "required": ["event_id", "seq", "at", "payload"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            }
+          },
+          "required": ["session_id"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            }
+          },
+          "required": ["session_id"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "audit_complete": {
+              "type": "boolean"
+            }
+          },
+          "required": ["session_id", "reason", "audit_complete"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "after": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["session_id", "after"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "last_seq": {
+              "$ref": "common.schema.json#/$defs/sequence"
+            }
+          },
+          "required": ["session_id", "last_seq"]
         }
       ]
     }
@@ -331,18 +356,10 @@
                 "maxLength": 128
               },
               "role": {
-                "enum": [
-                  "admin",
-                  "ops",
-                  "business",
-                  "auditor"
-                ]
+                "enum": ["admin", "ops", "business", "auditor"]
               }
             },
-            "required": [
-              "username",
-              "role"
-            ]
+            "required": ["username", "role"]
           }
         }
       }
@@ -381,9 +398,7 @@
                 "$ref": "common.schema.json#/$defs/sha256"
               }
             },
-            "required": [
-              "username_hash"
-            ]
+            "required": ["username_hash"]
           }
         }
       }
@@ -416,10 +431,7 @@
                 ]
               }
             },
-            "required": [
-              "expires_at",
-              "name"
-            ]
+            "required": ["expires_at", "name"]
           }
         }
       }
@@ -442,9 +454,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "recovered"
-            ]
+            "required": ["recovered"]
           }
         }
       }
@@ -489,12 +499,7 @@
                 "$ref": "common.schema.json#/$defs/cwd"
               },
               "role": {
-                "enum": [
-                  "admin",
-                  "ops",
-                  "business",
-                  "auditor"
-                ]
+                "enum": ["admin", "ops", "business", "auditor"]
               },
               "authorized": {
                 "const": true
@@ -546,10 +551,7 @@
             "additionalProperties": false,
             "properties": {
               "stream": {
-                "enum": [
-                  "stdout",
-                  "stderr"
-                ]
+                "enum": ["stdout", "stderr"]
               },
               "sha256": {
                 "$ref": "common.schema.json#/$defs/sha256"
@@ -560,11 +562,7 @@
                 "maximum": 1048576
               }
             },
-            "required": [
-              "stream",
-              "sha256",
-              "size"
-            ]
+            "required": ["stream", "sha256", "size"]
           }
         }
       }
@@ -596,11 +594,7 @@
                 "minLength": 1
               }
             },
-            "required": [
-              "reason",
-              "method",
-              "route"
-            ]
+            "required": ["reason", "method", "route"]
           }
         }
       }
@@ -632,12 +626,7 @@
                 "$ref": "common.schema.json#/$defs/empty"
               }
             },
-            "required": [
-              "event_id",
-              "seq",
-              "at",
-              "payload"
-            ]
+            "required": ["event_id", "seq", "at", "payload"]
           }
         }
       }
@@ -669,12 +658,7 @@
                 "$ref": "common.schema.json#/$defs/empty"
               }
             },
-            "required": [
-              "event_id",
-              "seq",
-              "at",
-              "payload"
-            ]
+            "required": ["event_id", "seq", "at", "payload"]
           }
         }
       }
@@ -706,12 +690,138 @@
                 "$ref": "result.schema.json"
               }
             },
-            "required": [
-              "event_id",
-              "seq",
-              "at",
-              "payload"
-            ]
+            "required": ["event_id", "seq", "at", "payload"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "terminal.created"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              }
+            },
+            "required": ["session_id"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "terminal.opened"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              }
+            },
+            "required": ["session_id"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "terminal.closed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "audit_complete": {
+                "type": "boolean"
+              }
+            },
+            "required": ["session_id", "reason", "audit_complete"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "terminal.recording_viewed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["session_id", "after"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "terminal.recording_exported"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "last_seq": {
+                "$ref": "common.schema.json#/$defs/sequence"
+              }
+            },
+            "required": ["session_id", "last_seq"]
           }
         }
       }

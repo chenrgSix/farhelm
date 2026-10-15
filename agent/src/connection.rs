@@ -22,13 +22,22 @@ use tokio_tungstenite::{
 };
 
 pub async fn run(cfg: Config, journal: Journal, identity: Identity) -> Result<()> {
+    let identity = Arc::new(identity);
     let http = cfg.http_client()?;
     let tls = cfg.tls_config()?;
     let mut failures = 0u32;
     loop {
         let result = async {
             let access = identity.authenticate(&http, &cfg, &journal).await?;
-            session(&cfg, &journal, &http, &access, tls.clone()).await
+            session(
+                &cfg,
+                &journal,
+                &http,
+                &access,
+                tls.clone(),
+                identity.clone(),
+            )
+            .await
         }
         .await;
         if let Err(error) = result {
@@ -48,7 +57,9 @@ async fn session(
     http: &reqwest::Client,
     access: &Access,
     tls: Arc<rustls::ClientConfig>,
+    identity: Arc<Identity>,
 ) -> Result<()> {
+    let mut access = access.clone();
     let mut url = cfg.url("/agent/ws")?;
     url.set_scheme("wss")
         .map_err(|_| anyhow::anyhow!("invalid WSS URL"))?;
@@ -75,7 +86,7 @@ async fn session(
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION")}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":["terminal.pty.v1"]}),
             )?
             .into(),
         ))
@@ -86,6 +97,9 @@ async fn session(
     // Artifact transfer must not block incoming cancellations or heartbeats.
     // JoinSet aborts pending uploads when this authenticated session closes.
     let mut uploads = tokio::task::JoinSet::<Result<Event>>::new();
+    let (terminal_output, mut terminal_events) = tokio::sync::mpsc::channel(128);
+    let mut terminals = crate::terminal::Terminals::new(cfg.clone(), terminal_output);
+    let mut renewal = tokio::task::JoinSet::<Result<Access>>::new();
     // Refresh before expiration. Very short-lived test tokens renew at half-life.
     let remaining = (access.expires_at - now_ms()).max(1) as u64;
     let renew_after = remaining.saturating_sub((remaining / 2).min(30_000));
@@ -93,7 +107,19 @@ async fn session(
     tokio::pin!(renew);
     loop {
         tokio::select! {
-            _=&mut renew=>{let _=socket.close(None).await;return Ok(());}
+            _=&mut renew, if renewal.is_empty()=>{
+                let identity=identity.clone();let http=http.clone();let cfg=cfg.clone();let journal=journal.clone();
+                renewal.spawn(async move { identity.authenticate(&http,&cfg,&journal).await });
+            }
+            Some(result)=renewal.join_next(), if !renewal.is_empty()=>{
+                let renewed=result??;
+                ensure!(renewed.device_id==access.device_id,"renewal changed device identity");
+                socket.send(Message::Text(envelope("agent.reauth",json!({"access_token":renewed.token}))?.into())).await?;
+                let remaining=(renewed.expires_at-now_ms()).max(1) as u64;
+                renew.as_mut().reset(tokio::time::Instant::now()+Duration::from_millis(remaining.saturating_sub((remaining/2).min(30_000))));
+                access=renewed;
+            }
+            Some((kind,body))=terminal_events.recv()=>{socket.send(Message::Text(envelope(&kind,body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
             _=outbox.tick(), if uploads.is_empty()=>{
                 if let Some(event)=journal.first_outbox()?{
@@ -117,6 +143,7 @@ async fn session(
                             "task.assign"=>{let task:Task=serde_json::from_value(envelope.body)?;task.validate(&access.device_id)?;let fresh=journal.accept(&task)?;if fresh{cfg.fault("after_accept")?;}}
                             "task.cancel"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Cancel{task_id:String}let body:Cancel=serde_json::from_value(envelope.body)?;journal.cancel(&body.task_id)?;}
                             "event.ack"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{event_id:String,task_id:String,seq:i64}let ack:Ack=serde_json::from_value(envelope.body)?;journal.ack(&ack.event_id,&ack.task_id,ack.seq)?;}
+                            kind if kind.starts_with("terminal.")=>{terminals.receive(kind,envelope.body).await?;}
                             "error"=>{eprintln!("server rejected a control message; retaining outbox for replay");}
                             _=>anyhow::bail!("unknown control message type"),
                         }

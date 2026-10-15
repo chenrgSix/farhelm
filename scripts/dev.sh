@@ -14,6 +14,7 @@ export FLEET_SERVER_URL="https://localhost:$FLEET_PORT"
 export FLEET_STATE_DIR="$FLEET_DEV_DIR/agent" FLEET_DEVICE_NAME=local-linux
 export FLEET_EXECUTION_BACKEND="${FLEET_EXECUTION_BACKEND:-same-uid}"
 export FLEET_WEB_DIST="$ROOT/apps/web/dist"
+export FLEET_CONSOLE_ORIGIN=http://127.0.0.1:5173
 if [[ ! -f "$FLEET_TLS_CERT" ]]; then bash deploy/dev/generate-tls.sh "$FLEET_DEV_DIR/tls"; fi
 [[ -x agent/target/debug/fleet-agent ]] || { echo 'Build first: cargo build --manifest-path agent/Cargo.toml --locked' >&2; exit 1; }
 pids=()

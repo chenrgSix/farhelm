@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/terminal-envelope.schema.json",
+  "title": "Fleet v1 terminal control and browser frames",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.open"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "cols": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 500
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 200
+            }
+          },
+          "required": ["session_id", "cols", "rows"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.opened"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            }
+          },
+          "required": ["session_id"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.attach"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "ticket": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          },
+          "required": ["session_id", "ticket"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.ready"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.ack"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "seq": {
+              "$ref": "common.schema.json#/$defs/sequence"
+            }
+          },
+          "required": ["session_id", "seq"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.input"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "data": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/base64"
+                },
+                {
+                  "type": "string",
+                  "maxLength": 10924
+                }
+              ]
+            }
+          },
+          "required": ["session_id", "data"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.output"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "seq": {
+              "$ref": "common.schema.json#/$defs/sequence"
+            },
+            "data": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/base64"
+                },
+                {
+                  "type": "string",
+                  "maxLength": 10924
+                }
+              ]
+            }
+          },
+          "required": ["session_id", "seq", "data"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.resize"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "cols": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 500
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 200
+            }
+          },
+          "required": ["session_id", "cols", "rows"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.close"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            }
+          },
+          "required": ["session_id"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.closed"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": ["session_id", "reason"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.input"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/base64"
+                },
+                {
+                  "type": "string",
+                  "maxLength": 10924
+                }
+              ]
+            }
+          },
+          "required": ["data"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.output"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/base64"
+                },
+                {
+                  "type": "string",
+                  "maxLength": 10924
+                }
+              ]
+            }
+          },
+          "required": ["data"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.resize"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 500
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 200
+            }
+          },
+          "required": ["cols", "rows"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.close"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.closed"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "audit_complete": {
+              "type": "boolean"
+            }
+          },
+          "required": ["reason", "audit_complete"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    }
+  ],
+  "description": "Agent frames include session_id; attached browser input/output use the bound session. Maximum 8192 decoded bytes per chunk is also enforced at runtime. Never persist raw terminal.input."
+}

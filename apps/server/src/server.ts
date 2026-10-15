@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
+import { registerTerminals } from "./terminal.js";
 import {
   ApiError,
   fail,
@@ -49,6 +50,7 @@ interface Connection {
   expiresAt: number;
   lastHeartbeat: number;
   ready: boolean;
+  terminal: boolean;
 }
 const MAX_OBJECT = 1048576;
 const MAX_FRAME = 65536;
@@ -136,7 +138,13 @@ export async function buildServer(config: ServerConfig) {
           .prepare(
             "SELECT u.id FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?",
           )
-          .get(bearer(req), Date.now()) as any;
+          .get(
+            typeof req.headers.authorization === "string" &&
+              /^Bearer [A-Za-z0-9_-]{43}$/.test(req.headers.authorization)
+              ? hash(req.headers.authorization.slice(7))
+              : "",
+            Date.now(),
+          ) as any;
         const p = req.params as any;
         const resourceId =
           p?.id ?? p?.task_id ?? (req.body as any)?.device_id ?? null;
@@ -316,6 +324,24 @@ export async function buildServer(config: ServerConfig) {
       if (row.cancel_requested) send(c, "task.cancel", { task_id: row.id });
     }
   }
+  const terminals = registerTerminals(app, {
+    store,
+    operator,
+    userAuth,
+    requireScope,
+    inScope,
+    availableStorage,
+    rate,
+    consoleOrigin: config.consoleOrigin,
+    agent(id) {
+      const c = connections.get(id);
+      if (!c?.ready || !live(c)) return undefined;
+      return {
+        terminal: c.terminal,
+        send: (type, body) => send(c, type, body),
+      };
+    },
+  });
   function challengeProof(body: Record<string, any>, purpose: string) {
     version(body);
     keys(
@@ -1071,13 +1097,18 @@ export async function buildServer(config: ServerConfig) {
         expiresAt: auth.expires_at,
         lastHeartbeat: Date.now(),
         ready: false,
+        terminal: false,
       };
       const old = connections.get(auth.id);
+      if (old) terminals.disconnect(auth.id);
       connections.set(auth.id, c);
       old?.socket.close(4001, "Superseded connection");
       socket.on("error", () => {});
       socket.on("close", () => {
-        if (connections.get(auth.id) === c) connections.delete(auth.id);
+        if (connections.get(auth.id) === c) {
+          terminals.disconnect(auth.id);
+          connections.delete(auth.id);
+        }
       });
       socket.on("message", (data, isBinary) => {
         try {
@@ -1085,14 +1116,30 @@ export async function buildServer(config: ServerConfig) {
             socket.close(4003, "Authorization expired");
             return;
           }
-          rate.check("ws:" + c.deviceId, 1200);
           if (isBinary) fail(400, "JSON_TEXT_REQUIRED");
           const env = object(JSON.parse(data.toString()));
           keys(env, ["v", "type", "body"]);
           version(env);
           const b = object(env.body);
+          rate.check(
+            (String(env.type).startsWith("terminal.")
+              ? "terminal-output:"
+              : "ws:") + c.deviceId,
+            String(env.type).startsWith("terminal.") ? 12000 : 1200,
+          );
           if (env.type === "agent.hello" || env.type === "agent.heartbeat") {
-            keys(b, ["agent_version"]);
+            keys(b, ["agent_version", "capabilities"]);
+            if (b.capabilities !== undefined) {
+              if (
+                !Array.isArray(b.capabilities) ||
+                b.capabilities.length > 10 ||
+                b.capabilities.some(
+                  (x: unknown) => typeof x !== "string" || x.length > 64,
+                )
+              )
+                fail(400, "INVALID_CAPABILITIES");
+              c.terminal = b.capabilities.includes("terminal.pty.v1");
+            }
             const agentVersion = str(b.agent_version, 1, 128);
             if (env.type === "agent.heartbeat" && !c.ready)
               fail(400, "HELLO_REQUIRED");
@@ -1104,6 +1151,20 @@ export async function buildServer(config: ServerConfig) {
               c.ready = true;
               dispatch(c.deviceId, true);
             }
+          } else if (env.type === "agent.reauth") {
+            keys(b, ["access_token"]);
+            const th = hash(str(b.access_token, 43, 43));
+            const renewed = db
+              .prepare(
+                "SELECT expires_at FROM device_tokens WHERE token_hash=? AND device_id=? AND scope='agent-control-output' AND expires_at>?",
+              )
+              .get(th, c.deviceId, Date.now()) as any;
+            if (!renewed) fail(401, "DEVICE_AUTH_INVALID");
+            c.tokenHash = th;
+            c.expiresAt = renewed.expires_at;
+          } else if (String(env.type).startsWith("terminal.")) {
+            if (!c.ready) fail(400, "HELLO_REQUIRED");
+            terminals.receive(c.deviceId, env.type, b);
           } else if (env.type === "task.event") {
             if (!c.ready) fail(400, "HELLO_REQUIRED");
             const event = receiveEvent(c.deviceId, b);
@@ -1189,8 +1250,10 @@ export async function buildServer(config: ServerConfig) {
     try {
       const now = Date.now();
       ++ticks;
+      terminals.tick();
       for (const c of connections.values()) {
         if (!live(c) || now - c.lastHeartbeat > heartbeatTimeout) {
+          terminals.disconnect(c.deviceId);
           c.socket.close(4003, "Authorization or heartbeat expired");
           if (connections.get(c.deviceId) === c) connections.delete(c.deviceId);
         } else if (ticks % 5 === 0) dispatch(c.deviceId);
@@ -1199,6 +1262,7 @@ export async function buildServer(config: ServerConfig) {
       db.prepare("DELETE FROM device_tokens WHERE expires_at<?").run(now);
       db.prepare("DELETE FROM user_sessions WHERE expires_at<?").run(now);
     } catch {
+      terminals.close();
       for (const c of connections.values())
         c.socket.close(1011, "Storage unavailable");
     }
@@ -1206,6 +1270,7 @@ export async function buildServer(config: ServerConfig) {
   timer.unref();
   app.addHook("onClose", async () => {
     clearInterval(timer);
+    terminals.close();
     for (const c of connections.values()) c.socket.terminate();
     connections.clear();
     store.close();

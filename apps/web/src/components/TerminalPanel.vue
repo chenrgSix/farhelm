@@ -1,0 +1,483 @@
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
+import { api } from "../api/client";
+import type { TerminalSession } from "../api/types";
+
+const props = defineProps<{
+  deviceId: string;
+  deviceName: string;
+  recording?: TerminalSession;
+}>();
+const emit = defineEmits<{ close: []; changed: [] }>();
+const host = ref<HTMLDivElement>();
+const state = ref("正在连接…");
+const connected = ref(false);
+const error = ref("");
+const records = ref<
+  { seq: number; at: number; kind: string; data: Record<string, any> }[]
+>([]);
+const speed = ref(2);
+const playing = ref(false);
+let terminal: Terminal;
+let fit: FitAddon;
+let socket: WebSocket | undefined;
+let observer: ResizeObserver | undefined;
+let sessionId = "";
+let disposed = false;
+let generation = 0;
+let pendingBytes = 0;
+let playGeneration = 0;
+let replayTimer: ReturnType<typeof setTimeout> | undefined;
+let releaseDelay: (() => void) | undefined;
+
+function send(type: string, body: unknown) {
+  if (!connected.value || socket?.readyState !== WebSocket.OPEN) return;
+  if (socket.bufferedAmount > 65536) {
+    error.value = "连接繁忙，已断开终端。请检查设备后重新连接";
+    socket.close();
+    return;
+  }
+  socket.send(JSON.stringify({ v: 1, type, body }));
+}
+function input(bytes: Uint8Array) {
+  for (let i = 0; i < bytes.length; i += 8192) {
+    send("terminal.input", {
+      data: btoa(String.fromCharCode(...bytes.subarray(i, i + 8192))),
+    });
+  }
+}
+function output(data: string) {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  pendingBytes += bytes.length;
+  if (pendingBytes > 262144)
+    throw new Error("输出速度过快，已断开终端。已保存的输出可在会话记录中查看");
+  terminal.write(bytes, () => {
+    pendingBytes -= bytes.length;
+  });
+}
+function stopPlayback() {
+  playGeneration++;
+  clearTimeout(replayTimer);
+  releaseDelay?.();
+  releaseDelay = undefined;
+  playing.value = false;
+}
+async function playback() {
+  stopPlayback();
+  const run = playGeneration;
+  terminal.reset();
+  terminal.resize(props.recording!.cols, props.recording!.rows);
+  playing.value = true;
+  let previous = records.value[0]?.at ?? 0;
+  for (const event of records.value) {
+    if (run !== playGeneration || disposed) return;
+    const delay = Math.min(
+      2000,
+      Math.max(0, event.at - previous) / speed.value,
+    );
+    previous = event.at;
+    if (delay)
+      await new Promise<void>((resolve) => {
+        releaseDelay = resolve;
+        replayTimer = setTimeout(resolve, delay);
+      });
+    if (run !== playGeneration || disposed) return;
+    if (event.kind === "output") {
+      await new Promise<void>((resolve) =>
+        terminal.write(
+          Uint8Array.from(atob(event.data.data), (c) => c.charCodeAt(0)),
+          resolve,
+        ),
+      );
+    } else if (event.kind === "resize")
+      terminal.resize(event.data.cols, event.data.rows);
+  }
+  playing.value = false;
+}
+async function exportRecording() {
+  try {
+    await api.request(`/terminal-sessions/${props.recording!.id}/export`, {
+      method: "POST",
+      body: { v: 1 },
+    });
+    const url = URL.createObjectURL(
+      new Blob(
+        [
+          JSON.stringify(
+            { version: 1, session: props.recording, events: records.value },
+            null,
+            2,
+          ),
+        ],
+        { type: "application/json" },
+      ),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `terminal-${props.recording!.id}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "导出记录失败";
+  }
+}
+async function connect() {
+  if (props.recording || disposed) return;
+  const run = ++generation;
+  socket?.close();
+  connected.value = false;
+  terminal.options.disableStdin = true;
+  terminal.reset();
+  error.value = "";
+  state.value = "正在连接…";
+  fit.fit();
+  try {
+    const created = await api.request<{ session_id: string; ticket: string }>(
+      "/terminal-sessions",
+      {
+        method: "POST",
+        body: {
+          v: 1,
+          device_id: props.deviceId,
+          cols: Math.max(20, Math.min(500, terminal.cols)),
+          rows: Math.max(5, Math.min(200, terminal.rows)),
+        },
+      },
+    );
+    if (disposed || run !== generation) {
+      void api
+        .request(`/terminal-sessions/${created.session_id}/close`, {
+          method: "POST",
+          body: { v: 1 },
+        })
+        .catch(() => {});
+      return;
+    }
+    sessionId = created.session_id;
+    const url = new URL("/api/v1/terminal/ws", location.href);
+    url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(url);
+    socket = ws;
+    ws.onopen = () =>
+      ws.send(
+        JSON.stringify({
+          v: 1,
+          type: "terminal.attach",
+          body: { session_id: created.session_id, ticket: created.ticket },
+        }),
+      );
+    ws.onmessage = (event) => {
+      if (disposed || run !== generation) return;
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === "terminal.ready") {
+          connected.value = true;
+          state.value = "已连接";
+          terminal.options.disableStdin = false;
+          fit.fit();
+          send("terminal.resize", {
+            cols: Math.max(20, Math.min(500, terminal.cols)),
+            rows: Math.max(5, Math.min(200, terminal.rows)),
+          });
+          terminal.focus();
+          emit("changed");
+        } else if (message.type === "terminal.output")
+          output(message.body.data);
+        else if (message.type === "terminal.closed") {
+          state.value =
+            message.body.reason === "SHELL_EXIT" ? "会话已结束" : "连接已断开";
+          if (
+            !["SHELL_EXIT", "USER_DISCONNECTED"].includes(message.body.reason)
+          )
+            error.value =
+              "会话已中断，请核对设备状态后重新连接。已保存的输出可在终端会话中查看";
+          connected.value = false;
+          terminal.options.disableStdin = true;
+        }
+      } catch (e) {
+        error.value = e instanceof Error ? e.message : "终端数据异常";
+        ws.close();
+      }
+    };
+    ws.onerror = () => {
+      if (run === generation && !disposed)
+        error.value = "无法建立终端连接，请检查服务端与设备状态";
+    };
+    ws.onclose = () => {
+      if (run !== generation || disposed) return;
+      if (connected.value || state.value === "正在连接…")
+        state.value = "连接已断开";
+      connected.value = false;
+      terminal.options.disableStdin = true;
+      emit("changed");
+    };
+  } catch (e) {
+    if (disposed || run !== generation) return;
+    error.value = e instanceof Error ? e.message : "连接失败";
+    state.value = "连接失败";
+  }
+}
+function close() {
+  send("terminal.close", {});
+  socket?.close();
+  emit("close");
+}
+onMounted(async () => {
+  terminal = new Terminal({
+    cursorBlink: true,
+    disableStdin: true,
+    fontSize: 14,
+    fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+    scrollback: 5000,
+    allowProposedApi: false,
+    theme: {
+      background: "#111923",
+      foreground: "#e4eaf1",
+      cursor: "#74e0bc",
+      selectionBackground: "#3b506a",
+    },
+  });
+  fit = new FitAddon();
+  terminal.loadAddon(fit);
+  terminal.open(host.value!);
+  fit.fit();
+  terminal.parser.registerOscHandler(52, () => true);
+  terminal.onData((text) => input(new TextEncoder().encode(text)));
+  terminal.onBinary((text) =>
+    input(Uint8Array.from(text, (c) => c.charCodeAt(0))),
+  );
+  terminal.onResize(({ cols, rows }) => {
+    if (cols >= 20 && cols <= 500 && rows >= 5 && rows <= 200)
+      send("terminal.resize", { cols, rows });
+  });
+  observer = new ResizeObserver(() => {
+    if (!props.recording) fit.fit();
+  });
+  observer.observe(host.value!);
+  if (!props.recording) {
+    await connect();
+    return;
+  }
+  state.value = "会话记录";
+  try {
+    let after = 0;
+    while (!disposed) {
+      const response = await api.request<{
+        events: typeof records.value;
+        next: number;
+      }>(`/terminal-sessions/${props.recording.id}/recording?after=${after}`);
+      if (disposed) return;
+      records.value.push(...response.events);
+      if (!response.events.length || response.next === after) break;
+      after = response.next;
+    }
+    if (!disposed) await playback();
+  } catch (e) {
+    if (!disposed)
+      error.value = e instanceof Error ? e.message : "读取记录失败";
+  }
+});
+onBeforeUnmount(() => {
+  disposed = true;
+  generation++;
+  stopPlayback();
+  observer?.disconnect();
+  socket?.close();
+  terminal?.dispose();
+  if (sessionId)
+    void api
+      .request(`/terminal-sessions/${sessionId}/close`, {
+        method: "POST",
+        body: { v: 1 },
+      })
+      .catch(() => {});
+});
+</script>
+<template>
+  <div class="terminal-overlay">
+    <section
+      class="terminal-window"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`${recording ? '会话记录' : '终端'}：${deviceName}`"
+    >
+      <header class="terminal-heading">
+        <div>
+          <span class="terminal-lights" aria-hidden="true">● ● ●</span
+          ><strong>{{ deviceName }}</strong
+          ><span class="terminal-state" :class="{ connected }">{{
+            state
+          }}</span>
+        </div>
+        <div class="terminal-actions">
+          <template v-if="recording">
+            <select v-model.number="speed" aria-label="回放速度">
+              <option :value="1">1×</option>
+              <option :value="2">2×</option>
+              <option :value="8">8×</option>
+            </select>
+            <button
+              class="button secondary small"
+              :disabled="!records.length"
+              @click="playing ? stopPlayback() : playback()"
+            >
+              {{ playing ? "停止回放" : "重新回放" }}
+            </button>
+            <button
+              class="button secondary small"
+              :disabled="!records.length"
+              @click="exportRecording"
+            >
+              导出记录
+            </button>
+          </template>
+          <button
+            v-else-if="!connected && state !== '正在连接…'"
+            class="button secondary small"
+            @click="connect"
+          >
+            重新连接
+          </button>
+          <button
+            class="button secondary small"
+            aria-label="关闭终端"
+            @click="close"
+          >
+            {{ connected ? "断开并关闭" : "关闭" }}
+          </button>
+        </div>
+      </header>
+      <div v-if="error" class="terminal-error" role="alert">{{ error }}</div>
+      <div
+        ref="host"
+        class="terminal-screen"
+        :class="{ 'terminal-recording': !!recording }"
+        aria-label="终端输入与输出"
+      ></div>
+      <footer class="terminal-footer">
+        <span v-if="!recording">Ctrl-C 中断 · Tab 补全 · 输入 exit 退出</span>
+        <span v-else>按录制顺序回放，长时间停顿压缩至 2 秒</span>
+        <span>{{
+          recording
+            ? recording.audit_complete
+              ? "会话记录完整"
+              : "会话中断，仅展示已保存部分"
+            : "会话输出自动记录"
+        }}</span>
+      </footer>
+    </section>
+  </div>
+</template>
+<style scoped>
+.terminal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #12202b80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+.terminal-window {
+  width: min(1280px, 100%);
+  height: min(820px, 88vh);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #334554;
+  border-radius: 12px;
+  background: #111923;
+  box-shadow: 0 24px 80px #0006;
+  overflow: hidden;
+}
+.terminal-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  color: #e4eaf1;
+  background: #1b2734;
+}
+.terminal-heading > div,
+.terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.terminal-lights {
+  color: #6b8b92;
+  letter-spacing: 3px;
+  font-size: 11px;
+}
+.terminal-state {
+  font-size: 12px;
+  color: #a8b6c4;
+}
+.terminal-state.connected {
+  color: #74e0bc;
+}
+.terminal-screen {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 16px;
+  overflow: hidden;
+}
+.terminal-screen :deep(.xterm) {
+  height: 100%;
+}
+.terminal-recording {
+  overflow: auto;
+}
+.terminal-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid #293848;
+  color: #9baabb;
+  font-size: 12px;
+}
+.terminal-error {
+  padding: 12px 20px;
+  color: #ffb2a5;
+  background: #4a272b;
+  font-size: 13px;
+}
+.terminal-actions select {
+  width: 65px;
+  padding: 4px;
+  color: #111923;
+}
+@media (max-width: 700px) {
+  .terminal-overlay {
+    padding: 8px;
+  }
+  .terminal-window {
+    height: 95dvh;
+  }
+  .terminal-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 12px;
+  }
+  .terminal-heading > div {
+    flex-wrap: wrap;
+  }
+  .terminal-lights {
+    display: none;
+  }
+  .terminal-screen {
+    padding: 8px;
+  }
+  .terminal-footer {
+    flex-direction: column;
+    padding: 10px 12px;
+  }
+}
+</style>

@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "terminal.input",
+  "body": {
+    "data": "aGVsbG8=",
+    "actor_id": "spoof"
+  }
+}

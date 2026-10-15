@@ -21,18 +21,20 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128
+            },
+            "capabilities": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "string",
+                "maxLength": 64
+              }
             }
           },
-          "required": [
-            "agent_version"
-          ]
+          "required": ["agent_version"]
         }
       },
-      "required": [
-        "v",
-        "type",
-        "body"
-      ]
+      "required": ["v", "type", "body"]
     },
     {
       "type": "object",
@@ -52,18 +54,20 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128
+            },
+            "capabilities": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "string",
+                "maxLength": 64
+              }
             }
           },
-          "required": [
-            "agent_version"
-          ]
+          "required": ["agent_version"]
         }
       },
-      "required": [
-        "v",
-        "type",
-        "body"
-      ]
+      "required": ["v", "type", "body"]
     },
     {
       "type": "object",
@@ -79,11 +83,7 @@
           "$ref": "task.schema.json"
         }
       },
-      "required": [
-        "v",
-        "type",
-        "body"
-      ]
+      "required": ["v", "type", "body"]
     },
     {
       "type": "object",
@@ -103,16 +103,10 @@
               "$ref": "common.schema.json#/$defs/id"
             }
           },
-          "required": [
-            "task_id"
-          ]
+          "required": ["task_id"]
         }
       },
-      "required": [
-        "v",
-        "type",
-        "body"
-      ]
+      "required": ["v", "type", "body"]
     },
     {
       "type": "object",
@@ -128,11 +122,7 @@
           "$ref": "event.schema.json"
         }
       },
-      "required": [
-        "v",
-        "type",
-        "body"
-      ]
+      "required": ["v", "type", "body"]
     },
     {
       "type": "object",
@@ -158,18 +148,10 @@
               "$ref": "common.schema.json#/$defs/sequence"
             }
           },
-          "required": [
-            "event_id",
-            "task_id",
-            "seq"
-          ]
+          "required": ["event_id", "task_id", "seq"]
         }
       },
-      "required": [
-        "v",
-        "type",
-        "body"
-      ]
+      "required": ["v", "type", "body"]
     },
     {
       "type": "object",
@@ -191,17 +173,38 @@
               "maxLength": 128
             }
           },
-          "required": [
-            "code"
-          ]
+          "required": ["code"]
         }
       },
-      "required": [
-        "v",
-        "type",
-        "body"
-      ]
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.reauth"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "access_token": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          },
+          "required": ["access_token"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "$ref": "terminal-envelope.schema.json"
     }
   ],
-  "description": "Only enumerated v1 WSS frames are accepted. Enforce the 65536-byte UTF-8 limit before parsing. Tokens never appear in WSS JSON or query parameters."
+  "description": "Enumerated v1 WSS frames; 65536-byte UTF-8 limit before parsing. Only single-use terminal.attach tickets and in-place agent.reauth credentials appear in authenticated flows; never place tokens in URLs or logs."
 }

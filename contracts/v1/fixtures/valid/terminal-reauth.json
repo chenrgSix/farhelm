@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "agent.reauth",
+  "body": {
+    "access_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}

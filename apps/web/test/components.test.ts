@@ -220,6 +220,7 @@ describe("login and real-data-only console", () => {
       if (path === "/me") return business;
       if (path === "/devices") return { devices: [] };
       if (path === "/tasks") return { tasks: [] };
+      if (path === "/terminal-sessions") return { sessions: [] };
       return { audit: [] };
     });
     const wrapper = mount(App);

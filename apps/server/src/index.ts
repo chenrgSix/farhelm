@@ -24,6 +24,7 @@ const server = await buildServer({
   testMode: process.env.FLEET_TEST_MODE === "1",
   logger: true,
   webDist: process.env.FLEET_WEB_DIST,
+  consoleOrigin: process.env.FLEET_CONSOLE_ORIGIN,
 });
 await server.app.listen({ host, port });
 console.log(`Fleet HTTPS listening at https://${host}:${port}`);

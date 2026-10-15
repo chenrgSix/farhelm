@@ -628,5 +628,35 @@
     "schema": "audit.schema.json",
     "valid": false,
     "reason": "Audit payloads also reject undeclared fields"
+  },
+  {
+    "path": "valid/terminal-output.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-hello.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-reauth.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-audit.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/terminal-input-extra-field.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/terminal-resize-bounds.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": false
   }
 ]
