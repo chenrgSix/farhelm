@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+} from "vue";
 import { api } from "./api/client";
 import type {
   AuditEntry,
@@ -17,6 +23,7 @@ import HealthChecksPanel from "./components/HealthChecksPanel.vue";
 import SshConnectionPanel from "./components/SshConnectionPanel.vue";
 import SessionDuration from "./components/SessionDuration.vue";
 import DeviceConnectionPanel from "./components/DeviceConnectionPanel.vue";
+import AddDevicePanel from "./components/AddDevicePanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -40,6 +47,8 @@ const sshTarget = ref<Device | null>(null);
 const healthTarget = ref<Device | null>(null);
 const connectionTarget = ref<Device | undefined>();
 const connectionOpen = ref(false);
+const addDeviceOpen = ref(false);
+const enrollmentPanel = ref<HTMLElement>();
 const tasks = ref<Task[]>([]);
 const audit = ref<AuditEntry[]>([]);
 const refreshing = ref(false);
@@ -128,6 +137,7 @@ function logout(message = "") {
   healthTarget.value = null;
   connectionTarget.value = undefined;
   connectionOpen.value = false;
+  addDeviceOpen.value = false;
   sshTarget.value = null;
   terminalSessions.value = [];
   enrollment.value = null;
@@ -263,6 +273,18 @@ async function onCreated(id: string) {
 function switchView(id: View) {
   view.value = id;
   search.value = "";
+}
+async function selectDeviceAccess(kind: "ssh" | "agent") {
+  addDeviceOpen.value = false;
+  if (kind === "ssh") {
+    connectionTarget.value = undefined;
+    connectionOpen.value = true;
+  } else {
+    enrollOpen.value = true;
+    await nextTick();
+    enrollmentPanel.value?.scrollIntoView({ block: "center" });
+    enrollmentPanel.value?.querySelector("input")?.focus();
+  }
 }
 async function createEnrollment() {
   if (enrollmentBusy.value || enrollment.value || user.value?.role !== "admin")
@@ -479,22 +501,12 @@ onBeforeUnmount(() => {
             <button
               v-if="user.role === 'admin' && view === 'devices'"
               class="button primary"
-              :disabled="connectionOpen"
-              @click="
-                connectionTarget = undefined;
-                connectionOpen = true;
-              "
+              :disabled="connectionOpen || addDeviceOpen || enrollmentBusy"
+              @click="addDeviceOpen = true"
             >
-              ＋ 添加 SSH 设备
+              ＋ 添加设备
             </button>
             <button
-              v-if="user.role === 'admin' && view === 'devices'"
-              class="button secondary"
-              :disabled="enrollmentBusy"
-              @click="enrollOpen ? closeEnrollment() : (enrollOpen = true)"
-            >
-              ＋ 注册 Agent</button
-            ><button
               v-if="isExecAllowed && view === 'tasks'"
               class="button primary"
               :disabled="execOpen"
@@ -546,12 +558,13 @@ onBeforeUnmount(() => {
         </section>
         <section
           v-if="enrollOpen && user.role === 'admin'"
+          ref="enrollmentPanel"
           class="panel enrollment"
         >
           <div class="panel-heading">
             <div>
               <div class="eyebrow">DEVICE ENROLLMENT</div>
-              <h2>创建一次性注册令牌</h2>
+              <h2>添加设备 · Agent 接入</h2>
             </div>
             <button
               class="icon-button"
@@ -564,7 +577,8 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="!enrollment">
             <p class="muted">
-              令牌绑定一次设备注册授权。请通过安全渠道交给设备管理员，勿粘贴到日志或代码仓库
+              先生成接入令牌，在目标设备启动 Agent 时使用。Agent
+              首次连接后，设备会自动出现在列表中。请妥善保存令牌，勿粘贴到日志或代码仓库。
             </p>
             <form class="enroll-form" @submit.prevent="createEnrollment">
               <label
@@ -670,7 +684,7 @@ onBeforeUnmount(() => {
                       search
                         ? "尝试其他名称或设备 ID"
                         : user.role === "admin"
-                          ? "添加 SSH 设备，或创建注册令牌后启动 Agent"
+                          ? "点击“添加设备”，选择 SSH 或 Agent 接入"
                           : "请联系管理员完成设备注册与范围授权"
                     }}
                   </p>
@@ -1133,6 +1147,11 @@ onBeforeUnmount(() => {
           refresh();
         "
         @changed="refresh"
+      />
+      <AddDevicePanel
+        v-if="addDeviceOpen && user?.role === 'admin'"
+        @close="addDeviceOpen = false"
+        @select="selectDeviceAccess"
       />
       <DeviceConnectionPanel
         v-if="connectionOpen && user?.role === 'admin'"

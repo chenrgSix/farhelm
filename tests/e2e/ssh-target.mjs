@@ -145,9 +145,8 @@ try {
     assert.equal(r.status(), 200);
     return r.json();
   };
-  await page
-    .getByRole("button", { name: "＋ 添加 SSH 设备", exact: true })
-    .click();
+  await page.getByRole("button", { name: "＋ 添加设备", exact: true }).click();
+  await page.getByRole("button", { name: "SSH 接入", exact: true }).click();
   const config = page.getByRole("dialog");
   await config
     .getByLabel("设备名称", { exact: true })
