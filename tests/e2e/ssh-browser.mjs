@@ -18,7 +18,7 @@ assert.ok(
   credentials.username && credentials.password,
   "Supply explicit local credentials",
 );
-const url = process.env.FLEET_CONSOLE_URL || "http://127.0.0.1:5173";
+const url = process.env.FLEET_CONSOLE_URL || "https://localhost:5173";
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.FLEET_CHROMIUM_BIN

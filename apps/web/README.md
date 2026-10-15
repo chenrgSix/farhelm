@@ -7,14 +7,13 @@ Vue 3 + TypeScript + Vite。面板只从真实 `/api/v1` 读取数据；没有�
 Node.js 24+。在本目录运行 `npm ci`、`npm test`、`npm run typecheck`、`npm run build`。
 构建输出为 `dist/`，应通过服务端同源 HTTPS 静态服务或可信反向代理提供。服务端可设置 `FLEET_WEB_DIST=/absolute/path/apps/web/dist`（配置字段 `webDist`）。
 
-开发时，可使用仅绑定回环的 Vite 代理：
+开发时，在仓库根目录启动 HTTPS Vite 前端（需先准备 `.dev/tls` 开发证书和正在运行的后端）：
 
 ```sh
-NODE_EXTRA_CA_CERTS=/absolute/path/dev-ca.pem \
-FLEET_DEV_API_TARGET=https://localhost:8443 npm run dev
+npm run dev:web
 ```
 
-浏览器访问终端显示的 `http://127.0.0.1:5173`。可同时设置 `FLEET_DEV_WEB_TLS_CERT` 和 `FLEET_DEV_WEB_TLS_KEY` 启用 HTTPS，详见[统一平台入口](../../docs/platform-entry.md)。代理涵盖 `/api/`、`/agent/` 和 `/healthz`，包括 Agent 的安装下载与 WSS 控制连接。仅本机开发允许 HTTP；远程控制台登录必须使用 HTTPS。Vite 到 API 的 TLS 始终校验，禁止 `secure:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0`。未配置 API 代理时 API 缺失会显示明确错误，不会伪造数据。
+浏览器访问 `https://localhost:5173` 并显式信任开发证书；与 Docker Agent 共用入口时使用 `https://host.docker.internal:5173`，并配置宿主机解析。可同时设置 `FLEET_DEV_WEB_TLS_CERT` 和 `FLEET_DEV_WEB_TLS_KEY` 覆盖证书，详见[统一平台入口](../../docs/platform-entry.md)。代理涵盖 `/api/`、`/agent/` 和 `/healthz`，包括 Agent 的安装下载与 WSS 控制连接。仅本机开发允许 HTTP；远程控制台登录必须使用 HTTPS。Vite 到 API 的 TLS 始终校验，禁止 `secure:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0`。未配置 API 代理时 API 缺失会显示明确错误，不会伪造数据。
 
 ## 已实现
 

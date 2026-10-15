@@ -15,7 +15,7 @@ assert.ok(
   credentials.username && credentials.password,
   "Supply explicit local administrator credentials",
 );
-const url = process.env.FLEET_CONSOLE_URL || "http://127.0.0.1:5173";
+const url = process.env.FLEET_CONSOLE_URL || "https://localhost:5173";
 const container = process.env.FLEET_HEALTH_CONTAINER || "farhelm-agent";
 const marker = `fleet-health-browser-${process.pid}`;
 const control = `/home/fleet/.${marker}.json`;

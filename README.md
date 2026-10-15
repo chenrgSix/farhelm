@@ -47,7 +47,7 @@ export FLEET_ADMIN_PASSWORD='请替换为你自己的至少12字符密码'
 npm run dev
 ```
 
-启动脚本只在项目 `.dev/` 下生成 7 天本地开发 CA、服务端证书和状态；不修改系统信任、账号、权限、systemd 或生产服务。控制台 http://127.0.0.1:5173 仅监听 loopback，Vite 把 API 代理到校验证书的 HTTPS 服务；Agent 通过 HTTPS/WSS 访问 https://localhost:8443。此 HTTP 控制台只供本机开发，不能暴露到网络。
+启动脚本只在项目 `.dev/` 下生成 7 天本地开发 CA、服务端证书和状态；不修改系统信任、账号、权限、systemd 或生产服务。控制台 https://localhost:5173 默认仅监听 loopback，Vite 把 API、Agent WebSocket 和健康接口代理到校验证书的 HTTPS 服务；Agent 初次通过 HTTPS/WSS 访问 https://localhost:8443，之后可在系统设置同步到前端 HTTPS 入口。已有服务端时可单独运行 `npm run dev:web` 启动 HTTPS 前端，不会重启服务端或 Agent。Docker Agent 与宿主机浏览器共用入口时使用 `https://host.docker.internal:5173`，本机解析与证书信任配置见[统一平台入口](docs/platform-entry.md)。
 
 已有目录更名时，应先停止本地服务，连同 `.dev/` 一起移动，并从新目录重新启动。Docker 的绑定挂载保存绝对路径，开发容器也需要重新创建并指向新目录；重新创建前保留容器内自行安装的工具及文件。保留原有 Agent 状态目录和服务端数据库，即可继续使用已有设备身份、配置和会话录制。
 

@@ -18,7 +18,8 @@ export FLEET_EXECUTION_BACKEND="${FLEET_EXECUTION_BACKEND:-same-uid}"
 export FLEET_WEB_DIST="$ROOT/apps/web/dist"
 export FLEET_AGENT_DIST_DIR="${FLEET_AGENT_DIST_DIR:-$FLEET_DEV_DIR/agent-dist}"
 export FLEET_PUBLIC_URL="${FLEET_PUBLIC_URL:-$FLEET_SERVER_URL}"
-export FLEET_CONSOLE_ORIGIN=http://127.0.0.1:5173
+export FLEET_DEV_DIR
+export FLEET_CONSOLE_ORIGIN="https://localhost:${FLEET_DEV_WEB_PORT:-5173}"
 if [[ ! -f "$FLEET_TLS_CERT" ]]; then bash deploy/dev/generate-tls.sh "$FLEET_DEV_DIR/tls"; fi
 [[ -x agent/target/debug/farhelm-agent ]] || { echo 'Build first: cargo build --manifest-path agent/Cargo.toml --locked' >&2; exit 1; }
 pids=()
@@ -27,6 +28,6 @@ trap cleanup INT TERM EXIT
 node --import ./apps/server/node_modules/tsx/dist/loader.mjs apps/server/src/index.ts & pids+=("$!")
 export FLEET_ENROLLMENT_TOKEN="$(node scripts/dev-enroll.mjs)"
 env -u FLEET_ADMIN_PASSWORD -u FLEET_ADMIN_USER ./agent/target/debug/farhelm-agent & pids+=("$!")
-NODE_EXTRA_CA_CERTS="$FLEET_CA_CERT" FLEET_DEV_API_TARGET="$FLEET_SERVER_URL" env -u FLEET_ADMIN_PASSWORD -u FLEET_ADMIN_USER node "$ROOT/apps/web/node_modules/vite/bin/vite.js" "$ROOT/apps/web" --host 127.0.0.1 & pids+=("$!")
-printf '\nFarhelm console: http://127.0.0.1:5173 (loopback development only)\nFarhelm HTTPS server: %s (explicit CA trust needed in browser)\nSingle-account mode shares Agent and command permissions. Only run trusted commands.\nCtrl-C stops this demo only.\n' "$FLEET_SERVER_URL"
+bash "$ROOT/scripts/dev-web.sh" & pids+=("$!")
+printf '\nFarhelm HTTPS console: %s (loopback development only; explicit CA trust needed)\nFarhelm HTTPS server: %s (explicit CA trust needed in browser)\nAgent and command execution share a Linux account. Only run trusted commands.\nCtrl-C stops this demo only.\n' "$FLEET_CONSOLE_ORIGIN" "$FLEET_SERVER_URL"
 wait -n "${pids[@]}"

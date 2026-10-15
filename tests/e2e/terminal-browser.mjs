@@ -13,7 +13,7 @@ assert.ok(
   credentials.username && credentials.password,
   "Supply FLEET_CREDENTIALS_FILE or explicit administrator credentials for the local development instance",
 );
-const url = process.env.FLEET_CONSOLE_URL || "http://127.0.0.1:5173";
+const url = process.env.FLEET_CONSOLE_URL || "https://localhost:5173";
 const testSudo = process.env.FLEET_TEST_TERMINAL_SUDO === "1";
 const output = resolve(import.meta.dirname, "../../.test-output");
 mkdirSync(output, { recursive: true });

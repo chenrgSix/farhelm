@@ -27,19 +27,28 @@
 
 ## 本地开发
 
-现有 `http://127.0.0.1:5173` 仍是本机开发页面，Agent 不接受 HTTP，因此「使用当前网页地址并同步」在该页面禁用并说明原因。需要测试统一入口时，可为 Vite 启用 HTTPS：
+`npm run dev` 现在默认启动 HTTPS 前端；已有服务端和开发证书时，可单独运行 `npm run dev:web`。默认入口为 `https://localhost:5173`，监听 `127.0.0.1`，使用 `.dev/tls/server.crt`、`server.key` 和 `ca.crt`。可通过 `FLEET_DEV_WEB_PORT` 修改端口；端口被占用时直接失败，不会静默换端口。也可显式指定证书和上游：
 
 ```sh
 NODE_EXTRA_CA_CERTS=/absolute/path/.dev/tls/ca.crt \
 FLEET_DEV_API_TARGET=https://localhost:8443 \
 FLEET_DEV_WEB_TLS_CERT=/absolute/path/.dev/tls/server.crt \
 FLEET_DEV_WEB_TLS_KEY=/absolute/path/.dev/tls/server.key \
-npm --prefix apps/web run dev
+npm run dev:web
 ```
 
 Vite 会提供 HTTPS 网页并转发 API、Agent WebSocket 和健康接口；必须同时设置前端证书与密钥。代理保留外部 Host 以便网页终端校验 Origin，上游 TLS 名称固定为 `FLEET_DEV_API_TARGET` 中的主机名。证书必须显式受信，不自动修改系统信任或跳过验证。
 
-`127.0.0.1` / `localhost` 只指访问者自身。Docker Desktop / OrbStack 中的目标 Agent 可用证书覆盖的 `https://host.docker.internal:5173` 访问本机 HTTPS 前端。真正远程的机器需要可达域名或 IP，不能照抄开发回环地址。
+`127.0.0.1` / `localhost` 只指访问者自身。Docker Desktop / OrbStack 中的目标 Agent 可用证书覆盖的 `https://host.docker.internal:5173` 访问本机 HTTPS 前端。宿主机浏览器也应打开这一地址，才可直接使用「使用当前网页地址并同步」。如果宿主机不能解析该名称，可在宿主机 `/etc/hosts` 添加 `127.0.0.1 host.docker.internal`；容器仍使用 Docker 自带的宿主机解析，不修改容器 hosts。
+
+macOS 浏览器需要信任开发 CA。可在当前用户钥匙串中限定仅信任该主机的 SSL 证书：
+
+```sh
+security add-trusted-cert -r trustRoot -p ssl -s host.docker.internal \
+  -k "$HOME/Library/Keychains/login.keychain-db" .dev/tls/ca.crt
+```
+
+hosts 和钥匙串修改可能要求系统授权；开发启动脚本不会自动执行这些操作。开发证书仅有效 7 天，过期后需续签并更新相应信任配置。真正远程的机器需要可达域名或 IP，不能照抄开发回环地址。
 
 ## 验证
 

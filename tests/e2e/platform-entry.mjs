@@ -50,28 +50,19 @@ export async function startFrontendEntry({ mode, root, temp, tls, apiPort }) {
       await new Promise((r) => probe.listen(0, "127.0.0.1", r));
       port = probe.address().port;
       await new Promise((r) => probe.close(r));
-      vite = spawn(
-        process.execPath,
-        [
-          join(root, "apps/web/node_modules/vite/bin/vite.js"),
-          "--host",
-          "127.0.0.1",
-          "--port",
-          String(port),
-          "--strictPort",
-        ],
-        {
-          cwd: join(root, "apps/web"),
-          env: {
-            ...process.env,
-            NODE_EXTRA_CA_CERTS: join(tls, "ca.crt"),
-            FLEET_DEV_API_TARGET: `https://localhost:${apiPort}`,
-            FLEET_DEV_WEB_TLS_CERT: join(tls, "server.crt"),
-            FLEET_DEV_WEB_TLS_KEY: join(tls, "server.key"),
-          },
-          stdio: "ignore",
+      vite = spawn("bash", [join(root, "scripts/dev-web.sh")], {
+        cwd: join(root, "apps/web"),
+        env: {
+          ...process.env,
+          NODE_EXTRA_CA_CERTS: join(tls, "ca.crt"),
+          FLEET_DEV_WEB_HOST: "127.0.0.1",
+          FLEET_DEV_WEB_PORT: String(port),
+          FLEET_DEV_API_TARGET: `https://localhost:${apiPort}`,
+          FLEET_DEV_WEB_TLS_CERT: join(tls, "server.crt"),
+          FLEET_DEV_WEB_TLS_KEY: join(tls, "server.key"),
         },
-      );
+        stdio: "ignore",
+      });
     } else {
       container = `farhelm-entry-e2e-${process.pid}`;
       const config = readFileSync(
