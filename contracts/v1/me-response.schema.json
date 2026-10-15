@@ -17,12 +17,7 @@
       "maxLength": 128
     },
     "role": {
-      "enum": [
-        "admin",
-        "ops",
-        "business",
-        "auditor"
-      ]
+      "enum": ["admin", "ops", "business", "auditor"]
     },
     "device_scope": {
       "anyOf": [
@@ -37,13 +32,50 @@
           }
         }
       ]
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "devices.read",
+          "terminal.connect",
+          "tasks.read",
+          "tasks.execute",
+          "recordings.read",
+          "audit.read",
+          "health.manage",
+          "network.manage"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 8
+    },
+    "role_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "uniqueItems": true,
+      "maxItems": 100
+    },
+    "role_names": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "uniqueItems": true,
+      "maxItems": 100
+    },
+    "group_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "uniqueItems": true,
+      "maxItems": 100
     }
   },
-  "required": [
-    "v",
-    "id",
-    "username",
-    "role",
-    "device_scope"
-  ]
+  "required": ["v", "id", "username", "role", "device_scope"]
 }

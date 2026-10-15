@@ -1083,5 +1083,100 @@
     "path": "invalid/network-probe-fast-interval.json",
     "schema": "network-probe-config.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/access-management-response.json",
+    "schema": "access-management-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-user-response.json",
+    "schema": "access-user-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-user-create.json",
+    "schema": "access-user-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-user-update.json",
+    "schema": "access-user-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-role-response.json",
+    "schema": "access-role-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-role-create.json",
+    "schema": "access-role-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-role-update.json",
+    "schema": "access-role-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-group-response.json",
+    "schema": "access-group-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-group-create.json",
+    "schema": "access-group-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-group-update.json",
+    "schema": "access-group-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-device-group-response.json",
+    "schema": "access-device-group-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-device-group-create.json",
+    "schema": "access-device-group-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-device-group-update.json",
+    "schema": "access-device-group-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-password-reset.json",
+    "schema": "access-password-reset.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-delete.json",
+    "schema": "access-delete.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/access-secret-leak.json",
+    "schema": "access-management-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/access-unknown-permission.json",
+    "schema": "access-role-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/access-duplicate-device-selection.json",
+    "schema": "access-group-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/access-device-group-audit.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

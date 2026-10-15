@@ -8,7 +8,7 @@ import type {
   HealthResult,
   User,
 } from "../api/types";
-import { canExecute, formatTime } from "../model";
+import { hasPermission, formatTime } from "../model";
 const props = defineProps<{ device: Device; user: User }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const checks = ref<HealthCheck[]>([]);
@@ -25,7 +25,9 @@ const error = ref("");
 const message = ref("");
 const dirty = computed(() => JSON.stringify(checks.value) !== saved.value);
 const editable = computed(
-  () => canExecute(props.user, props.device.id) && !props.device.revoked_at,
+  () =>
+    hasPermission(props.user ?? null, "health.manage", props.device.id) &&
+    !props.device.revoked_at,
 );
 const path = `/devices/${encodeURIComponent(props.device.id)}/health-checks`;
 let disposed = false;

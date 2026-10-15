@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "role": {
+    "id": "role-1",
+    "name": "终端专员",
+    "description": "",
+    "permissions": ["devices.read", "terminal.connect"],
+    "builtin": false,
+    "revision": 0,
+    "user_count": 0,
+    "group_count": 1
+  }
+}

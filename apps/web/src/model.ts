@@ -1,4 +1,4 @@
-import type { CommandRequest, TaskStatus, User } from "./api/types";
+import type { CommandRequest, TaskStatus, User, Permission } from "./api/types";
 
 export const terminalStates = new Set<TaskStatus>([
   "SUCCEEDED",
@@ -26,14 +26,28 @@ export const roleLabels = {
   business: "业务人员",
   auditor: "审计员",
 };
-export function canExecute(user: User | null, deviceId?: string): boolean {
-  if (!user || !["admin", "ops"].includes(user.role)) return false;
+export function hasPermission(
+  user: User | null,
+  permission: Permission,
+  deviceId?: string,
+): boolean {
+  if (!user) return false;
+  const allowed = user.permissions
+    ? user.permissions.includes(permission)
+    : ["admin", "ops"].includes(user.role) ||
+      ["devices.read", "tasks.read", "recordings.read", "audit.read"].includes(
+        permission,
+      );
   return (
-    !deviceId ||
-    user.role === "admin" ||
-    user.device_scope === "*" ||
-    user.device_scope.includes(deviceId)
+    allowed &&
+    (!deviceId ||
+      user.role === "admin" ||
+      user.device_scope === "*" ||
+      user.device_scope.includes(deviceId))
   );
+}
+export function canExecute(user: User | null, deviceId?: string): boolean {
+  return hasPermission(user, "tasks.execute", deviceId);
 }
 export function parseCommand(input: {
   device_id: string;

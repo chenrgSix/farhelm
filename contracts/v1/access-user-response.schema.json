@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/access-user-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "user": {
+      "$ref": "access-management-response.schema.json#/$defs/user"
+    }
+  },
+  "required": ["v", "user"]
+}

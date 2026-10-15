@@ -1,0 +1,6 @@
+{
+  "name": "生产组",
+  "description": "",
+  "device_ids": ["device-1"],
+  "v": 1
+}

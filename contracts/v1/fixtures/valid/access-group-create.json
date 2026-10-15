@@ -1,0 +1,8 @@
+{
+  "name": "运维组",
+  "description": "",
+  "role_ids": ["role-1"],
+  "member_ids": ["user-1"],
+  "device_scope": [],
+  "v": 1
+}

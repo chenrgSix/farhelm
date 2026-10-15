@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "group": {
+    "id": "group-1",
+    "name": "运维组",
+    "description": "",
+    "device_scope": [],
+    "revision": 0,
+    "role_ids": ["role-1"],
+    "member_ids": ["user-1"]
+  }
+}

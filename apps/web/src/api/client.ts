@@ -130,6 +130,20 @@ export class ApiClient {
         /* Untrusted error body is optional. */
       }
       const upgradeHints: Record<string, string> = {
+        ACCESS_NAME_EXISTS: "该账号、角色或用户组名称已存在",
+        ACCESS_REVISION_CONFLICT:
+          "ACCESS_REVISION_CONFLICT：配置已被其他操作修改，请刷新后重新编辑",
+        LAST_ADMIN_REQUIRED: "必须保留至少一个启用的管理员账号",
+        SELF_ADMIN_REQUIRED: "不能停用当前账号或移除自己的管理员权限",
+        BUILTIN_ROLE_READ_ONLY: "内置角色不可修改或删除，请创建自定义角色",
+        ROLE_IN_USE: "角色仍被用户或用户组使用，请先取消分配",
+        UNKNOWN_ACCESS_REFERENCE: "所选角色、用户组或设备已不存在，请刷新列表",
+        INVALID_USERNAME:
+          "账号只能包含字母、数字、点、下划线、@ 和短横线，并以字母或数字开头",
+        DEVICE_READ_PERMISSION_REQUIRED: "请同时选择查看设备权限",
+        TASK_READ_PERMISSION_REQUIRED: "执行命令需要同时选择查看任务权限",
+        ACCESS_ENTRY_LIMIT: "已达到用户、角色或用户组数量上限",
+
         AGENT_RELEASE_CONFLICT:
           "该版本和架构已有不同的安装包，请使用新的版本号",
         AGENT_PACKAGE_SIZE: "安装包大小与版本清单不一致",

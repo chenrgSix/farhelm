@@ -1,0 +1,6 @@
+{
+  "name": "终端专员",
+  "description": "",
+  "permissions": ["devices.read", "terminal.connect"],
+  "v": 1
+}

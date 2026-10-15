@@ -1,0 +1,613 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/access-management-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": [
+              "devices.read",
+              "terminal.connect",
+              "tasks.read",
+              "tasks.execute",
+              "recordings.read",
+              "audit.read",
+              "health.manage",
+              "network.manage"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["id", "label", "description"]
+      },
+      "maxItems": 8
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "$ref": "common.schema.json#/$defs/timestamp"
+          },
+          "role_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "group_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "device_scope": {
+            "anyOf": [
+              {
+                "const": "*"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "uniqueItems": true,
+                "maxItems": 100000
+              }
+            ]
+          },
+          "effective_role": {
+            "enum": ["admin", "ops", "business", "auditor"]
+          },
+          "effective_permissions": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "devices.read",
+                "terminal.connect",
+                "tasks.read",
+                "tasks.execute",
+                "recordings.read",
+                "audit.read",
+                "health.manage",
+                "network.manage"
+              ]
+            },
+            "uniqueItems": true,
+            "maxItems": 8
+          },
+          "effective_device_scope": {
+            "anyOf": [
+              {
+                "const": "*"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "uniqueItems": true,
+                "maxItems": 100000
+              }
+            ]
+          },
+          "role_names": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "enabled",
+          "revision",
+          "created_at",
+          "role_ids",
+          "group_ids",
+          "device_scope",
+          "effective_role",
+          "effective_permissions",
+          "effective_device_scope",
+          "role_names"
+        ]
+      },
+      "maxItems": 1000
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 500
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "devices.read",
+                "terminal.connect",
+                "tasks.read",
+                "tasks.execute",
+                "recordings.read",
+                "audit.read",
+                "health.manage",
+                "network.manage"
+              ]
+            },
+            "uniqueItems": true,
+            "maxItems": 8
+          },
+          "builtin": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "user_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "group_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "permissions",
+          "builtin",
+          "revision",
+          "user_count",
+          "group_count"
+        ]
+      },
+      "maxItems": 100
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 500
+          },
+          "device_scope": {
+            "anyOf": [
+              {
+                "const": "*"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "uniqueItems": true,
+                "maxItems": 100000
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "role_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "member_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "uniqueItems": true,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "device_scope",
+          "revision",
+          "role_ids",
+          "member_ids"
+        ]
+      },
+      "maxItems": 100
+    },
+    "device_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "device_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "uniqueItems": true,
+            "maxItems": 1000
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740990
+          }
+        },
+        "required": ["id", "name", "description", "device_ids", "revision"]
+      },
+      "maxItems": 100
+    }
+  },
+  "required": ["v", "permissions", "users", "roles", "groups", "device_groups"],
+  "$defs": {
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "role_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "uniqueItems": true,
+          "maxItems": 100
+        },
+        "group_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "uniqueItems": true,
+          "maxItems": 100
+        },
+        "device_scope": {
+          "anyOf": [
+            {
+              "const": "*"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "uniqueItems": true,
+              "maxItems": 100000
+            }
+          ]
+        },
+        "effective_role": {
+          "enum": ["admin", "ops", "business", "auditor"]
+        },
+        "effective_permissions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "devices.read",
+              "terminal.connect",
+              "tasks.read",
+              "tasks.execute",
+              "recordings.read",
+              "audit.read",
+              "health.manage",
+              "network.manage"
+            ]
+          },
+          "uniqueItems": true,
+          "maxItems": 8
+        },
+        "effective_device_scope": {
+          "anyOf": [
+            {
+              "const": "*"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "uniqueItems": true,
+              "maxItems": 100000
+            }
+          ]
+        },
+        "role_names": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "uniqueItems": true,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "enabled",
+        "revision",
+        "created_at",
+        "role_ids",
+        "group_ids",
+        "device_scope",
+        "effective_role",
+        "effective_permissions",
+        "effective_device_scope",
+        "role_names"
+      ]
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "devices.read",
+              "terminal.connect",
+              "tasks.read",
+              "tasks.execute",
+              "recordings.read",
+              "audit.read",
+              "health.manage",
+              "network.manage"
+            ]
+          },
+          "uniqueItems": true,
+          "maxItems": 8
+        },
+        "builtin": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "user_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "group_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "permissions",
+        "builtin",
+        "revision",
+        "user_count",
+        "group_count"
+      ]
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "device_scope": {
+          "anyOf": [
+            {
+              "const": "*"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "uniqueItems": true,
+              "maxItems": 100000
+            }
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "role_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "uniqueItems": true,
+          "maxItems": 100
+        },
+        "member_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "uniqueItems": true,
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "device_scope",
+        "revision",
+        "role_ids",
+        "member_ids"
+      ]
+    },
+    "device_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "device_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "uniqueItems": true,
+          "maxItems": 1000
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740990
+        }
+      },
+      "required": ["id", "name", "description", "device_ids", "revision"]
+    }
+  }
+}

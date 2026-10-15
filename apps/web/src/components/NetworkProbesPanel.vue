@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api } from "../api/client";
-import { canExecute, formatTime } from "../model";
+import { hasPermission, formatTime } from "../model";
 import type {
   Device,
   User,
@@ -29,7 +29,7 @@ const pages = ref<(number | null)[]>([]);
 const editable = computed(
   () =>
     !!props.user &&
-    canExecute(props.user, props.device.id) &&
+    hasPermission(props.user ?? null, "network.manage", props.device.id) &&
     !props.device.revoked_at,
 );
 const dirty = computed(

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/access-device-group-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "device_group": {
+      "$ref": "access-management-response.schema.json#/$defs/device_group"
+    }
+  },
+  "required": ["v", "device_group"]
+}

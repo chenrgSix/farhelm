@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "user": {
+    "id": "user-1",
+    "username": "operator",
+    "enabled": true,
+    "revision": 1,
+    "created_at": 1700000000000,
+    "role_ids": [],
+    "group_ids": ["group-1"],
+    "device_scope": [],
+    "effective_role": "ops",
+    "effective_permissions": ["devices.read", "terminal.connect"],
+    "effective_device_scope": ["device-1"],
+    "role_names": ["终端专员"]
+  }
+}

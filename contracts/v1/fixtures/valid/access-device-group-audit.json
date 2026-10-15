@@ -1,0 +1,17 @@
+{
+  "id": 99,
+  "at": 1700000000000,
+  "actor_id": "user-1",
+  "device_id": null,
+  "task_id": null,
+  "action": "access.device_group_created",
+  "detail": {
+    "target_id": "device-group-1",
+    "revision": 1,
+    "changes": {
+      "name": "生产组",
+      "description": "",
+      "device_ids": ["device-1"]
+    }
+  }
+}

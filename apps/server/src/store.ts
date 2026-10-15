@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { passwordHash, canonical, fail, str } from "./util.js";
 import type { User, Role, Scope, Task } from "./types.js";
+import type { Permission } from "./permissions.js";
 export class Store {
   readonly db: DatabaseSync;
   readonly instance: string;
@@ -118,6 +119,36 @@ export class Store {
         "utf8",
       ),
     );
+    if (
+      !(this.db.prepare("PRAGMA table_info(users)").all() as any[]).some(
+        (c) => c.name === "enabled",
+      )
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL("../migrations/014_access_control.sql", import.meta.url),
+            "utf8",
+          ),
+        ),
+      );
+    }
+    if (
+      !this.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='device_groups'",
+        )
+        .get()
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL("../migrations/015_device_groups.sql", import.meta.url),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",
@@ -191,21 +222,64 @@ export class Store {
         username: input.username,
         role: input.role,
       });
-      return {
-        id,
-        username: input.username,
-        role: input.role,
-        device_scope: input.deviceScope,
-      };
+      this.db
+        .prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)")
+        .run(id, input.role);
+      return this.user(
+        this.db.prepare("SELECT * FROM users WHERE id=?").get(id),
+      );
     });
   }
 
   user(row: any): User {
+    const groups = this.db
+      .prepare(
+        "SELECT g.id,g.device_scope FROM access_groups g JOIN group_members m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.id",
+      )
+      .all(row.id) as any[];
+    const roles = this.db
+      .prepare(
+        "SELECT DISTINCT r.id,r.name,r.permissions FROM access_roles r WHERE r.id IN (SELECT role_id FROM user_roles WHERE user_id=? UNION SELECT gr.role_id FROM group_roles gr JOIN group_members gm ON gm.group_id=gr.group_id WHERE gm.user_id=?) ORDER BY r.id",
+      )
+      .all(row.id, row.id) as any[];
+    const permissions = row.enabled
+      ? [
+          ...new Set<Permission>(
+            roles.flatMap((r) => JSON.parse(r.permissions)),
+          ),
+        ]
+      : [];
+    const admin = !!row.enabled && roles.some((r) => r.id === "admin");
+    const scopes: Scope[] = [
+      JSON.parse(row.device_scope),
+      ...groups.map((g) => JSON.parse(g.device_scope)),
+    ];
+    const scope: Scope =
+      admin || scopes.includes("*")
+        ? "*"
+        : [...new Set(scopes.flatMap((s) => (s === "*" ? [] : s)))].sort();
     return {
       id: row.id,
       username: row.username,
-      role: row.role,
-      device_scope: JSON.parse(row.device_scope),
+      role: admin
+        ? "admin"
+        : permissions.some((p) =>
+              [
+                "terminal.connect",
+                "tasks.execute",
+                "health.manage",
+                "network.manage",
+              ].includes(p),
+            )
+          ? "ops"
+          : roles.some((r) => r.id === "business")
+            ? "business"
+            : "auditor",
+      device_scope: row.enabled ? scope : [],
+      permissions,
+      role_ids: roles.map((r) => r.id),
+      role_names: roles.map((r) => r.name),
+      group_ids: groups.map((g) => g.id),
     };
   }
   task(id: string): any {

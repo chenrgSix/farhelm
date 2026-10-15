@@ -14,6 +14,8 @@ Agent 0.2.3 起可在设备「网络记录」中配置多个网络探测地址�
 
 设备支持 **Agent / SSH 两种接入**。管理员可在前端添加 SSH 设备，配置地址、端口、账号、私钥和主机指纹；未安装 Agent 的机器也可通过网页终端及平台 SSH 入口操作，保留会话录制。Agent 可选 sudo 密码目前仅支持管理员加密保存，暂不提供查看或自动使用。详见[双接入配置](docs/device-connections.md)。
 
+管理员现可在「用户与权限」创建账号、自定义角色和用户组，分配角色及具体设备范围。设备组是便于批量选择的可选标签，可重叠、可为空，新设备默认不入组；调整标签不影响已有授权。详见[用户与分组授权](docs/access-control.md)。
+
 ## 项目名称与兼容性
 
 项目名称为 **Farhelm（遥舵）**，npm 包为 `farhelm`、`@farhelm/server`、`@farhelm/web`，Rust Agent 包及可执行文件为 `farhelm-agent`。
@@ -22,7 +24,7 @@ GitHub 仓库为 [chenrgSix/farhelm](https://github.com/chenrgSix/farhelm)，本
 
 现有 `FLEET_*` 环境变量、服务端 `fleet.sqlite` 数据库文件、开发容器中的 `fleet` 账号和路径继续沿用。v1 签名域 `fleet-v1`、JSON Schema 的 `https://fleet.local/contracts/v1/` 标识与公开测试向量保持兼容；这些是已有配置、数据和协议的固定标识。历史验证日志保留当时的名称和输出。
 
-## 已确认的单账号边界
+## 目标 Linux 单账号边界
 
 用户自行配置一个非 root Linux 账号，Agent 和 Exec 使用该账号。服务端用真实平台用户 ID 记录操作者、设备、任务、argv、cwd、结果和输出。业务/审计角色不能任意 Exec，运维还需设备范围授权。
 

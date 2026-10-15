@@ -434,3 +434,78 @@ test("startup reclassifies historical intentional closes without changing record
     store.close();
   }
 });
+
+test("management immediately revokes active web terminals on account disable and explicit scope removal", async () => {
+  for (const change of ["disable", "scope"] as const) {
+    const f = await fixture();
+    try {
+      const created = await f.api(
+        "POST",
+        "/api/v1/users",
+        {
+          v: 1,
+          username: "group-operator",
+          password: "terminal-test-password",
+          enabled: true,
+          role_ids: ["ops"],
+          group_ids: [],
+          device_scope: ["device"],
+        },
+        f.admin,
+      );
+      assert.equal(created.status, 200);
+      const user = created.body.user;
+      const auth = await f.login(user.username);
+      const session = await f.create(auth);
+      assert.equal(session.status, 200);
+      const browser = await f.attach(session.body);
+      const request = await f.agent.wait("terminal.open");
+      f.agent.send("terminal.opened", { session_id: request.session_id });
+      await browser.wait("terminal.ready");
+      const r =
+        change === "disable"
+          ? await f.api(
+              "PUT",
+              "/api/v1/users/" + user.id,
+              {
+                v: 1,
+                revision: user.revision,
+                username: user.username,
+                enabled: false,
+                role_ids: user.role_ids,
+                group_ids: [],
+                device_scope: [],
+              },
+              f.admin,
+            )
+          : await f.api(
+              "PUT",
+              "/api/v1/users/" + user.id,
+              {
+                v: 1,
+                revision: user.revision,
+                username: user.username,
+                enabled: true,
+                role_ids: user.role_ids,
+                group_ids: [],
+                device_scope: [],
+              },
+              f.admin,
+            );
+      assert.equal(r.status, 200);
+      assert.equal(
+        (await f.agent.wait("terminal.close")).session_id,
+        request.session_id,
+      );
+      await browser.wait("terminal.closed");
+      const stored = f.store.db
+        .prepare("SELECT status,reason FROM terminal_sessions WHERE id=?")
+        .get(request.session_id) as any;
+      assert.equal(stored.status, "INTERRUPTED");
+      assert.equal(stored.reason, "AUTHORIZATION_EXPIRED");
+      assert.equal((await f.create(auth)).status, 401);
+    } finally {
+      await f.close();
+    }
+  }
+});

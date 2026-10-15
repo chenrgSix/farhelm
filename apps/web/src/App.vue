@@ -8,7 +8,13 @@ import type {
   User,
   TerminalSession,
 } from "./api/types";
-import { canExecute, formatTime, roleLabels, terminalStates } from "./model";
+import {
+  canExecute,
+  hasPermission,
+  formatTime,
+  roleLabels,
+  terminalStates,
+} from "./model";
 import HealthBadge from "./components/HealthBadge.vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
@@ -22,6 +28,7 @@ import AddDevicePanel from "./components/AddDevicePanel.vue";
 import AgentInstallPanel from "./components/AgentInstallPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
+import AccessManagementPanel from "./components/AccessManagementPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -32,7 +39,13 @@ const password = ref("");
 const loginBusy = ref(false);
 const loginError = ref("");
 type View =
-  "devices" | "tasks" | "audit" | "terminals" | "settings" | "upgrades";
+  | "devices"
+  | "tasks"
+  | "audit"
+  | "terminals"
+  | "settings"
+  | "upgrades"
+  | "access";
 const view = ref<View>("devices");
 const closingSession = ref<string | null>(null);
 const terminalSessions = ref<TerminalSession[]>([]);
@@ -67,19 +80,29 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined;
 const navigation = computed(
   () =>
     [
-      { id: "devices", label: "设备总览", icon: "▦" },
-      { id: "terminals", label: "终端会话", icon: ">_" },
-      { id: "tasks", label: "任务中心", icon: "≡" },
-      { id: "audit", label: "操作审计", icon: "◷" },
+      ...(hasPermission(user.value, "devices.read")
+        ? [{ id: "devices", label: "设备总览", icon: "▦" } as const]
+        : []),
+      ...(hasPermission(user.value, "recordings.read")
+        ? [{ id: "terminals", label: "终端会话", icon: ">_" } as const]
+        : []),
+      ...(hasPermission(user.value, "tasks.read")
+        ? [{ id: "tasks", label: "任务中心", icon: "≡" } as const]
+        : []),
+      ...(hasPermission(user.value, "audit.read")
+        ? [{ id: "audit", label: "操作审计", icon: "◷" } as const]
+        : []),
       ...(user.value?.role === "admin"
         ? [
             { id: "upgrades", label: "Agent 升级", icon: "↑" } as const,
             { id: "settings", label: "系统设置", icon: "⚙" } as const,
+            { id: "access", label: "用户与权限", icon: "♙" } as const,
           ]
         : []),
     ] as const,
 );
 const titles = {
+  access: ["用户与权限", "管理账号、角色、用户组授权与设备分类"],
   devices: ["设备总览", "连接状态清晰可见，每一次操作都有记录"],
   tasks: ["任务中心", "从授权到真实结果，追踪每条命令的生命周期"],
   audit: ["操作审计", "平台内操作、授权与输出查看的持久化记录"],
@@ -89,7 +112,7 @@ const titles = {
 };
 const filteredDevices = computed(() =>
   devices.value.filter((d) =>
-    `${d.name} ${d.id} ${d.agent_version ?? ""} ${(d.ip_addresses ?? []).join(" ")}`
+    `${d.name} ${d.id} ${d.device_groups?.map((g) => g.name).join(" ") ?? ""} ${d.agent_version ?? ""} ${(d.ip_addresses ?? []).join(" ")}`
       .toLowerCase()
       .includes(search.value.toLowerCase()),
   ),
@@ -182,6 +205,7 @@ async function login() {
     if (!["admin", "ops", "business", "auditor"].includes(verified.role))
       throw new Error("账号角色无效");
     user.value = verified;
+    view.value = navigation.value[0]?.id ?? "devices";
     sessionGeneration++;
     await refresh();
     if (user.value)
@@ -215,12 +239,23 @@ async function refresh() {
   const generation = sessionGeneration;
   refreshing.value = true;
   try {
+    const freshUser = await api.request<User>("/me");
+    if (generation !== sessionGeneration) return;
+    user.value = freshUser;
     const [deviceResponse, taskResponse, auditResponse, terminalResponse] =
       await Promise.all([
-        api.request<{ devices: Device[] }>("/devices"),
-        api.request<{ tasks: Task[] }>("/tasks"),
-        api.request<{ audit: AuditEntry[] }>("/audit"),
-        api.request<{ sessions: TerminalSession[] }>("/terminal-sessions"),
+        hasPermission(user.value, "devices.read")
+          ? api.request<{ devices: Device[] }>("/devices")
+          : Promise.resolve({ devices: [] }),
+        hasPermission(user.value, "tasks.read")
+          ? api.request<{ tasks: Task[] }>("/tasks")
+          : Promise.resolve({ tasks: [] }),
+        hasPermission(user.value, "audit.read")
+          ? api.request<{ audit: AuditEntry[] }>("/audit")
+          : Promise.resolve({ audit: [] }),
+        hasPermission(user.value, "recordings.read")
+          ? api.request<{ sessions: TerminalSession[] }>("/terminal-sessions")
+          : Promise.resolve({ sessions: [] }),
       ]);
     if (generation !== sessionGeneration) return;
     if (
@@ -275,8 +310,7 @@ async function onCreated(id: string) {
   await selectTask(id);
 }
 function switchView(id: View) {
-  if (["settings", "upgrades"].includes(id) && user.value?.role !== "admin")
-    return;
+  if (!navigation.value.some((item) => item.id === id)) return;
   view.value = id;
   search.value = "";
 }
@@ -418,7 +452,9 @@ onBeforeUnmount(() => {
         }}</span>
         <div>
           <strong>{{ user.username }}</strong
-          ><small>{{ roleLabels[user.role] }}</small>
+          ><small>{{
+            user.role_names?.join(" / ") || roleLabels[user.role]
+          }}</small>
         </div>
         <button
           class="icon-button"
@@ -442,7 +478,9 @@ onBeforeUnmount(() => {
               lastUpdated ? `更新于 ${formatTime(lastUpdated)}` : "尚未获取数据"
             }}</span
           ><button
-            v-if="view !== 'settings' && view !== 'upgrades'"
+            v-if="
+              view !== 'settings' && view !== 'upgrades' && view !== 'access'
+            "
             class="button secondary small"
             :disabled="refreshing"
             @click="refresh"
@@ -484,7 +522,7 @@ onBeforeUnmount(() => {
           >
         </div>
         <section
-          v-if="view === 'devices'"
+          v-if="view === 'devices' && navigation.length"
           class="metric-grid"
           aria-label="设备概况"
         >
@@ -517,6 +555,14 @@ onBeforeUnmount(() => {
             <p>UNKNOWN 不会自动重跑</p>
           </div>
         </section>
+        <p v-if="!navigation.length" class="notice">
+          当前账号尚未分配操作权限，请联系管理员配置角色和设备范围。
+        </p>
+        <AccessManagementPanel
+          v-if="view === 'access' && user.role === 'admin'"
+          :current-user-id="user.id"
+          :devices="devices"
+        />
         <SystemSettingsPanel
           v-if="view === 'settings' && user.role === 'admin'"
           @saved="refresh"
@@ -525,7 +571,12 @@ onBeforeUnmount(() => {
           v-if="view === 'upgrades' && user.role === 'admin'"
         />
         <div
-          v-if="view !== 'settings' && view !== 'upgrades'"
+          v-if="
+            navigation.length &&
+            view !== 'settings' &&
+            view !== 'upgrades' &&
+            view !== 'access'
+          "
           class="content-grid"
           :class="{ 'with-exec': execOpen }"
         >
@@ -618,6 +669,11 @@ onBeforeUnmount(() => {
                             >
                             <div>
                               <strong>{{ device.name }}</strong
+                              ><small>{{
+                                device.device_groups
+                                  ?.map((g) => g.name)
+                                  .join("、") || "未分组"
+                              }}</small
                               ><small class="mono" :title="device.id"
                                 >{{ device.id.slice(0, 12) }}… ·
                                 {{
@@ -724,8 +780,11 @@ onBeforeUnmount(() => {
                             </button>
                             <button
                               v-if="
-                                canExecute(user, device.id) &&
-                                !device.revoked_at
+                                hasPermission(
+                                  user,
+                                  'terminal.connect',
+                                  device.id,
+                                ) && !device.revoked_at
                               "
                               class="button primary small"
                               :disabled="
@@ -747,8 +806,11 @@ onBeforeUnmount(() => {
                             </button>
                             <button
                               v-if="
-                                canExecute(user, device.id) &&
-                                !device.revoked_at
+                                hasPermission(
+                                  user,
+                                  'terminal.connect',
+                                  device.id,
+                                ) && !device.revoked_at
                               "
                               class="text-button"
                               :disabled="!apiReady || !!sshTarget"
@@ -777,7 +839,13 @@ onBeforeUnmount(() => {
                                 revokeBusy === device.id ? "撤销中" : "撤销"
                               }}</button
                             ><span
-                              v-if="!canExecute(user) || device.revoked_at"
+                              v-if="
+                                (!canExecute(user) &&
+                                  !hasPermission(user, 'terminal.connect') &&
+                                  !hasPermission(user, 'health.manage') &&
+                                  !hasPermission(user, 'network.manage')) ||
+                                device.revoked_at
+                              "
                               class="muted small"
                               >只读</span
                             >

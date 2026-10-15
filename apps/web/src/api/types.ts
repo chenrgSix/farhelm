@@ -4,10 +4,15 @@ export interface User {
   username: string;
   role: Role;
   device_scope: "*" | string[];
+  permissions?: Permission[];
+  role_ids?: string[];
+  role_names?: string[];
+  group_ids?: string[];
 }
 export interface Device {
   ip_addresses?: string[];
   connection_kind?: "agent" | "ssh";
+  device_groups?: { id: string; name: string }[];
   terminal_available?: boolean;
   ssh_status?: "unknown" | "connected" | "failed";
   ssh_checked_at?: number | null;
@@ -225,4 +230,63 @@ export interface NetworkProbeResponse {
   result_fresh: boolean;
   events: (NetworkProbeReport & { received_at: number })[];
   next_before: number | null;
+}
+
+export type Permission =
+  | "devices.read"
+  | "terminal.connect"
+  | "tasks.read"
+  | "tasks.execute"
+  | "recordings.read"
+  | "audit.read"
+  | "health.manage"
+  | "network.manage";
+export type DeviceScope = "*" | string[];
+export interface ManagedUser {
+  id: string;
+  username: string;
+  enabled: boolean;
+  revision: number;
+  created_at: number;
+  role_ids: string[];
+  group_ids: string[];
+  device_scope: DeviceScope;
+  effective_role: Role;
+  effective_permissions: Permission[];
+  effective_device_scope: DeviceScope;
+  role_names: string[];
+}
+export interface ManagedRole {
+  id: string;
+  name: string;
+  description: string;
+  permissions: Permission[];
+  builtin: boolean;
+  revision: number;
+  user_count: number;
+  group_count: number;
+}
+export interface ManagedGroup {
+  id: string;
+  name: string;
+  description: string;
+  device_scope: DeviceScope;
+  revision: number;
+  role_ids: string[];
+  member_ids: string[];
+}
+export interface ManagedDeviceGroup {
+  id: string;
+  name: string;
+  description: string;
+  revision: number;
+  device_ids: string[];
+}
+export interface AccessManagement {
+  v: 1;
+  users: ManagedUser[];
+  roles: ManagedRole[];
+  groups: ManagedGroup[];
+  device_groups: ManagedDeviceGroup[];
+  permissions: { id: Permission; label: string; description: string }[];
 }

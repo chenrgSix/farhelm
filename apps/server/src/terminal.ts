@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
+import { hasPermission, type Permission } from "./permissions.js";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
 import type { TargetTerminal } from "./ssh-target.js";
@@ -112,14 +113,13 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   ) {
     const row = db
       .prepare(
-        "SELECT u.* FROM user_sessions t JOIN users u ON u.id=t.user_id JOIN devices d ON d.id=? WHERE t.token_hash=? AND u.id=? AND t.expires_at>? AND d.revoked_at IS NULL",
+        "SELECT u.* FROM user_sessions t JOIN users u ON u.id=t.user_id JOIN devices d ON d.id=? WHERE t.token_hash=? AND u.id=? AND t.expires_at>? AND u.enabled=1 AND d.revoked_at IS NULL",
       )
       .get(s.deviceId, s.userSession, s.actorId, Date.now());
     if (!row) return false;
     const user = store.user(row);
     return (
-      (user.role === "admin" || user.role === "ops") &&
-      d.inScope(user, s.deviceId)
+      hasPermission(user, "terminal.connect") && d.inScope(user, s.deviceId)
     );
   }
   function sendClient(s: Session, type: string, body: Record<string, any>) {
@@ -171,8 +171,10 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       s.peer?.terminate();
     }
   }
-  function lookup(req: FastifyRequest) {
+  function lookup(req: FastifyRequest, permission?: Permission) {
     const user = d.userAuth(req);
+    if (permission && !hasPermission(user, permission))
+      fail(403, "PERMISSION_DENIED");
     const id = str((req.params as any).id, 1, 128);
     const row = db
       .prepare("SELECT * FROM terminal_sessions WHERE id=?")
@@ -191,7 +193,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   ) {
     integer(cols, 20, 500);
     integer(rows, 5, 200);
-    if (user.role !== "admin" && user.role !== "ops")
+    if (!hasPermission(user, "terminal.connect"))
       fail(403, "EXEC_ROLE_REQUIRED");
     d.requireScope(user, deviceId);
     rate.check("terminal-create:" + user.id, 20);
@@ -263,6 +265,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   });
   app.get("/api/v1/terminal-sessions", async (req) => {
     const user = d.userAuth(req);
+    if (!hasPermission(user, "recordings.read")) fail(403, "PERMISSION_DENIED");
     return {
       v: 1,
       sessions: (
@@ -286,7 +289,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     return { v: 1, ok: true };
   });
   app.get("/api/v1/terminal-sessions/:id/recording", async (req) => {
-    const { row, user } = lookup(req),
+    const { row, user } = lookup(req, "recordings.read"),
       q = object(req.query);
     keys(q, ["after"]);
     const after =
@@ -307,7 +310,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     return { v: 1, session: row, events, next: events.at(-1)?.seq ?? after };
   });
   app.post("/api/v1/terminal-sessions/:id/export", async (req) => {
-    const { row, user } = lookup(req),
+    const { row, user } = lookup(req, "recordings.read"),
       b = object(req.body);
     version(b);
     keys(b, ["v"]);

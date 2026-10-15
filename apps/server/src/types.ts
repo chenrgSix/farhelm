@@ -5,6 +5,10 @@ export interface User {
   username: string;
   role: Role;
   device_scope: Scope;
+  permissions?: import("./permissions.js").Permission[];
+  role_ids?: string[];
+  role_names?: string[];
+  group_ids?: string[];
 }
 export interface Task {
   task_id: string;

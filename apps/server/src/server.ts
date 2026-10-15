@@ -18,6 +18,8 @@ import {
 } from "node:fs";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
+import { registerAccessControl } from "./access-control.js";
+import { hasPermission, type Permission } from "./permissions.js";
 import { registerTerminals } from "./terminal.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
@@ -112,18 +114,15 @@ export async function buildServer(config: ServerConfig) {
   ) {
     if (!config.adminUsername || !config.adminPassword)
       throw new Error("Both explicit admin username and password are required");
-    const existing = db
-      .prepare("SELECT id,role FROM users WHERE username=?")
-      .get(config.adminUsername) as any;
-    if (!existing)
+    // Bootstrap is only for a fresh database. Renaming or disabling an account
+    // must never recreate it from a stale deployment environment on restart.
+    if (!(db.prepare("SELECT COUNT(*) AS n FROM users").get() as any).n)
       store.seedUser({
         username: config.adminUsername,
         password: config.adminPassword,
         role: "admin",
         deviceScope: "*",
       });
-    else if (existing.role !== "admin")
-      throw new Error("Bootstrap username belongs to a non-admin");
   }
   const app = Fastify({
     https: {
@@ -155,7 +154,7 @@ export async function buildServer(config: ServerConfig) {
       try {
         const u = db
           .prepare(
-            "SELECT u.id FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?",
+            "SELECT u.id FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1",
           )
           .get(
             typeof req.headers.authorization === "string" &&
@@ -235,7 +234,7 @@ export async function buildServer(config: ServerConfig) {
   function userAuth(req: FastifyRequest): User {
     const row = db
       .prepare(
-        "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?",
+        "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1",
       )
       .get(bearer(req), Date.now());
     if (!row) fail(401, "SESSION_INVALID");
@@ -272,8 +271,12 @@ export async function buildServer(config: ServerConfig) {
   }
   function operator(req: FastifyRequest): User {
     const user = userAuth(req);
-    if (user.role !== "admin" && user.role !== "ops")
-      fail(403, "EXEC_ROLE_REQUIRED");
+    if (!hasPermission(user, "tasks.execute")) fail(403, "EXEC_ROLE_REQUIRED");
+    return user;
+  }
+  function permitted(req: FastifyRequest, permission: Permission): User {
+    const user = userAuth(req);
+    if (!hasPermission(user, permission)) fail(403, "PERMISSION_DENIED");
     return user;
   }
   function availableStorage() {
@@ -392,8 +395,8 @@ export async function buildServer(config: ServerConfig) {
   });
   const networkProbes = registerNetworkProbes(app, {
     store,
-    userAuth,
-    operator,
+    userAuth: (req) => permitted(req, "devices.read"),
+    operator: (req) => permitted(req, "network.manage"),
     requireScope,
     requireDevice,
     availableStorage,
@@ -415,7 +418,7 @@ export async function buildServer(config: ServerConfig) {
   });
   const network = registerAgentNetwork(app, {
     store,
-    userAuth,
+    userAuth: (req) => permitted(req, "devices.read"),
     requireScope,
     requireDevice,
     online: (id) => {
@@ -430,8 +433,8 @@ export async function buildServer(config: ServerConfig) {
   });
   const health = registerHealth(app, {
     store,
-    userAuth,
-    operator,
+    userAuth: (req) => permitted(req, "devices.read"),
+    operator: (req) => permitted(req, "health.manage"),
     requireScope,
     requireDevice,
     availableStorage,
@@ -454,7 +457,7 @@ export async function buildServer(config: ServerConfig) {
   const terminals = registerTerminals(app, {
     connections: deviceConnections,
     store,
-    operator,
+    operator: (req) => permitted(req, "terminal.connect"),
     userAuth,
     requireScope,
     inScope,
@@ -517,6 +520,13 @@ export async function buildServer(config: ServerConfig) {
     }
     return row;
   }
+  registerAccessControl(app, {
+    store,
+    admin,
+    availableStorage,
+    rate,
+    changed: () => terminals.tick(),
+  });
   app.get("/healthz", async () => ({
     v: 1,
     ok: true,
@@ -532,7 +542,7 @@ export async function buildServer(config: ServerConfig) {
       .prepare("SELECT * FROM users WHERE username=?")
       .get(username) as any;
     const valid = passwordVerify(password, row?.password_hash ?? dummyPassword);
-    if (!row || !valid) {
+    if (!row || !valid || !row.enabled) {
       store.audit("user.login_failed", null, null, null, {
         username_hash: hash(username),
       });
@@ -559,12 +569,12 @@ export async function buildServer(config: ServerConfig) {
   function sshUser(login: SshLogin) {
     const row = db
       .prepare(
-        "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>?",
+        "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.enabled=1",
       )
       .get(login.sessionHash, login.user.id, Date.now());
     if (!row) fail(401, "SESSION_INVALID");
     const user = store.user(row);
-    if (user.role !== "admin" && user.role !== "ops")
+    if (!hasPermission(user, "terminal.connect"))
       fail(403, "EXEC_ROLE_REQUIRED");
     return user;
   }
@@ -575,7 +585,7 @@ export async function buildServer(config: ServerConfig) {
           terminals,
           authenticate(username, password, target, ip) {
             const user = passwordUser(username, password, ip);
-            if (!["admin", "ops"].includes(user.role)) {
+            if (!hasPermission(user, "terminal.connect")) {
               store.audit("authorization.denied", user.id, null, null, {
                 reason: "SSH_TARGET_DENIED",
                 method: "SSH",
@@ -602,7 +612,7 @@ export async function buildServer(config: ServerConfig) {
               !device ||
               device.revoked_at ||
               !inScope(user, device.id) ||
-              !["admin", "ops"].includes(user.role)
+              !hasPermission(user, "terminal.connect")
             ) {
               store.audit(
                 "authorization.denied",
@@ -832,7 +842,7 @@ export async function buildServer(config: ServerConfig) {
     });
   });
   app.get("/api/v1/devices", async (req) => {
-    const user = userAuth(req);
+    const user = permitted(req, "devices.read");
     const devices = (
       db.prepare("SELECT * FROM devices ORDER BY created_at,id").all() as any[]
     )
@@ -840,6 +850,11 @@ export async function buildServer(config: ServerConfig) {
       .map((d) => ({
         id: d.id,
         name: d.name,
+        device_groups: db
+          .prepare(
+            "SELECT g.id,g.name FROM device_groups g JOIN device_group_members m ON m.group_id=g.id WHERE m.device_id=? ORDER BY g.name",
+          )
+          .all(d.id),
         control_online:
           !!connections.get(d.id)?.ready && live(connections.get(d.id)!),
         private_data_reachable: null,
@@ -1004,13 +1019,13 @@ export async function buildServer(config: ServerConfig) {
     };
   });
   app.get("/api/v1/tasks", async (req) => {
-    const user = userAuth(req);
+    const user = permitted(req, "tasks.read");
     const unrestricted = user.role === "admin" || user.device_scope === "*";
     const scope = Array.isArray(user.device_scope) ? user.device_scope : [];
     const where = unrestricted
       ? ""
       : scope.length
-        ? " WHERE device_id IN (" + scope.map(() => "?").join(",") + ")"
+        ? " WHERE device_id IN (SELECT value FROM json_each(?))"
         : " WHERE 0";
     const rows = db
       .prepare(
@@ -1018,11 +1033,13 @@ export async function buildServer(config: ServerConfig) {
           where +
           " ORDER BY created_at DESC,id DESC LIMIT 500",
       )
-      .all(...(unrestricted ? [] : scope)) as any[];
+      .all(
+        ...(unrestricted || !scope.length ? [] : [JSON.stringify(scope)]),
+      ) as any[];
     return { v: 1, tasks: rows.map((r) => store.taskView(r)) };
   });
   app.get("/api/v1/tasks/:id", async (req) => {
-    const user = userAuth(req);
+    const user = permitted(req, "tasks.read");
     const row = store.task(str((req.params as any).id, 1, 128));
     requireScope(user, row.device_id);
     return { v: 1, ...store.taskView(row) };
@@ -1045,7 +1062,7 @@ export async function buildServer(config: ServerConfig) {
     return { v: 1, ok: true, status: row.status };
   });
   app.get("/api/v1/audit", async (req) => {
-    const user = userAuth(req);
+    const user = permitted(req, "audit.read");
     const unrestricted = user.role === "admin";
     const scope = Array.isArray(user.device_scope) ? user.device_scope : [];
     const where = unrestricted
@@ -1054,7 +1071,7 @@ export async function buildServer(config: ServerConfig) {
         ? " WHERE device_id IS NOT NULL OR actor_id=?"
         : " WHERE actor_id=?" +
           (scope.length
-            ? " OR device_id IN (" + scope.map(() => "?").join(",") + ")"
+            ? " OR device_id IN (SELECT value FROM json_each(?))"
             : "");
     const rows = db
       .prepare("SELECT * FROM audit" + where + " ORDER BY id DESC LIMIT 1000")
@@ -1063,7 +1080,9 @@ export async function buildServer(config: ServerConfig) {
           ? []
           : user.device_scope === "*"
             ? [user.id]
-            : [user.id, ...scope]),
+            : scope.length
+              ? [user.id, JSON.stringify(scope)]
+              : [user.id]),
       ) as any[];
     return {
       v: 1,
@@ -1144,7 +1163,7 @@ export async function buildServer(config: ServerConfig) {
   app.get("/api/v1/tasks/:task_id/output/:stream", async (req, reply) => {
     const params = req.params as any;
     const row = store.task(str(params.task_id, 1, 128));
-    const user = userAuth(req);
+    const user = permitted(req, "tasks.read");
     requireScope(user, row.device_id);
     const actor = user.id;
     const stream = str(params.stream, 1, 16);

@@ -70,6 +70,25 @@
         "type": "string",
         "maxLength": 45
       }
+    },
+    "device_groups": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["id", "name"]
+      }
     }
   },
   "required": [

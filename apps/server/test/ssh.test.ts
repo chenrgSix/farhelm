@@ -651,7 +651,9 @@ test("SSH menu rejects non-operators and closes expired/downgraded logins before
         f.store.db.prepare("UPDATE user_sessions SET expires_at=0").run();
       else
         f.store.db
-          .prepare("UPDATE users SET role='business' WHERE username='admin'")
+          .prepare(
+            "UPDATE user_roles SET role_id='business' WHERE user_id=(SELECT id FROM users WHERE username='admin')",
+          )
           .run();
       const closed = new Promise<void>((resolve) =>
         m.client.once("close", () => resolve()),
@@ -698,3 +700,80 @@ test("SSH empty menu supports Ctrl-C/EOF and bounds oversized input without crea
     await f.close();
   }
 });
+
+test(
+  "user-group authorization also applies to SSH gateway and closes active SSH terminals when permissions change",
+  { timeout: 10000 },
+  async () => {
+    const f = await fixture();
+    try {
+      const login = await f.app.inject({
+        method: "POST",
+        url: "/api/v1/login",
+        payload: { username: "admin", password: "ssh-test-password" },
+      });
+      const headers = { authorization: "Bearer " + login.json().access_token };
+      const created = await f.app.inject({
+        method: "POST",
+        url: "/api/v1/users",
+        headers,
+        payload: {
+          v: 1,
+          username: "group-ssh",
+          password: "ssh-test-password",
+          enabled: true,
+          role_ids: ["ops"],
+          group_ids: [],
+          device_scope: [],
+        },
+      });
+      assert.equal(created.statusCode, 200);
+      const groupResponse = await f.app.inject({
+        method: "POST",
+        url: "/api/v1/groups",
+        headers,
+        payload: {
+          v: 1,
+          name: "SSH 运维组",
+          description: "",
+          role_ids: ["ops"],
+          member_ids: [created.json().user.id],
+          device_scope: ["device"],
+        },
+      });
+      assert.equal(groupResponse.statusCode, 200);
+      const group = groupResponse.json().group;
+      const opened = await f.open("group-ssh:device");
+      opened.channel.resume();
+      const closed = once(opened.channel, "close");
+      const moved = await f.app.inject({
+        method: "PUT",
+        url: "/api/v1/groups/" + group.id,
+        headers,
+        payload: {
+          v: 1,
+          revision: group.revision,
+          name: group.name,
+          description: "",
+          role_ids: ["ops"],
+          member_ids: [created.json().user.id],
+          device_scope: [],
+        },
+      });
+      assert.equal(moved.statusCode, 200);
+      assert.equal((await f.wait("terminal.close")).session_id, opened.id);
+      await closed;
+      assert.equal(
+        (
+          f.store.db
+            .prepare("SELECT reason FROM terminal_sessions WHERE id=?")
+            .get(opened.id) as any
+        ).reason,
+        "AUTHORIZATION_EXPIRED",
+      );
+      await assert.rejects(f.connect("group-ssh:device"));
+    } finally {
+      await f.close();
+    }
+  },
+);
