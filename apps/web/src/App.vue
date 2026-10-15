@@ -16,6 +16,7 @@ import TaskDetail from "./components/TaskDetail.vue";
 import HealthChecksPanel from "./components/HealthChecksPanel.vue";
 import SshConnectionPanel from "./components/SshConnectionPanel.vue";
 import SessionDuration from "./components/SessionDuration.vue";
+import DeviceConnectionPanel from "./components/DeviceConnectionPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -37,6 +38,8 @@ const terminalTarget = ref<{
 const devices = ref<Device[]>([]);
 const sshTarget = ref<Device | null>(null);
 const healthTarget = ref<Device | null>(null);
+const connectionTarget = ref<Device | undefined>();
+const connectionOpen = ref(false);
 const tasks = ref<Task[]>([]);
 const audit = ref<AuditEntry[]>([]);
 const refreshing = ref(false);
@@ -123,6 +126,8 @@ function logout(message = "") {
   selectedTask.value = null;
   terminalTarget.value = null;
   healthTarget.value = null;
+  connectionTarget.value = undefined;
+  connectionOpen.value = false;
   sshTarget.value = null;
   terminalSessions.value = [];
   enrollment.value = null;
@@ -473,11 +478,22 @@ onBeforeUnmount(() => {
           <div class="heading-actions">
             <button
               v-if="user.role === 'admin' && view === 'devices'"
+              class="button primary"
+              :disabled="connectionOpen"
+              @click="
+                connectionTarget = undefined;
+                connectionOpen = true;
+              "
+            >
+              ＋ 添加 SSH 设备
+            </button>
+            <button
+              v-if="user.role === 'admin' && view === 'devices'"
               class="button secondary"
               :disabled="enrollmentBusy"
               @click="enrollOpen ? closeEnrollment() : (enrollOpen = true)"
             >
-              ＋ 注册设备</button
+              ＋ 注册 Agent</button
             ><button
               v-if="isExecAllowed && view === 'tasks'"
               class="button primary"
@@ -507,11 +523,11 @@ onBeforeUnmount(() => {
             <p>来自已认证的设备清单</p>
           </div>
           <div class="metric">
-            <span><span class="dot green"></span>控制连接在线</span
+            <span><span class="dot green"></span>Agent 在线</span
             ><strong
               >{{ apiReady ? onlineCount : "—" }}<small>台</small></strong
             >
-            <p>公网 WSS 心跳状态</p>
+            <p>Agent WSS 心跳状态，SSH 按需连接</p>
           </div>
           <div class="metric">
             <span>当前列表进行中</span
@@ -654,7 +670,7 @@ onBeforeUnmount(() => {
                       search
                         ? "尝试其他名称或设备 ID"
                         : user.role === "admin"
-                          ? "创建注册令牌，在授权设备上启动 Agent 后将在这里出现"
+                          ? "添加 SSH 设备，或创建注册令牌后启动 Agent"
                           : "请联系管理员完成设备注册与范围授权"
                     }}
                   </p>
@@ -664,10 +680,10 @@ onBeforeUnmount(() => {
                     <thead>
                       <tr>
                         <th>设备</th>
-                        <th>控制连接</th>
+                        <th>连接状态</th>
                         <th>私网数据</th>
                         <th>业务健康</th>
-                        <th>最近心跳</th>
+                        <th>最近心跳 / 检查</th>
                         <th>操作</th>
                       </tr>
                     </thead>
@@ -682,7 +698,12 @@ onBeforeUnmount(() => {
                               <strong>{{ device.name }}</strong
                               ><small class="mono" :title="device.id"
                                 >{{ device.id.slice(0, 12) }}… ·
-                                {{ device.agent_version ?? "版本未知" }}</small
+                                {{
+                                  device.connection_kind === "ssh"
+                                    ? "SSH 接入"
+                                    : "Agent · " +
+                                      (device.agent_version ?? "版本未知")
+                                }}</small
                               >
                             </div>
                           </div>
@@ -691,7 +712,20 @@ onBeforeUnmount(() => {
                           >
                         </td>
                         <td>
+                          <div
+                            v-if="device.connection_kind === 'ssh'"
+                            class="small"
+                          >
+                            <span>按需连接</span><br /><span class="muted">{{
+                              device.ssh_status === "connected"
+                                ? "上次连接成功"
+                                : device.ssh_status === "failed"
+                                  ? "上次连接失败"
+                                  : "尚未测试"
+                            }}</span>
+                          </div>
                           <HealthBadge
+                            v-else
                             :value="
                               apiReady
                                 ? device.control_online && !device.revoked_at
@@ -717,11 +751,29 @@ onBeforeUnmount(() => {
                           />
                         </td>
                         <td class="small muted">
-                          {{ formatTime(device.last_seen) }}
+                          {{
+                            formatTime(
+                              device.connection_kind === "ssh"
+                                ? (device.ssh_checked_at ?? null)
+                                : device.last_seen,
+                            )
+                          }}
                         </td>
                         <td>
                           <div class="row-actions">
                             <button
+                              v-if="user.role === 'admin' && !device.revoked_at"
+                              class="text-button"
+                              :disabled="!apiReady || connectionOpen"
+                              @click="
+                                connectionTarget = device;
+                                connectionOpen = true;
+                              "
+                            >
+                              接入配置
+                            </button>
+                            <button
+                              v-if="device.connection_kind !== 'ssh'"
                               class="text-button"
                               :disabled="!apiReady || !!healthTarget"
                               @click="healthTarget = device"
@@ -736,7 +788,10 @@ onBeforeUnmount(() => {
                               class="button primary small"
                               :disabled="
                                 !apiReady ||
-                                !device.control_online ||
+                                !(
+                                  device.terminal_available ??
+                                  device.control_online
+                                ) ||
                                 !!terminalTarget
                               "
                               @click="
@@ -767,6 +822,7 @@ onBeforeUnmount(() => {
                               class="text-button"
                               :disabled="execOpen"
                               @click="openExec(device.id)"
+                              v-show="device.connection_kind !== 'ssh'"
                             >
                               命令任务</button
                             ><button
@@ -904,7 +960,15 @@ onBeforeUnmount(() => {
                           <SessionDuration :session="session" />
                         </td>
                         <td>
-                          {{ session.transport === "ssh" ? "SSH" : "网页" }}
+                          <span>{{
+                            session.transport === "ssh" ? "SSH" : "网页"
+                          }}</span>
+                          <small class="muted">
+                            →
+                            {{
+                              session.backend === "ssh" ? "SSH 主机" : "Agent"
+                            }}</small
+                          >
                         </td>
                         <td>
                           <span
@@ -1067,6 +1131,16 @@ onBeforeUnmount(() => {
         @close="
           terminalTarget = null;
           refresh();
+        "
+        @changed="refresh"
+      />
+      <DeviceConnectionPanel
+        v-if="connectionOpen && user?.role === 'admin'"
+        :key="connectionTarget?.id ?? 'new'"
+        :device="connectionTarget"
+        @close="
+          connectionOpen = false;
+          connectionTarget = undefined;
         "
         @changed="refresh"
       />

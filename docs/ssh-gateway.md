@@ -1,10 +1,11 @@
 # SSH 统一入口
 
-用户用标准 SSH 客户端连接 Farhelm 服务端，服务端认证平台账号、检查设备授权后，通过目标 Agent 已建立的出站 WSS 通道创建 PTY。目标设备无需运行 sshd 或开放 22 端口，平台不需要保存目标主机的 SSH 密码/私钥。与 Warpgate 的入口体验类似，但这一版的下游是 Agent PTY，不是 SSH 到 SSH 的透明代理。
+用户用标准 SSH 客户端连接 Farhelm 服务端，认证平台账号、检查设备授权后，按接入方式创建 PTY：Agent 设备使用出站 WSS，SSH 设备由平台通过配置的账号和私钥连接目标 sshd。Agent 模式无需目标 sshd；SSH 模式无需安装 Agent。配置与凭据管理见[双接入说明](device-connections.md)。当前为受审计的交互终端转接，不转发任意 SSH 通道。
 
 ```text
 OpenSSH / SSH 客户端 ── SSH ── Farhelm 服务端 ── 已认证 WSS ── Agent PTY
 浏览器终端          ── WSS ────────┘
+                                      └── SSH（固定主机指纹）── 目标 sshd
 ```
 
 ## 使用
@@ -25,7 +26,7 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 
 刷新和连接时重新检查登录有效期与当前权限；选择绑定刚才显示的设备 ID，列表变化不会让同一编号误连其他设备。菜单最长保留 5 分钟，选择成功后开始原有终端计时和录制；列表、选择按键不计入 Agent 终端录制。一次 SSH 连接选择一台设备，退出目标 Shell 后连接结束。
 
-支持交互式 Shell、Ctrl-C、Tab、窗口缩放和中文。必须请求 PTY；当前使用 Agent 的 Bash/sh、固定的 xterm-256color 和默认 PTY 模式，忽略客户端环境变量。命令运行身份与网页终端一致，是 Agent 的 Linux 账号，sudo 仍取决于已配置的系统权限和 Agent 选项。
+支持交互式 Shell、Ctrl-C、Tab、窗口缩放和中文。必须请求 PTY，使用固定 xterm-256color 和默认 PTY 模式，忽略客户端环境变量。运行身份与网页终端一致：Agent 设备使用 Agent 的 Linux 账号；SSH 设备使用配置的目标 SSH 账号及其默认 Shell。sudo 取决于目标系统权限，Agent 模式还受终端提权选项控制。
 
 网页「终端会话」区分 SSH/网页来源，并统一展示状态、录制时长、回放和导出；管理员或原操作者可点击「结束会话」断开活跃连接。输入 `exit` 正常结束，意外 SSH/Agent 断线显示中断。SSH 退出码 0 表示会话传输正常结束，不提供 Shell 内最后一条命令/进程的退出码；自动化请继续使用命令任务。
 

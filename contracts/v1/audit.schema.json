@@ -64,7 +64,10 @@
         "terminal.recording_viewed",
         "terminal.recording_exported",
         "health.configured",
-        "health.run_requested"
+        "health.run_requested",
+        "connection.configured",
+        "connection.host_key_scanned",
+        "connection.tested"
       ]
     },
     "detail": {
@@ -352,6 +355,37 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            }
+          },
+          "required": ["revision"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "kind": {
+              "enum": ["agent", "ssh"]
+            }
+          },
+          "required": ["revision", "kind"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1
             }
           },
           "required": ["revision"]
@@ -909,6 +943,76 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              }
+            },
+            "required": ["revision"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "connection.configured"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "kind": {
+                "enum": ["agent", "ssh"]
+              }
+            },
+            "required": ["revision", "kind"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "connection.host_key_scanned"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "connection.tested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1
               }
             },
             "required": ["revision"]

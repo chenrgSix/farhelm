@@ -42,7 +42,10 @@ interface Dependencies {
   userAuth(req: FastifyRequest): User;
   operator(req: FastifyRequest): User;
   requireScope(user: User, id: string): void;
-  requireDevice(id: string): { revoked_at: number | null };
+  requireDevice(id: string): {
+    revoked_at: number | null;
+    connection_kind?: string;
+  };
   availableStorage(): void;
   agent(id: string): Agent | undefined;
   rate: RateLimiter;
@@ -185,6 +188,8 @@ export function registerHealth(app: FastifyInstance, d: Dependencies) {
     const id = str((req.params as any).id, 1, 128);
     d.requireScope(user, id);
     const row = d.requireDevice(id);
+    if (row.connection_kind === "ssh")
+      fail(409, "AGENT_REQUIRED_FOR_HEALTH_CHECKS");
     if (editing && row.revoked_at) fail(409, "DEVICE_REVOKED");
     return { user, id };
   }

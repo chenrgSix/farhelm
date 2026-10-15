@@ -8,6 +8,8 @@ Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出
 
 设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。EasyTier 私网可达仍未采集。
 
+设备支持 **Agent / SSH 两种接入**。管理员可在前端添加 SSH 设备，配置地址、端口、账号、私钥和主机指纹；未安装 Agent 的机器也可通过网页终端及平台 SSH 入口操作，保留会话录制。Agent 可选 sudo 密码目前仅支持管理员加密保存，暂不提供查看或自动使用。详见[双接入配置](docs/device-connections.md)。
+
 ## 项目名称与兼容性
 
 项目名称为 **Farhelm（遥舵）**，npm 包为 `farhelm`、`@farhelm/server`、`@farhelm/web`，Rust Agent 包及可执行文件为 `farhelm-agent`。
@@ -43,7 +45,7 @@ npm run dev
 
 登录 → 设备页 → 点击「连接终端」→ 像普通终端一样输入命令。连续命令共享 Shell 和工作目录，支持 Tab 补全、Ctrl-C、窗口缩放与中文。输入 `exit` 退出；「终端会话」可以查看回放与导出记录。运维角色仍受设备范围约束。
 
-设备页「SSH 连接」提供标准客户端命令，使用平台账号和密码连接统一入口；目标设备通过 Agent 通道接入，无需开放 SSH。开发默认入口 `127.0.0.1:2222`；也可用 `ssh -tt -p 2222 -l admin 127.0.0.1` 登录后按编号选设备。功能和部署边界见 [SSH 统一入口](docs/ssh-gateway.md)。
+设备页「SSH 连接」提供标准客户端命令，使用平台账号和密码连接统一入口；目标设备按配置使用 Agent 通道或 SSH 接入。开发默认入口 `127.0.0.1:2222`；也可用 `ssh -tt -p 2222 -l admin 127.0.0.1` 登录后按编号选设备。功能和部署边界见 [SSH 统一入口](docs/ssh-gateway.md)。
 
 原有「命令任务」保留用于需要超时、幂等重试和独立结果的操作，可输入 argv JSON 数组，例如 `["/usr/bin/uptime"]`。任务模式不自动拼接 Shell。`journalctl` 的可见范围取决于用户配置的系统账号，失败不会自动 sudo 或加组。
 

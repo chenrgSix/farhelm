@@ -18,7 +18,8 @@
     "format:check": "prettier --check \"apps/**/*.{ts,vue,css,json}\" \"tests/**/*.{ts,mjs,json}\" --ignore-path .gitignore",
     "test:startup": "bash tests/e2e/dev-smoke.sh",
     "package:source": "python3 scripts/package-source.py",
-    "test:ssh:browser": "node tests/e2e/ssh-browser.mjs"
+    "test:ssh:browser": "node tests/e2e/ssh-browser.mjs",
+    "test:ssh:target": "node tests/e2e/ssh-target.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

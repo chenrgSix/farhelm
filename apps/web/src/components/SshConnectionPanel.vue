@@ -77,12 +77,18 @@ async function copy() {
           <p class="muted">客户端用户名：{{ user.username }}:{{ device.id }}</p>
           <p>首次连接时，请核对平台主机指纹：</p>
           <code class="ssh-fingerprint">{{ gateway.fingerprint }}</code>
-          <p v-if="!device.control_online" class="text-warning">
+          <p
+            v-if="device.connection_kind !== 'ssh' && !device.control_online"
+            class="text-warning"
+          >
             设备当前离线，Agent 恢复连接后才能进入终端。
           </p>
           <p class="muted">
-            支持交互式 Shell、Ctrl-C 和窗口缩放，使用设备上 Agent
-            的系统账号。操作录制和时长可在「终端会话」查看。
+            支持交互式 Shell、Ctrl-C 和窗口缩放，使用{{
+              device.connection_kind === "ssh"
+                ? "管理员配置的目标 SSH 账号"
+                : "设备上 Agent 的系统账号"
+            }}。操作录制和时长可在「终端会话」查看。
           </p>
           <p class="muted">
             当前仅支持密码登录的交互终端；SFTP、SCP、远程命令模式和端口转发尚未开放。

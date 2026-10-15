@@ -22,6 +22,7 @@ import { registerTerminals } from "./terminal.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerHealth } from "./health.js";
+import { registerDeviceConnections } from "./device-connections.js";
 import {
   ApiError,
   fail,
@@ -129,6 +130,9 @@ export async function buildServer(config: ServerConfig) {
           redact: [
             "req.headers.authorization",
             "req.body.password",
+            "req.body.private_key",
+            "req.body.passphrase",
+            "req.body.sudo_password",
             "req.body.enrollment_token",
             "res.headers.set-cookie",
           ],
@@ -235,7 +239,7 @@ export async function buildServer(config: ServerConfig) {
     const th = bearer(req);
     const row = db
       .prepare(
-        "SELECT d.id,t.expires_at FROM device_tokens t JOIN devices d ON d.id=t.device_id WHERE t.token_hash=? AND t.expires_at>? AND d.revoked_at IS NULL AND t.scope=?",
+        "SELECT d.id,t.expires_at FROM device_tokens t JOIN devices d ON d.id=t.device_id WHERE t.token_hash=? AND t.expires_at>? AND d.revoked_at IS NULL AND d.connection_kind='agent' AND t.scope=?",
       )
       .get(th, Date.now(), "agent-control-output") as any;
     if (!row) fail(401, "DEVICE_AUTH_INVALID");
@@ -329,6 +333,13 @@ export async function buildServer(config: ServerConfig) {
       if (row.cancel_requested) send(c, "task.cancel", { task_id: row.id });
     }
   }
+  const deviceConnections = registerDeviceConnections(app, {
+    store,
+    admin,
+    requireDevice,
+    availableStorage,
+    rate,
+  });
   const health = registerHealth(app, {
     store,
     userAuth,
@@ -353,6 +364,7 @@ export async function buildServer(config: ServerConfig) {
     },
   });
   const terminals = registerTerminals(app, {
+    connections: deviceConnections,
     store,
     operator,
     userAuth,
@@ -523,7 +535,7 @@ export async function buildServer(config: ServerConfig) {
             integer(page, 0, 1000000);
             const rows = db
               .prepare(
-                "SELECT id,name FROM devices WHERE revoked_at IS NULL AND (? OR id IN (SELECT value FROM json_each(?))) ORDER BY name,id LIMIT ? OFFSET ?",
+                "SELECT id,name,connection_kind FROM devices WHERE revoked_at IS NULL AND (? OR id IN (SELECT value FROM json_each(?))) ORDER BY name,id LIMIT ? OFFSET ?",
               )
               .all(
                 Number(user.role === "admin" || user.device_scope === "*"),
@@ -532,7 +544,7 @@ export async function buildServer(config: ServerConfig) {
                 ),
                 SSH_MENU_PAGE_SIZE + 1,
                 page * SSH_MENU_PAGE_SIZE,
-              ) as { id: string; name: string }[];
+              ) as { id: string; name: string; connection_kind: string }[];
             return {
               hasMore: rows.length > SSH_MENU_PAGE_SIZE,
               devices: rows.slice(0, SSH_MENU_PAGE_SIZE).map((device) => {
@@ -543,11 +555,14 @@ export async function buildServer(config: ServerConfig) {
                   Date.now() - c.lastHeartbeat <= heartbeatTimeout;
                 return {
                   ...device,
-                  status: !online
-                    ? "offline"
-                    : c.terminal
-                      ? "online"
-                      : "unsupported",
+                  status:
+                    device.connection_kind === "ssh"
+                      ? "ssh"
+                      : !online
+                        ? "offline"
+                        : c.terminal
+                          ? "online"
+                          : "unsupported",
                 };
               }),
             };
@@ -741,6 +756,14 @@ export async function buildServer(config: ServerConfig) {
         last_seen: d.last_seen,
         revoked_at: d.revoked_at,
         agent_version: d.agent_version,
+        connection_kind: d.connection_kind,
+        terminal_available:
+          !d.revoked_at &&
+          (d.connection_kind === "ssh" ||
+            (!!connections.get(d.id)?.ready &&
+              live(connections.get(d.id)!) &&
+              !!connections.get(d.id)?.terminal)),
+        ...(d.connection_kind === "ssh" ? deviceConnections.status(d.id) : {}),
       }));
     return { v: 1, devices };
   });
@@ -758,6 +781,7 @@ export async function buildServer(config: ServerConfig) {
       db.prepare("DELETE FROM device_tokens WHERE device_id=?").run(id);
       store.audit("device.revoked", user.id, id, null);
     });
+    terminals.revoke(id);
     connections.get(id)?.socket.close(4003, "Device revoked");
     connections.delete(id);
     return { v: 1, ok: true };
@@ -780,6 +804,7 @@ export async function buildServer(config: ServerConfig) {
     requireScope(user, deviceId);
     const d = requireDevice(deviceId);
     if (d.revoked_at !== null) fail(409, "DEVICE_REVOKED");
+    if (d.connection_kind !== "agent") fail(409, "AGENT_REQUIRED_FOR_TASKS");
     if (!Array.isArray(b.argv) || b.argv.length < 1 || b.argv.length > 128)
       fail(400, "INVALID_ARGV");
     const argv = b.argv.map((x) => {
@@ -1435,6 +1460,7 @@ export async function buildServer(config: ServerConfig) {
     clearInterval(timer);
     terminals.close();
     await ssh?.close();
+    await deviceConnections.close();
     for (const c of connections.values()) c.socket.terminate();
     connections.clear();
     store.close();

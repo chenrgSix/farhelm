@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
+import type { TargetTerminal } from "./ssh-target.js";
 import {
   fail,
   hash,
@@ -31,6 +32,8 @@ interface Session {
   socket?: WebSocket;
   peer?: TerminalPeer;
   ready: boolean;
+  backend: "agent" | "ssh";
+  target?: TargetTerminal;
 }
 interface Dependencies {
   store: Store;
@@ -39,6 +42,15 @@ interface Dependencies {
   requireScope(user: User, id: string): void;
   inScope(user: User, id: string): boolean;
   availableStorage(): void;
+  connections: {
+    kind(id: string): "agent" | "ssh";
+    open(
+      id: string,
+      cols: number,
+      rows: number,
+      receive: (type: string, body: Record<string, any>) => void,
+    ): TargetTerminal;
+  };
   agent(
     id: string,
   ):
@@ -119,7 +131,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   function end(s: Session, reason: string, complete = false) {
     if (!sessions.delete(s.id)) return;
     // Stop further input first, even if final audit storage itself has failed.
-    d.agent(s.deviceId)?.send("terminal.close", { session_id: s.id });
+    if (s.backend === "ssh") s.target?.close();
+    else d.agent(s.deviceId)?.send("terminal.close", { session_id: s.id });
     let persisted = false;
     try {
       store.transaction(() => {
@@ -183,9 +196,12 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     rate.check("terminal-create:" + user.id, 20);
     if (!authorized({ deviceId, actorId: user.id, userSession }))
       fail(403, "TERMINAL_NOT_AUTHORIZED");
-    const agent = d.agent(deviceId);
-    if (!agent) fail(409, "DEVICE_OFFLINE");
-    if (!agent.terminal) fail(409, "TERMINAL_NOT_SUPPORTED_UPDATE_AGENT");
+    const backend = d.connections.kind(deviceId);
+    if (backend === "agent") {
+      const agent = d.agent(deviceId);
+      if (!agent) fail(409, "DEVICE_OFFLINE");
+      if (!agent.terminal) fail(409, "TERMINAL_NOT_SUPPORTED_UPDATE_AGENT");
+    }
     if (
       sessions.size >= 32 ||
       [...sessions.values()].filter((s) => s.deviceId === deviceId).length >=
@@ -199,8 +215,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       now = Date.now();
     store.transaction(() => {
       db.prepare(
-        "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,transport) VALUES(?,?,?,'OPENING',?,?,?,?)",
-      ).run(id, deviceId, user.id, cols, rows, now, transport);
+        "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,transport,backend) VALUES(?,?,?,'OPENING',?,?,?,?,?)",
+      ).run(id, deviceId, user.id, cols, rows, now, transport, backend);
       record(id, "open", { cols, rows });
       store.audit("terminal.created", user.id, deviceId, null, {
         session_id: id,
@@ -215,6 +231,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       expires: now + 30000,
       created: now,
       ready: false,
+      backend,
     };
     sessions.set(id, session);
     return { session, ticket };
@@ -306,11 +323,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       keys(b, ["data"]);
       bytes(b.data);
       // Never record raw keystrokes: PTY echo determines what appears in output.
-      if (
-        !d
-          .agent(s.deviceId)
-          ?.send("terminal.input", { session_id: s.id, data: b.data })
-      )
+      if (!sendTarget(s, "terminal.input", { data: b.data }))
         safeEnd(s, "DEVICE_OFFLINE");
     } else if (type === "terminal.resize") {
       keys(b, ["cols", "rows"]);
@@ -320,18 +333,28 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       };
       d.availableStorage();
       store.transaction(() => record(s.id, "resize", size));
-      if (
-        !d
-          .agent(s.deviceId)
-          ?.send("terminal.resize", { session_id: s.id, ...size })
-      )
-        safeEnd(s, "DEVICE_OFFLINE");
+      if (!sendTarget(s, "terminal.resize", size)) safeEnd(s, "DEVICE_OFFLINE");
     } else if (type === "terminal.close") {
       keys(b, []);
       end(s, "USER_DISCONNECTED");
     } else fail(400, "UNKNOWN_TERMINAL_MESSAGE");
   }
-  function openAgent(s: Session, cols: number, rows: number) {
+  function sendTarget(s: Session, type: string, body: Record<string, any>) {
+    return s.backend === "ssh"
+      ? s.target?.send(type, body)
+      : d.agent(s.deviceId)?.send(type, { session_id: s.id, ...body });
+  }
+  function openTarget(s: Session, cols: number, rows: number) {
+    if (s.backend === "ssh") {
+      try {
+        s.target = d.connections.open(s.deviceId, cols, rows, (type, body) =>
+          receive(s.deviceId, type, { ...body, session_id: s.id }, "ssh"),
+        );
+      } catch {
+        safeEnd(s, "SSH_CONNECT_FAILED");
+      }
+      return;
+    }
     if (
       !d
         .agent(s.deviceId)
@@ -393,14 +416,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
             const row = db
               .prepare("SELECT cols,rows FROM terminal_sessions WHERE id=?")
               .get(s.id) as any;
-            if (
-              !d.agent(s.deviceId)?.send("terminal.open", {
-                session_id: s.id,
-                cols: row.cols,
-                rows: row.rows,
-              })
-            )
-              safeEnd(s, "DEVICE_OFFLINE");
+            openTarget(s, row.cols, row.rows);
             return;
           }
           input(session, env.type, b);
@@ -411,6 +427,67 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       });
     },
   );
+  function receive(
+    deviceId: string,
+    type: string,
+    b: Record<string, any>,
+    backend: "agent" | "ssh",
+  ) {
+    const s = sessions.get(str(b.session_id, 1, 128));
+    if (!s || s.deviceId !== deviceId || s.backend !== backend) return; // Late frames or wrong backend.
+    try {
+      if (!authorized(s)) return end(s, "AUTHORIZATION_EXPIRED");
+      if (type === "terminal.opened") {
+        keys(b, ["session_id"]);
+        if (s.ready) fail(409, "TERMINAL_ALREADY_OPEN");
+        store.transaction(() => {
+          db.prepare(
+            "UPDATE terminal_sessions SET status='OPEN' WHERE id=?",
+          ).run(s.id);
+          store.audit("terminal.opened", s.actorId, s.deviceId, null, {
+            session_id: s.id,
+          });
+        });
+        s.ready = true;
+        if (!sendClient(s, "terminal.ready", {}))
+          end(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
+      } else if (type === "terminal.output") {
+        keys(b, ["session_id", "seq", "data"]);
+        if (!s.ready) fail(409, "TERMINAL_NOT_OPEN");
+        const seq = integer(b.seq, 1, Number.MAX_SAFE_INTEGER),
+          chunk = bytes(b.data);
+        d.availableStorage();
+        store.transaction(() => {
+          const row = db
+            .prepare(
+              "SELECT output_seq,output_bytes FROM terminal_sessions WHERE id=?",
+            )
+            .get(s.id) as any;
+          if (seq !== row.output_seq + 1) fail(409, "TERMINAL_OUTPUT_GAP");
+          if (row.output_bytes + chunk.length > MAX_BYTES)
+            fail(413, "TERMINAL_RECORDING_LIMIT");
+          record(s.id, "output", { data: b.data });
+          db.prepare(
+            "UPDATE terminal_sessions SET output_seq=?,output_bytes=output_bytes+? WHERE id=?",
+          ).run(seq, chunk.length, s.id);
+        });
+        // SQLite FULL commit precedes both display and Agent ACK.
+        if (!sendClient(s, "terminal.output", { data: b.data }))
+          return end(s, s.peer ? "SSH_BACKPRESSURE" : "BROWSER_BACKPRESSURE");
+        if (
+          s.backend === "agent" &&
+          !d.agent(deviceId)?.send("terminal.ack", { session_id: s.id, seq })
+        )
+          end(s, "DEVICE_OFFLINE");
+      } else if (type === "terminal.closed") {
+        keys(b, ["session_id", "reason"]);
+        const reason = str(b.reason, 1, 128);
+        end(s, reason, reason === "SHELL_EXIT");
+      } else fail(400, "UNKNOWN_TERMINAL_MESSAGE");
+    } catch {
+      safeEnd(s, "TERMINAL_RECORDING_FAILURE");
+    }
+  }
   return {
     openSsh(
       user: User,
@@ -430,7 +507,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       );
       s.ticketHash = null;
       s.peer = peer;
-      openAgent(s, cols, rows);
+      openTarget(s, cols, rows);
       return {
         input(type: string, body: Record<string, any>) {
           try {
@@ -445,63 +522,16 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       };
     },
     receive(deviceId: string, type: string, b: Record<string, any>) {
-      const s = sessions.get(str(b.session_id, 1, 128));
-      if (!s || s.deviceId !== deviceId) return; // Late frames from an already closed session.
-      try {
-        if (!authorized(s)) return end(s, "AUTHORIZATION_EXPIRED");
-        if (type === "terminal.opened") {
-          keys(b, ["session_id"]);
-          if (s.ready) fail(409, "TERMINAL_ALREADY_OPEN");
-          store.transaction(() => {
-            db.prepare(
-              "UPDATE terminal_sessions SET status='OPEN' WHERE id=?",
-            ).run(s.id);
-            store.audit("terminal.opened", s.actorId, s.deviceId, null, {
-              session_id: s.id,
-            });
-          });
-          s.ready = true;
-          if (!sendClient(s, "terminal.ready", {}))
-            end(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
-        } else if (type === "terminal.output") {
-          keys(b, ["session_id", "seq", "data"]);
-          if (!s.ready) fail(409, "TERMINAL_NOT_OPEN");
-          const seq = integer(b.seq, 1, Number.MAX_SAFE_INTEGER),
-            chunk = bytes(b.data);
-          d.availableStorage();
-          store.transaction(() => {
-            const row = db
-              .prepare(
-                "SELECT output_seq,output_bytes FROM terminal_sessions WHERE id=?",
-              )
-              .get(s.id) as any;
-            if (seq !== row.output_seq + 1) fail(409, "TERMINAL_OUTPUT_GAP");
-            if (row.output_bytes + chunk.length > MAX_BYTES)
-              fail(413, "TERMINAL_RECORDING_LIMIT");
-            record(s.id, "output", { data: b.data });
-            db.prepare(
-              "UPDATE terminal_sessions SET output_seq=?,output_bytes=output_bytes+? WHERE id=?",
-            ).run(seq, chunk.length, s.id);
-          });
-          // SQLite FULL commit precedes both display and Agent ACK.
-          if (!sendClient(s, "terminal.output", { data: b.data }))
-            return end(s, s.peer ? "SSH_BACKPRESSURE" : "BROWSER_BACKPRESSURE");
-          if (
-            !d.agent(deviceId)?.send("terminal.ack", { session_id: s.id, seq })
-          )
-            end(s, "DEVICE_OFFLINE");
-        } else if (type === "terminal.closed") {
-          keys(b, ["session_id", "reason"]);
-          const reason = str(b.reason, 1, 128);
-          end(s, reason, reason === "SHELL_EXIT");
-        } else fail(400, "UNKNOWN_TERMINAL_MESSAGE");
-      } catch {
-        safeEnd(s, "TERMINAL_RECORDING_FAILURE");
-      }
+      receive(deviceId, type, b, "agent");
     },
     disconnect(deviceId: string) {
       for (const s of [...sessions.values()])
-        if (s.deviceId === deviceId) safeEnd(s, "AGENT_DISCONNECTED");
+        if (s.deviceId === deviceId && s.backend === "agent")
+          safeEnd(s, "AGENT_DISCONNECTED");
+    },
+    revoke(deviceId: string) {
+      for (const s of [...sessions.values()])
+        if (s.deviceId === deviceId) safeEnd(s, "AUTHORIZATION_EXPIRED");
     },
     tick() {
       for (const s of [...sessions.values()]) {

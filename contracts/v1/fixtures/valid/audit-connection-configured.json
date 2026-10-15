@@ -1,0 +1,12 @@
+{
+  "id": 1,
+  "at": 1,
+  "actor_id": "admin",
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "task_id": null,
+  "action": "connection.configured",
+  "detail": {
+    "revision": 1,
+    "kind": "ssh"
+  }
+}

@@ -6,6 +6,10 @@ export interface User {
   device_scope: "*" | string[];
 }
 export interface Device {
+  connection_kind?: "agent" | "ssh";
+  terminal_available?: boolean;
+  ssh_status?: "unknown" | "connected" | "failed";
+  ssh_checked_at?: number | null;
   id: string;
   name: string;
   control_online: boolean;
@@ -14,6 +18,23 @@ export interface Device {
   last_seen: number | null;
   revoked_at: number | null;
   agent_version: string | null;
+}
+export interface DeviceConnection {
+  v: 1;
+  device_id: string;
+  kind: "agent" | "ssh";
+  revision: number;
+  ssh: {
+    host: string;
+    port: number;
+    username: string;
+    fingerprint: string;
+  } | null;
+  has_private_key: boolean;
+  has_passphrase: boolean;
+  has_sudo_password: boolean;
+  last_checked_at: number | null;
+  last_error: string | null;
 }
 export interface HealthCheck {
   id: string;
@@ -121,6 +142,7 @@ export interface CommandResponse {
   status: TaskStatus;
 }
 export interface TerminalSession {
+  backend?: "agent" | "ssh";
   transport?: "web" | "ssh";
   id: string;
   device_id: string;

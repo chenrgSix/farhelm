@@ -21,7 +21,12 @@ const attempt = ref<CommandAttempt | null>(null);
 const busy = ref(false);
 const error = ref("");
 const allowedDevices = computed(() =>
-  props.devices.filter((d) => !d.revoked_at && canExecute(props.user, d.id)),
+  props.devices.filter(
+    (d) =>
+      d.connection_kind !== "ssh" &&
+      !d.revoked_at &&
+      canExecute(props.user, d.id),
+  ),
 );
 async function submit() {
   if (busy.value || attempt.value?.state === "confirmed") return;

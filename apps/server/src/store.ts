@@ -59,6 +59,23 @@ export class Store {
         ),
       );
     }
+    if (
+      !(this.db.prepare("PRAGMA table_info(devices)").all() as any[]).some(
+        (c) => c.name === "connection_kind",
+      )
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL(
+              "../migrations/006_device_connections.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

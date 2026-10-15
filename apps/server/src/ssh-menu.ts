@@ -6,7 +6,7 @@ export interface SshDevicePage {
   devices: {
     id: string;
     name: string;
-    status: "online" | "offline" | "unsupported";
+    status: "online" | "offline" | "unsupported" | "ssh";
   }[];
   hasMore: boolean;
 }
@@ -54,7 +54,7 @@ export function createDeviceMenu(
           ? snapshot.devices
               .map(
                 (d, index) =>
-                  `  ${index + 1}. ${label(d.name)} [${{ online: "在线", offline: "离线", unsupported: "不支持终端" }[d.status]}]  ${label(d.id)}\r\n`,
+                  `  ${index + 1}. ${label(d.name)} [${{ online: "在线", offline: "离线", unsupported: "不支持终端", ssh: "SSH · 按需连接" }[d.status]}]  ${label(d.id)}\r\n`,
               )
               .join("")
           : "  暂无可访问设备，请联系管理员授权；可按 r 刷新。\r\n") +

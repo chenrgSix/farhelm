@@ -748,5 +748,45 @@
     "path": "invalid/ssh-disabled-port.json",
     "schema": "ssh-info-response.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/device-ssh.json",
+    "schema": "device.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/connection-ssh.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/connection-agent.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/connection-secret-leak.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/connection-unpinned.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/audit-connection-configured.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-connection-host_key_scanned.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-connection-tested.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

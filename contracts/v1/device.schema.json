@@ -49,6 +49,19 @@
           "type": "null"
         }
       ]
+    },
+    "connection_kind": {
+      "enum": ["agent", "ssh"]
+    },
+    "terminal_available": {
+      "type": "boolean"
+    },
+    "ssh_status": {
+      "enum": ["unknown", "connected", "failed"]
+    },
+    "ssh_checked_at": {
+      "type": ["integer", "null"],
+      "minimum": 0
     }
   },
   "required": [

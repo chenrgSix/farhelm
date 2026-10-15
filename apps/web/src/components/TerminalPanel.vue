@@ -197,6 +197,20 @@ async function connect() {
             !["SHELL_EXIT", "USER_DISCONNECTED"].includes(message.body.reason)
           )
             error.value =
+              (
+                {
+                  SSH_HOST_KEY_MISMATCH:
+                    "目标 SSH 主机指纹已变化，连接被拒绝。请由管理员核对主机身份和接入配置。",
+                  SSH_AUTH_FAILED:
+                    "目标 SSH 认证失败，请由管理员检查接入账号和私钥。",
+                  SSH_CONNECT_TIMEOUT:
+                    "连接目标 SSH 服务超时，请检查地址、端口和网络。",
+                  SSH_CONNECT_FAILED:
+                    "连接目标 SSH 服务失败，请检查设备接入配置。",
+                  SSH_PTY_FAILED:
+                    "目标 SSH 服务未能创建交互终端，请检查目标账号的 Shell 权限。",
+                } as Record<string, string>
+              )[message.body.reason] ??
               "会话已中断，请核对设备状态后重新连接。已保存的输出可在终端会话中查看";
           connected.value = false;
           terminal.options.disableStdin = true;

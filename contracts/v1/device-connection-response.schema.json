@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/device-connection-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "kind": {
+      "enum": ["agent", "ssh"]
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ssh": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "username": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+            }
+          },
+          "required": ["host", "port", "username", "fingerprint"]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "has_private_key": {
+      "type": "boolean"
+    },
+    "has_passphrase": {
+      "type": "boolean"
+    },
+    "has_sudo_password": {
+      "type": "boolean"
+    },
+    "last_checked_at": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "last_error": {
+      "type": ["string", "null"]
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "v",
+    "device_id",
+    "kind",
+    "revision",
+    "ssh",
+    "has_private_key",
+    "has_passphrase",
+    "has_sudo_password",
+    "last_checked_at",
+    "last_error"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "ssh"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ssh": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 253
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "fingerprint": {
+                "type": "string",
+                "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+              }
+            },
+            "required": ["host", "port", "username", "fingerprint"]
+          },
+          "has_private_key": {
+            "const": true
+          },
+          "has_sudo_password": {
+            "const": false
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "ssh": {
+            "type": "null"
+          },
+          "has_private_key": {
+            "const": false
+          },
+          "has_passphrase": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}
