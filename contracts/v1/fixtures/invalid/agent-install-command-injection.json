@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "name": "new-device",
+  "server_url": "https://fleet.example.com",
+  "run_user": "u; id"
+}

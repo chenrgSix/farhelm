@@ -1,11 +1,5 @@
 <script setup lang="ts">
-import {
-  computed,
-  defineAsyncComponent,
-  nextTick,
-  onBeforeUnmount,
-  ref,
-} from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
 import { api } from "./api/client";
 import type {
   AuditEntry,
@@ -24,6 +18,7 @@ import SshConnectionPanel from "./components/SshConnectionPanel.vue";
 import SessionDuration from "./components/SessionDuration.vue";
 import DeviceConnectionPanel from "./components/DeviceConnectionPanel.vue";
 import AddDevicePanel from "./components/AddDevicePanel.vue";
+import AgentInstallPanel from "./components/AgentInstallPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -48,7 +43,6 @@ const healthTarget = ref<Device | null>(null);
 const connectionTarget = ref<Device | undefined>();
 const connectionOpen = ref(false);
 const addDeviceOpen = ref(false);
-const enrollmentPanel = ref<HTMLElement>();
 const tasks = ref<Task[]>([]);
 const audit = ref<AuditEntry[]>([]);
 const refreshing = ref(false);
@@ -61,13 +55,6 @@ const loadingTask = ref(false);
 const execOpen = ref(false);
 const execDevice = ref("");
 const enrollOpen = ref(false);
-const enrollmentName = ref("");
-const enrollmentTtl = ref(3600);
-const enrollment = ref<{ enrollment_token: string; expires_at: number } | null>(
-  null,
-);
-const enrollmentBusy = ref(false);
-const enrollmentError = ref("");
 const revokeBusy = ref<string | null>(null);
 let sessionGeneration = 0;
 let taskGeneration = 0;
@@ -140,7 +127,6 @@ function logout(message = "") {
   addDeviceOpen.value = false;
   sshTarget.value = null;
   terminalSessions.value = [];
-  enrollment.value = null;
   enrollOpen.value = false;
   execOpen.value = false;
   apiReady.value = false;
@@ -274,60 +260,14 @@ function switchView(id: View) {
   view.value = id;
   search.value = "";
 }
-async function selectDeviceAccess(kind: "ssh" | "agent") {
+function selectDeviceAccess(kind: "ssh" | "agent") {
   addDeviceOpen.value = false;
   if (kind === "ssh") {
     connectionTarget.value = undefined;
     connectionOpen.value = true;
   } else {
     enrollOpen.value = true;
-    await nextTick();
-    enrollmentPanel.value?.scrollIntoView({ block: "center" });
-    enrollmentPanel.value?.querySelector("input")?.focus();
   }
-}
-async function createEnrollment() {
-  if (enrollmentBusy.value || enrollment.value || user.value?.role !== "admin")
-    return;
-  enrollmentBusy.value = true;
-  enrollmentError.value = "";
-  const generation = sessionGeneration;
-  try {
-    if (
-      !Number.isInteger(enrollmentTtl.value) ||
-      enrollmentTtl.value < 60 ||
-      enrollmentTtl.value > 86400
-    )
-      throw new Error("令牌有效期必须是 60–86400 秒");
-    const token = await api.request<{
-      enrollment_token: string;
-      expires_at: number;
-    }>("/enrollment-tokens", {
-      method: "POST",
-      body: {
-        v: 1,
-        ...(enrollmentName.value.trim()
-          ? { name: enrollmentName.value.trim() }
-          : {}),
-        ttl_seconds: enrollmentTtl.value,
-      },
-    });
-    if (generation === sessionGeneration) {
-      enrollment.value = token;
-      await refresh();
-    }
-  } catch (e) {
-    if (generation === sessionGeneration)
-      enrollmentError.value = e instanceof Error ? e.message : "创建失败";
-  } finally {
-    enrollmentBusy.value = false;
-  }
-}
-function closeEnrollment() {
-  enrollment.value = null;
-  enrollmentName.value = "";
-  enrollmentError.value = "";
-  enrollOpen.value = false;
 }
 async function revoke(device: Device) {
   if (
@@ -501,7 +441,7 @@ onBeforeUnmount(() => {
             <button
               v-if="user.role === 'admin' && view === 'devices'"
               class="button primary"
-              :disabled="connectionOpen || addDeviceOpen || enrollmentBusy"
+              :disabled="connectionOpen || addDeviceOpen || enrollOpen"
               @click="addDeviceOpen = true"
             >
               ＋ 添加设备
@@ -554,70 +494,6 @@ onBeforeUnmount(() => {
               >{{ lastUpdated ? unknownCount : "—" }}<small>条</small></strong
             >
             <p>UNKNOWN 不会自动重跑</p>
-          </div>
-        </section>
-        <section
-          v-if="enrollOpen && user.role === 'admin'"
-          ref="enrollmentPanel"
-          class="panel enrollment"
-        >
-          <div class="panel-heading">
-            <div>
-              <div class="eyebrow">DEVICE ENROLLMENT</div>
-              <h2>添加设备 · Agent 接入</h2>
-            </div>
-            <button
-              class="icon-button"
-              aria-label="关闭注册令牌"
-              :disabled="enrollmentBusy"
-              @click="closeEnrollment"
-            >
-              ×
-            </button>
-          </div>
-          <div v-if="!enrollment">
-            <p class="muted">
-              先生成接入令牌，在目标设备启动 Agent 时使用。Agent
-              首次连接后，设备会自动出现在列表中。请妥善保存令牌，勿粘贴到日志或代码仓库。
-            </p>
-            <form class="enroll-form" @submit.prevent="createEnrollment">
-              <label
-                >备注名称<input
-                  v-model="enrollmentName"
-                  maxlength="128"
-                  placeholder="例如：测试设备 / 华东" /></label
-              ><label
-                >有效期（秒）<input
-                  v-model.number="enrollmentTtl"
-                  type="number"
-                  min="60"
-                  max="86400"
-                  required /></label
-              ><button class="button primary" :disabled="enrollmentBusy">
-                {{ enrollmentBusy ? "创建中…" : "生成令牌" }}
-              </button>
-            </form>
-          </div>
-          <div v-else class="notice warning">
-            <strong>请现在保存令牌；关闭此面板后不再展示</strong
-            ><label
-              >一次性注册令牌<textarea
-                class="mono token-value"
-                :value="enrollment.enrollment_token"
-                readonly
-                spellcheck="false"
-                rows="2"
-              ></textarea>
-            </label>
-            <p>
-              有效至
-              {{
-                formatTime(enrollment.expires_at)
-              }}。令牌泄漏可能导致未授权设备注册
-            </p>
-          </div>
-          <div v-if="enrollmentError" class="notice danger" role="alert">
-            {{ enrollmentError }}
           </div>
         </section>
         <div class="content-grid" :class="{ 'with-exec': execOpen }">
@@ -1152,6 +1028,11 @@ onBeforeUnmount(() => {
         v-if="addDeviceOpen && user?.role === 'admin'"
         @close="addDeviceOpen = false"
         @select="selectDeviceAccess"
+      />
+      <AgentInstallPanel
+        v-if="enrollOpen && user?.role === 'admin'"
+        @close="enrollOpen = false"
+        @added="refresh"
       />
       <DeviceConnectionPanel
         v-if="connectionOpen && user?.role === 'admin'"

@@ -23,6 +23,7 @@ import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerHealth } from "./health.js";
 import { registerDeviceConnections } from "./device-connections.js";
+import { registerAgentInstall } from "./agent-install.js";
 import {
   ApiError,
   fail,
@@ -333,6 +334,13 @@ export async function buildServer(config: ServerConfig) {
       if (row.cancel_requested) send(c, "task.cancel", { task_id: row.id });
     }
   }
+  registerAgentInstall(app, {
+    store,
+    config,
+    admin,
+    rate,
+    online: (id) => !!connections.get(id)?.ready && live(connections.get(id)!),
+  });
   const deviceConnections = registerDeviceConnections(app, {
     store,
     admin,

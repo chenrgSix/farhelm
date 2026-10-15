@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-install-status.schema.json",
+  "title": "Farhelm v1 agent-install-status",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "device_id": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "enum": [
+        "waiting",
+        "registered",
+        "online",
+        "expired",
+        "revoked"
+      ]
+    }
+  },
+  "required": [
+    "v",
+    "device_id",
+    "status"
+  ]
+}

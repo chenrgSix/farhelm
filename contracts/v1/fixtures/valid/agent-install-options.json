@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "server_url": "https://fleet.example.com",
+  "architectures": [
+    "x86_64",
+    "aarch64"
+  ],
+  "private_ca": true
+}

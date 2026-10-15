@@ -10,7 +10,7 @@ openssl req -x509 -new -sha256 -key "$DEST/ca.key" -days 7 -out "$DEST/ca.crt" -
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$DEST/server.key" 2>/dev/null
 openssl req -new -key "$DEST/server.key" -out "$DEST/server.csr" -subj '/CN=localhost'
 cat > "$DEST/extensions.cnf" <<'EXT'
-subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1
+subjectAltName=DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1,IP:::1
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth

@@ -40,6 +40,7 @@ export interface ServerConfig {
   logger?: boolean;
   webDist?: string;
   consoleOrigin?: string;
+  agentInstall?: { distDir: string; publicUrl: string; caCert?: string };
   ssh?: {
     host: string;
     port: number;

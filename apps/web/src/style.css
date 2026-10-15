@@ -809,26 +809,9 @@ tbody tr:hover td {
 .footer-dot {
   margin: 0 7px;
 }
-.enrollment,
 .exec-panel,
 .task-detail {
   padding: 22px;
-}
-.enrollment {
-  margin-bottom: 23px;
-}
-.enroll-form {
-  display: grid;
-  grid-template-columns: 1fr 160px auto;
-  gap: 16px;
-  align-items: end;
-}
-.enroll-form label {
-  margin-top: 15px;
-}
-.token-value {
-  font-size: 12px;
-  background: #fffdf7;
 }
 .exec-panel .notice {
   font-size: 11px;
@@ -1173,12 +1156,6 @@ tbody tr:hover td {
     flex-direction: column;
     gap: 4px;
   }
-  .enroll-form {
-    grid-template-columns: 1fr 1fr;
-  }
-  .enroll-form button {
-    grid-column: 1/-1;
-  }
   .topbar-right {
     gap: 10px;
   }
@@ -1286,8 +1263,7 @@ tbody tr:hover td {
     align-items: flex-start;
   }
   .task-detail,
-  .exec-panel,
-  .enrollment {
+  .exec-panel {
     padding: 17px;
   }
   .detail-grid {
@@ -1305,9 +1281,6 @@ tbody tr:hover td {
   .page-footer {
     flex-direction: column;
     gap: 3px;
-  }
-  .enroll-form {
-    grid-template-columns: 1fr;
   }
   .form-actions {
     flex-wrap: wrap;

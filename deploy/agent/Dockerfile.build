@@ -1,0 +1,4 @@
+FROM rust:bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends musl-tools && rm -rf /var/lib/apt/lists/*
+RUN rustup target add "$(uname -m)-unknown-linux-musl"
+WORKDIR /src

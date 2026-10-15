@@ -4,6 +4,8 @@ This is the real native Agent. It uses rustls HTTPS/WSS, Ed25519 identity, a SQL
 
 ## Build and run
 
+For automatic installation, use the console's **Add device → Agent** form. It generates a command that installs a static Linux binary, creates a non-root account if needed, registers the device, and starts a systemd service or background process. See [Agent installation](../docs/agent-installation.md) for platform packages, prerequisites and file locations. The manual build/run instructions below do not install accounts or services.
+
 Use an installed stable Rust toolchain and a C compiler (bundled SQLite and ring need one):
 
 ```sh

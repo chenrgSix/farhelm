@@ -48,8 +48,7 @@ onMounted(() => closeButton.value?.focus());
           <strong>Agent 接入 <span aria-hidden="true">→</span></strong>
           <span>在设备上运行 Agent，主动连接平台</span>
           <small
-            >生成接入令牌，Agent
-            首次连接后自动添加设备，并支持健康检查和命令任务。</small
+            >生成一键安装命令，执行后自动安装、注册设备，并支持健康检查和命令任务。</small
           >
         </button>
       </div>

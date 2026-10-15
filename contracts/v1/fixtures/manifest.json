@@ -788,5 +788,40 @@
     "path": "valid/audit-connection-tested.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/agent-install-request.json",
+    "schema": "agent-install-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-install-response.json",
+    "schema": "agent-install-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-install-options.json",
+    "schema": "agent-install-options.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-install-status.json",
+    "schema": "agent-install-status.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/agent-install-root.json",
+    "schema": "agent-install-request.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-install-http.json",
+    "schema": "agent-install-request.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-install-command-injection.json",
+    "schema": "agent-install-request.schema.json",
+    "valid": false
   }
 ]

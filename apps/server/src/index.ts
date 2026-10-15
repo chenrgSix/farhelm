@@ -30,6 +30,11 @@ const server = await buildServer({
   logger: true,
   webDist: process.env.FLEET_WEB_DIST,
   consoleOrigin: process.env.FLEET_CONSOLE_ORIGIN,
+  agentInstall: {
+    distDir: resolve(process.env.FLEET_AGENT_DIST_DIR ?? "./data/agent-dist"),
+    publicUrl: process.env.FLEET_PUBLIC_URL ?? `https://localhost:${port}`,
+    caCert: process.env.FLEET_AGENT_CA_CERT ?? process.env.FLEET_CA_CERT,
+  },
   ssh:
     process.env.FLEET_SSH_PORT && process.env.FLEET_SSH_PORT !== "0"
       ? {

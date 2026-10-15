@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "id": "2d117acc-4a61-4f53-851e-89c9d8708626",
+  "command": "bash -c 'example-install-command'",
+  "expires_at": 1700000000000
+}

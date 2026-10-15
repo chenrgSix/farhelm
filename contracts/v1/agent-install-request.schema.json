@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-install-request.schema.json",
+  "title": "Farhelm v1 agent-install-request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "server_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^/?#@]+/?$",
+      "maxLength": 2048
+    },
+    "run_user": {
+      "type": "string",
+      "pattern": "^(?!root$)[a-z_][a-z0-9_-]{0,31}$"
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 86400
+    },
+    "start_mode": {
+      "enum": [
+        "auto",
+        "systemd",
+        "background"
+      ]
+    },
+    "allow_sudo": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "v",
+    "name",
+    "server_url"
+  ]
+}

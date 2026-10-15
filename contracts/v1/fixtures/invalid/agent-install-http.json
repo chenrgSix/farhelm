@@ -1,0 +1,5 @@
+{
+  "v": 1,
+  "name": "new-device",
+  "server_url": "http://fleet.example.com"
+}
