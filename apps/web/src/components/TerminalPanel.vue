@@ -425,7 +425,8 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  padding: 16px;
+  /* FitAddon measures this box; keep spacing outside its available dimensions. */
+  margin: 16px;
   overflow: hidden;
 }
 .terminal-screen :deep(.xterm) {
@@ -473,7 +474,7 @@ onBeforeUnmount(() => {
     display: none;
   }
   .terminal-screen {
-    padding: 8px;
+    margin: 8px;
   }
   .terminal-footer {
     flex-direction: column;

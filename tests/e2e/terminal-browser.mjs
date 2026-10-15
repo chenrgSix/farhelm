@@ -61,7 +61,38 @@ try {
       return /^[^@\s]+@[^:\s]+:/.test(last) && last.endsWith(`:${directory}$`);
     }, directory);
   };
+  const assertTerminalFits = async (label) => {
+    // Text can exist in xterm's DOM while the last row is clipped by its host.
+    // Check rendered bounds as well as output after the terminal has resized.
+    await page
+      .waitForFunction(
+        () => {
+          const host = document.querySelector(".terminal-screen");
+          const screen = host?.querySelector(".xterm-screen");
+          const lastRow = host?.querySelector(".xterm-rows > div:last-child");
+          const footer = document.querySelector(".terminal-footer");
+          if (!host || !screen || !lastRow || !footer) return false;
+          const bounds = host.getBoundingClientRect();
+          const content = screen.getBoundingClientRect();
+          const row = lastRow.getBoundingClientRect();
+          return (
+            row.top >= bounds.top - 1 &&
+            row.bottom <=
+              Math.min(bounds.bottom, footer.getBoundingClientRect().top) + 1 &&
+            content.right <= bounds.right + 1
+          );
+        },
+        undefined,
+        { timeout: 5000 },
+      )
+      .catch((error) => {
+        throw new Error(`Terminal must show its complete last row (${label})`, {
+          cause: error,
+        });
+      });
+  };
   await waitPrompt("~");
+  await assertTerminalFits("initial desktop viewport");
   await keyboard.focus();
   await page.keyboard.type("stty -echo;printf '__BROWSER_%s__\\n' READY\r");
   await waitText("__BROWSER_READY__");
@@ -119,10 +150,28 @@ try {
   await page.setViewportSize({ width: 1100, height: 820 });
   await page.keyboard.type("stty size;printf '__RESIZE_%s__\\n' OK\r");
   await waitText("__RESIZE_OK__");
+  await page.keyboard.type("seq 1 160;printf '__BOTTOM_%s__\\n' READY\r");
+  await waitText("__BOTTOM_READY__");
+  await waitPrompt("/tmp");
+  await assertTerminalFits("scrolled desktop viewport");
   await page.screenshot({
     path: resolve(output, "terminal-browser.png"),
     fullPage: true,
   });
+  for (const viewport of [
+    { width: 1275, height: 641 },
+    { width: 780, height: 480 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await assertTerminalFits(`${viewport.width}x${viewport.height}`);
+  }
+  await page.screenshot({
+    path: resolve(output, "terminal-mobile-live.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1100, height: 820 });
+  await assertTerminalFits("restored desktop viewport");
   await page.keyboard.type("exit\r");
   await dialog.getByText("会话已结束", { exact: true }).waitFor();
   await dialog.getByRole("button", { name: "关闭终端", exact: true }).click();
@@ -168,6 +217,7 @@ try {
           "Chinese output",
           "interactive top",
           "viewport resize",
+          "last row stays fully visible after scrolling and desktop/mobile resizing",
           "exit",
           "recording replay",
           "audited export",
