@@ -68,3 +68,9 @@ Admin-only `GET /api/v1/settings/agent-sync` and `POST /api/v1/settings/agent-sy
 `agent.hello` 可增加 `runtime: {arch, sha256}`，仅经守护进程启动的 Agent 宣告 `agent.upgrade.v1`。平台通过已认证 WSS 下发 `agent.upgrade`：`{upgrade_id, arch, sha256, size, version}`。Agent 回报 `agent.upgrade.result`：`{upgrade_id, status, reason}`，状态为 `DOWNLOADING | WAITING_IDLE | RESTARTING | SUCCEEDED | FAILED`；失败以外 reason 为 null。包从同一平台的设备鉴权接口下载，不能指定外部 URL。
 
 批次 POST 使用请求 UUID 幂等，设备最多一个未终结任务。平台的 `QUEUED` 和 `UNKNOWN` 是调度/待核实状态；超时不会伪造终结结果。成功回执必须与当前已认证连接报告的二进制哈希一致。每次连接重放最新持久回执；终结结果不会被迟到消息改写。状态、版本选择与回退标记在 Agent journal 同一事务内保存。守护进程仅在空闲切换意图持久保存后启动试运行，成功连接后确认，否则回退。所有字段与限制见 `contracts/v1/agent-upgrade-*.schema.json` 和 `agent-upgrades-response.schema.json`。
+
+## Agent 安装包版本库扩展
+
+管理员 `PUT /api/v1/agent-releases/:sha256` 以 `application/octet-stream` 上传二进制，并在 `X-Agent-Manifest` 头提供 `{arch,version,sha256,size,upgrade_protocol:1}`。在读取请求体前校验管理员身份和清单；最大 64 MiB，最多同时两个上传。平台仅检查文件，不执行上传程序。Agent 的运行时检查和回退协议不变。文件按摘要固定，版本与架构唯一；同一包重试幂等，不允许覆盖另一构建。
+
+`GET /api/v1/agent-releases` 返回所有版本；`POST /api/v1/agent-releases/:sha256` 用 `{v:1,enabled:boolean}` 设置可用状态。升级快照可包含同架构的多个可用版本，前端用所选版本的 SHA-256 提交原批量升级请求。停用禁止创建新的引用，不改变旧批次或未过期安装命令。新安装按架构选最高可用版本并固定摘要。相关闭合结构见 `agent-release-manifest`、`agent-release-response`、`agent-releases-response` 和 `agent-release-availability` 契约。

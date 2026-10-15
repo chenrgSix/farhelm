@@ -958,5 +958,40 @@
     "path": "valid/agent-upgrade-audit.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/agent-release-manifest.json",
+    "schema": "agent-release-manifest.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-release-response.json",
+    "schema": "agent-release-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-releases-response.json",
+    "schema": "agent-releases-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-release-availability.json",
+    "schema": "agent-release-availability.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/agent-release-oversize.json",
+    "schema": "agent-release-manifest.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-release-protocol.json",
+    "schema": "agent-release-manifest.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/agent-release-audit.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

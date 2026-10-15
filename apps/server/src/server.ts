@@ -23,6 +23,7 @@ import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerHealth } from "./health.js";
 import { registerDeviceConnections } from "./device-connections.js";
+import { registerAgentReleases, legacyArtifacts } from "./agent-releases.js";
 import { registerAgentInstall } from "./agent-install.js";
 import { registerSettings } from "./settings.js";
 import { registerAgentUpgrades, type UpgradeInfo } from "./agent-upgrades.js";
@@ -349,7 +350,16 @@ export async function buildServer(config: ServerConfig) {
         : undefined;
     },
   });
-  const agentInstall = registerAgentInstall(app, {
+  const legacyArtifact = legacyArtifacts(config.agentInstall?.distDir);
+  const releases = registerAgentReleases(app, {
+    store,
+    admin,
+    distDir: config.agentInstall?.distDir,
+    artifact: legacyArtifact,
+  });
+  registerAgentInstall(app, {
+    releases,
+    artifact: legacyArtifact,
     store,
     config,
     admin,
@@ -361,8 +371,7 @@ export async function buildServer(config: ServerConfig) {
     store,
     admin,
     deviceAuth,
-    distDir: config.agentInstall?.distDir,
-    artifact: agentInstall.artifact,
+    releases,
     agent: (id) => {
       const c = connections.get(id);
       return c?.ready && live(c)

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { registerAgentReleases } from "../src/agent-releases.js";
 import { Store } from "../src/store.js";
 import {
   registerAgentUpgrades,
@@ -68,7 +69,9 @@ function fixture() {
           }
         : undefined,
   };
-  const upgrades = registerAgentUpgrades(app, deps);
+  const releases = registerAgentReleases(app, deps);
+  const upgradeDeps = { ...deps, releases };
+  const upgrades = registerAgentUpgrades(app, upgradeDeps);
   for (const id of ["one", "two", "offline", "legacy", "ssh"]) {
     store.db
       .prepare(
@@ -106,7 +109,7 @@ function fixture() {
     store,
     app,
     upgrades,
-    deps,
+    deps: upgradeDeps,
     connections,
     frames,
     release,

@@ -1,15 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
-import {
-  readFileSync,
-  mkdirSync,
-  writeFileSync,
-  renameSync,
-  existsSync,
-  openSync,
-  fsyncSync,
-  closeSync,
-} from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
@@ -23,7 +14,11 @@ import {
   str,
   version,
 } from "./util.js";
-type Artifact = { bytes: Buffer; digest: string };
+import {
+  releaseVersion,
+  compareVersion,
+  type ReleaseCatalog,
+} from "./agent-releases.js";
 export type UpgradeInfo = {
   arch: string;
   sha256: string;
@@ -66,28 +61,13 @@ function digest(value: unknown) {
   if (!/^[a-f0-9]{64}$/.test(s)) fail(400, "INVALID_SHA256");
   return s;
 }
-function releaseVersion(value: unknown) {
-  const s = str(value, 1, 64);
-  if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(s))
-    fail(400, "INVALID_AGENT_VERSION");
-  return s;
-}
-function older(next: string, current: string) {
-  const a = next.split(".").map(Number),
-    b = current.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i]! < b[i]!;
-  }
-  return false;
-}
 export function registerAgentUpgrades(
   app: FastifyInstance,
   d: {
     store: Store;
     admin: (req: FastifyRequest) => User;
     deviceAuth: (req: FastifyRequest) => { id: string };
-    distDir?: string;
-    artifact: (arch: string) => Artifact | undefined;
+    releases: ReleaseCatalog;
     agent: (
       id: string,
     ) =>
@@ -97,41 +77,17 @@ export function registerAgentUpgrades(
 ) {
   const { db } = d.store,
     dir = join(d.store.dataDir, "objects", "agent-releases");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const sent = new Set<string>();
   function releases() {
-    return ["aarch64", "x86_64"].flatMap((arch) => {
-      try {
-        const f = d.artifact(arch);
-        if (!f || !d.distDir) return [];
-        const m = object(
-          JSON.parse(
-            readFileSync(
-              join(d.distDir, `farhelm-agent-linux-${arch}.json`),
-              "utf8",
-            ),
-          ),
-        );
-        keys(m, ["arch", "version", "upgrade_protocol", "sha256", "size"]);
-        if (
-          m.arch !== arch ||
-          m.upgrade_protocol !== 1 ||
-          m.sha256 !== f.digest ||
-          m.size !== f.bytes.length
-        )
-          return [];
-        return [
-          {
-            arch,
-            version: releaseVersion(m.version),
-            sha256: f.digest,
-            size: f.bytes.length,
-          },
-        ];
-      } catch {
-        return [];
-      }
-    });
+    return d.releases
+      .list()
+      .filter((r) => r.enabled)
+      .map(({ arch, version, sha256, size }) => ({
+        arch,
+        version,
+        sha256,
+        size,
+      }));
   }
   function jobs() {
     return db
@@ -336,6 +292,7 @@ export function registerAgentUpgrades(
       return { v: 1, batch_id: id };
     }
     const available = releases();
+    const verified = new Set<string>();
     const prepared = targets.map((t) => {
       const runtime = db
         .prepare(
@@ -347,7 +304,7 @@ export function registerAgentUpgrades(
         (r) => r.arch === runtime.arch && r.sha256 === t.sha256,
       );
       if (!release) fail(409, "AGENT_RELEASE_CHANGED");
-      if (older(release.version, runtime.version))
+      if (compareVersion(release.version, runtime.version) < 0)
         fail(409, "AGENT_DOWNGRADE_NOT_ALLOWED");
       if (
         db
@@ -357,26 +314,11 @@ export function registerAgentUpgrades(
           .get(t.device_id)
       )
         fail(409, "AGENT_UPGRADE_IN_PROGRESS");
-      const file = d.artifact(release.arch);
-      if (!file || file.digest !== release.sha256)
-        fail(409, "AGENT_RELEASE_CHANGED");
-      const path = join(dir, release.sha256);
-      if (!existsSync(path)) {
-        const temp = path + "." + randomUUID();
-        writeFileSync(temp, file.bytes, { mode: 0o600, flag: "wx" });
-        const fd = openSync(temp, "r");
-        try {
-          fsyncSync(fd);
-        } finally {
-          closeSync(fd);
-        }
-        renameSync(temp, path);
-        const folder = openSync(dir, "r");
-        try {
-          fsyncSync(folder);
-        } finally {
-          closeSync(folder);
-        }
+      // The immutable catalog object is already durable before a batch references it.
+      if (!verified.has(release.sha256)) {
+        if (!d.releases.get(release.sha256, release.arch))
+          fail(409, "AGENT_RELEASE_CHANGED");
+        verified.add(release.sha256);
       }
       return { ...release, device_id: t.device_id };
     });

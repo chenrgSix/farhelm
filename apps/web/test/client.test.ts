@@ -67,3 +67,18 @@ describe("same-origin in-memory API client", () => {
     ).rejects.toThrow("超过协议上限");
   });
 });
+it("uploads a File without JSON/base64 conversion and keeps auth in headers", async () => {
+  const fetch = vi.fn().mockResolvedValue(json({ v: 1 }));
+  vi.stubGlobal("fetch", fetch);
+  const client = new ApiClient();
+  client.setToken("test-token");
+  const file = new File([new Uint8Array(128)], "agent");
+  const manifest = { sha256: "a".repeat(64) };
+  await client.upload("/agent-releases/" + manifest.sha256, file, manifest);
+  const options = fetch.mock.calls[0]![1];
+  expect(options.body).toBe(file);
+  expect(options.headers.get("Content-Type")).toBe("application/octet-stream");
+  expect(JSON.parse(options.headers.get("X-Agent-Manifest"))).toEqual(manifest);
+  expect(options.headers.get("Authorization")).toBe("Bearer test-token");
+  expect(options.redirect).toBe("error");
+});

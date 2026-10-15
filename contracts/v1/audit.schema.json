@@ -72,7 +72,10 @@
         "settings.agent_sync",
         "settings.sync_requested",
         "agent.upgrade_requested",
-        "agent.upgrade_status"
+        "agent.upgrade_status",
+        "agent.release_uploaded",
+        "agent.release_imported",
+        "agent.release_availability"
       ]
     },
     "detail": {
@@ -504,6 +507,63 @@
             }
           },
           "required": ["upgrade_id", "status", "reason"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "arch": {
+              "enum": ["aarch64", "x86_64"]
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+            },
+            "sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 67108864
+            }
+          },
+          "required": ["arch", "version", "sha256", "size"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "arch": {
+              "enum": ["aarch64", "x86_64"]
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+            },
+            "sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 67108864
+            }
+          },
+          "required": ["arch", "version", "sha256", "size"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": ["sha256", "enabled"]
         }
       ]
     }
@@ -1306,6 +1366,102 @@
               }
             },
             "required": ["upgrade_id", "status", "reason"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "agent.release_uploaded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "arch": {
+                "enum": ["aarch64", "x86_64"]
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+              },
+              "sha256": {
+                "$ref": "common.schema.json#/$defs/sha256"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 64,
+                "maximum": 67108864
+              }
+            },
+            "required": ["arch", "version", "sha256", "size"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "agent.release_imported"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "arch": {
+                "enum": ["aarch64", "x86_64"]
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+              },
+              "sha256": {
+                "$ref": "common.schema.json#/$defs/sha256"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 64,
+                "maximum": 67108864
+              }
+            },
+            "required": ["arch", "version", "sha256", "size"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "agent.release_availability"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sha256": {
+                "$ref": "common.schema.json#/$defs/sha256"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": ["sha256", "enabled"]
           }
         }
       }

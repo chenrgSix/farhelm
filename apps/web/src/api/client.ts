@@ -7,6 +7,14 @@ export class ApiError extends Error {
   }
 }
 
+type RequestOptions = {
+  method?: string;
+  body?: unknown;
+  idempotencyKey?: string;
+  binary?: File;
+  manifest?: unknown;
+};
+
 /** No localStorage, cookies, URL tokens, or automatic mutation retries. */
 export class ApiClient {
   private token: string | null = null;
@@ -15,10 +23,7 @@ export class ApiClient {
     this.token = token;
   }
 
-  async request<T>(
-    path: string,
-    options: { method?: string; body?: unknown; idempotencyKey?: string } = {},
-  ): Promise<T> {
+  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const response = await this.fetch(path, options);
     if (
       !(response.headers.get("content-type") ?? "").includes("application/json")
@@ -29,6 +34,10 @@ export class ApiClient {
       );
     }
     return (await response.json()) as T;
+  }
+
+  async upload<T>(path: string, file: File, manifest: unknown): Promise<T> {
+    return this.request<T>(path, { method: "PUT", binary: file, manifest });
   }
 
   async output(
@@ -70,7 +79,7 @@ export class ApiClient {
 
   private async fetch(
     path: string,
-    options: { method?: string; body?: unknown; idempotencyKey?: string },
+    options: RequestOptions,
   ): Promise<Response> {
     if (!path.startsWith("/") || path.startsWith("//"))
       throw new ApiError("无效 API 路径");
@@ -80,6 +89,10 @@ export class ApiClient {
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
     if (options.body !== undefined)
       headers.set("Content-Type", "application/json");
+    if (options.binary) {
+      headers.set("Content-Type", "application/octet-stream");
+      headers.set("X-Agent-Manifest", JSON.stringify(options.manifest));
+    }
     if (options.idempotencyKey)
       headers.set("Idempotency-Key", options.idempotencyKey);
     let response: Response;
@@ -88,11 +101,14 @@ export class ApiClient {
         method: options.method ?? "GET",
         headers,
         body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
+          options.binary ??
+          (options.body === undefined
+            ? undefined
+            : JSON.stringify(options.body)),
         credentials: "omit",
         cache: "no-store",
         redirect: "error",
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(options.binary ? 120_000 : 15_000),
       });
     } catch {
       throw new ApiError(
@@ -114,6 +130,14 @@ export class ApiClient {
         /* Untrusted error body is optional. */
       }
       const upgradeHints: Record<string, string> = {
+        AGENT_RELEASE_CONFLICT:
+          "该版本和架构已有不同的安装包，请使用新的版本号",
+        AGENT_PACKAGE_SIZE: "安装包大小与版本清单不一致",
+        AGENT_PACKAGE_ARCH: "请选择版本清单对应架构的 Linux Agent 安装包",
+        AGENT_PACKAGE_DIGEST: "安装包校验失败，请重新选择与清单配套的文件",
+        AGENT_PACKAGE_PROTOCOL: "安装包不支持当前升级协议",
+        INVALID_AGENT_MANIFEST: "版本清单不是有效的 JSON 文件",
+        AGENT_UPLOAD_BUSY: "有其他安装包正在上传，请稍后重试",
         AGENT_UPGRADE_IN_PROGRESS:
           "设备正在升级，现有操作结束后自动切换，请稍后重试",
         AGENT_UPGRADE_NOT_SUPPORTED:

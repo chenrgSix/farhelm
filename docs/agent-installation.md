@@ -19,7 +19,7 @@ npm run build:agent:installers
 # 也可以只构建指定架构：bash scripts/build-agent-installers.sh amd64
 ```
 
-默认输出到 `.dev/agent-dist/`，包含 `farhelm-agent-linux-x86_64`、`farhelm-agent-linux-aarch64` 及对应 `.json` 版本清单。构建使用锁定的 Cargo 依赖；目标服务器不需要 Rust、C 编译器或特定 glibc 版本。将包放入平台配置的目录，部署与当前服务端匹配的版本。
+默认输出到 `.dev/agent-dist/`，包含 `farhelm-agent-linux-x86_64`、`farhelm-agent-linux-aarch64` 及对应 `.json` 版本清单。构建使用锁定的 Cargo 依赖；目标服务器不需要 Rust、C 编译器或特定 glibc 版本。管理员可在前端「Agent 升级 → 升级包管理」上传二进制和配套 JSON 清单；新安装命令自动使用各架构最高的可用版本，无需进入平台服务器放文件。原配置目录继续作为兼容导入来源。
 
 服务端配置：
 
@@ -35,7 +35,7 @@ export FLEET_AGENT_CA_CERT=/srv/farhelm/tls/ca.crt
 
 地址必须是目标机器可访问且证书覆盖的 HTTPS origin，不能使用前端 Vite 的 HTTP 地址；本地开发脚本默认 localhost，只适用于目标和平台在同一机器。Docker Desktop / OrbStack 本地测试可用 `https://host.docker.internal:8443`，开发证书包含该主机名。实际远程 Linux 必须配置可达地址、HTTPS 证书及监听/防火墙，不能直接使用这个 Docker 专用名称。
 
-未配置 `FLEET_AGENT_DIST_DIR` 时，独立服务默认读取 `./data/agent-dist`；`scripts/dev.sh` 读取 `.dev/agent-dist`。未找到支持架构的有效 ELF 安装包时，前端禁止生成命令；生成后更换安装包会使旧命令校验失败，应重新生成。
+未配置 `FLEET_AGENT_DIST_DIR` 时，独立服务默认读取 `./data/agent-dist`；`scripts/dev.sh` 读取 `.dev/agent-dist`。未找到支持架构的有效 ELF 安装包时，前端禁止生成命令；版本库中的安装包按哈希固定，后续上传或停用不改变已生成命令；没有清单的历史目录包仍保留旧的哈希检查方式。
 
 ## 已有 Agent 地址同步
 

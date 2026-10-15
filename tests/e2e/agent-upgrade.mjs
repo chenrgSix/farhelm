@@ -173,12 +173,6 @@ try {
         .online,
     "offline Agent",
   );
-  publish(target);
-  assert.notEqual(
-    (await snapshot()).releases[0].sha256,
-    initial.releases[0].sha256,
-    "use a separately built baseline release",
-  );
   vite = spawn(
     process.execPath,
     [
@@ -239,6 +233,61 @@ try {
   await upgradePage
     .getByRole("heading", { name: "批量升级 Agent", exact: true })
     .waitFor();
+  async function uploadFromBrowser(binaryPath) {
+    const manifest = JSON.parse(readFileSync(binaryPath + ".json", "utf8"));
+    const panel = upgradePage.locator(".release-panel");
+    await panel
+      .getByLabel("版本清单（JSON）", { exact: true })
+      .setInputFiles(binaryPath + ".json");
+    await panel
+      .getByLabel("Agent 安装包", { exact: true })
+      .setInputFiles(binaryPath);
+    const [response] = await Promise.all([
+      upgradePage.waitForResponse(
+        (r) =>
+          r.request().method() === "PUT" &&
+          r.url().endsWith("/agent-releases/" + manifest.sha256),
+      ),
+      panel.getByRole("button", { name: "上传安装包", exact: true }).click(),
+    ]);
+    assert.equal(response.status(), 200); // Chromium may evict bodies for large upload requests; verify persisted data and UI below.
+    await until(
+      async () =>
+        (await api("GET", "/agent-releases")).releases.some(
+          (r) => r.sha256 === manifest.sha256,
+        ),
+      "uploaded release catalog",
+    );
+    await until(
+      async () =>
+        (await panel.getByRole("status").textContent())?.includes(
+          manifest.version + " · " + manifest.arch + " 已保存",
+        ),
+      "upload UI confirmation",
+    );
+    return manifest;
+  }
+  const armTarget = await uploadFromBrowser(
+    join(target, "farhelm-agent-linux-aarch64"),
+  );
+  const amdTarget = await uploadFromBrowser(
+    join(target, "farhelm-agent-linux-x86_64"),
+  );
+  assert.equal(armTarget.version, amdTarget.version);
+  assert.notEqual(armTarget.sha256, arm.sha256);
+  const catalog = assertValid(
+    "agent-releases-response",
+    await api("GET", "/agent-releases"),
+  );
+  assert.equal(catalog.releases.length, 4);
+  assert.ok(
+    catalog.releases
+      .filter((r) => r.version === armTarget.version)
+      .every((r) => r.source === "upload"),
+  );
+  await upgradePage
+    .getByLabel("目标版本", { exact: true })
+    .selectOption(armTarget.version);
   await upgradePage.getByLabel("全选可升级设备", { exact: true }).check();
   await upgradePage
     .getByRole("button", { name: "升级所选设备", exact: true })
@@ -251,6 +300,20 @@ try {
       s.jobs.find((j) => j.device_id === amd.device_id)?.status === "QUEUED"
     );
   }, "idle drain and offline queue");
+  // Disabling a package after queuing must not break the offline device's pinned job.
+  await upgradePage
+    .getByRole("button", {
+      name: `停用 ${amdTarget.version} x86_64`,
+      exact: true,
+    })
+    .click();
+  await until(
+    async () =>
+      (await api("GET", "/agent-releases")).releases.find(
+        (r) => r.sha256 === amdTarget.sha256,
+      )?.enabled === false,
+    "disabled package",
+  );
   const blocked = await server.app.inject({
     method: "POST",
     url: "/api/v1/terminal-sessions",
@@ -303,7 +366,7 @@ try {
         s.devices.every(
           (d) =>
             d.online &&
-            s.releases.some(
+            [armTarget, amdTarget].some(
               (r) =>
                 r.arch === d.arch &&
                 r.sha256 === d.sha256 &&
@@ -314,6 +377,19 @@ try {
     },
     "ARM64 and AMD64 upgraded",
     90000,
+  );
+  await upgradePage
+    .getByRole("button", {
+      name: `启用 ${amdTarget.version} x86_64`,
+      exact: true,
+    })
+    .click();
+  await until(
+    async () =>
+      (await api("GET", "/agent-releases")).releases.find(
+        (r) => r.sha256 === amdTarget.sha256,
+      )?.enabled === true,
+    "enabled package",
   );
   const sessions = (await api("GET", "/terminal-sessions")).sessions;
   assert.equal(sessions.length, 1);
@@ -376,6 +452,45 @@ try {
       d.sha256 === s.releases.find((r) => r.arch === "aarch64").sha256
     );
   }, "durable release selection after restart");
+  const fresh = `farhelm-upload-install-e2e-${process.pid}`;
+  containers.push(fresh);
+  await docker([
+    "run",
+    "--rm",
+    "--init",
+    "-d",
+    "--platform",
+    "linux/arm64",
+    "--name",
+    fresh,
+    "--mount",
+    `type=bind,source=${temp},target=/fixture,readonly`,
+    "farhelm-agent-build:arm64",
+    "sleep",
+    "infinity",
+  ]);
+  const freshInstall = await api("POST", "/agent-installations", {
+    v: 1,
+    name: "上传包安装验证",
+    run_user: "farhelm",
+    start_mode: "background",
+    allow_sudo: false,
+  });
+  writeFileSync(join(temp, "fresh.sh"), freshInstall.command, { mode: 0o600 });
+  await docker(["exec", fresh, "bash", "/fixture/fresh.sh"]);
+  await until(
+    async () =>
+      (await snapshot()).devices.some(
+        (d) =>
+          d.name === "上传包安装验证" &&
+          d.sha256 === armTarget.sha256 &&
+          d.online,
+      ),
+    "fresh install from uploaded package",
+  );
+  steps.push(
+    "Browser uploaded both architecture packages and manifests; selected a retained version; disabling a release preserved an already queued offline upgrade; fresh installation used the uploaded package",
+  );
   // A valid static ELF with matching build metadata but a worker that crashes must roll back.
   const brokenVersion = "0.2.2";
   writeFileSync(
@@ -396,12 +511,12 @@ try {
   await docker([
     "cp",
     containers[0] + ":/tmp/broken-agent",
-    join(dist, "farhelm-agent-linux-aarch64"),
+    join(temp, "broken-agent"),
   ]);
-  const bytes = readFileSync(join(dist, "farhelm-agent-linux-aarch64")),
+  const bytes = readFileSync(join(temp, "broken-agent")),
     brokenHash = createHash("sha256").update(bytes).digest("hex");
   writeFileSync(
-    join(dist, "farhelm-agent-linux-aarch64.json"),
+    join(temp, "broken-agent.json"),
     JSON.stringify({
       arch: "aarch64",
       version: brokenVersion,
@@ -413,6 +528,10 @@ try {
   await upgradePage
     .getByRole("button", { name: "刷新升级状态", exact: true })
     .click();
+  await uploadFromBrowser(join(temp, "broken-agent"));
+  await upgradePage
+    .getByLabel("目标版本", { exact: true })
+    .selectOption(brokenVersion);
   await upgradePage.getByLabel("选择 升级 ARM64", { exact: true }).check();
   await upgradePage
     .getByRole("button", { name: "升级所选设备", exact: true })

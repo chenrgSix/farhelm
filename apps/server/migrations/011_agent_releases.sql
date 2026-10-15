@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS agent_releases (
+ sha256 TEXT PRIMARY KEY,
+ arch TEXT NOT NULL,
+ version TEXT NOT NULL,
+ size INTEGER NOT NULL,
+ enabled INTEGER NOT NULL DEFAULT 1,
+ source TEXT NOT NULL,
+ created_at INTEGER NOT NULL,
+ UNIQUE(version,arch)
+);

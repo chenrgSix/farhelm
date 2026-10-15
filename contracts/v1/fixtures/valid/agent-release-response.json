@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "release": {
+    "arch": "aarch64",
+    "version": "0.3.0",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size": 128,
+    "enabled": true,
+    "source": "upload",
+    "created_at": 1
+  }
+}

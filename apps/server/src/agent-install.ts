@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import type { Artifact, ReleaseCatalog } from "./agent-releases.js";
 import type { Store } from "./store.js";
 import type { ServerConfig, User } from "./types.js";
 import { platformServerUrl } from "./settings.js";
@@ -38,6 +38,8 @@ export function registerAgentInstall(
     rate: RateLimiter;
     online: (id: string) => boolean;
     serverUrl: () => string;
+    releases: ReleaseCatalog;
+    artifact: (arch: string) => Artifact | undefined;
   },
 ) {
   const { db } = d.store;
@@ -52,31 +54,13 @@ export function registerAgentInstall(
     new URL("../resources/agent-install.sh", import.meta.url),
     "utf8",
   );
-  // Keep only the current pair of packages in memory. Commands pin their hashes at creation.
-  const cache = new Map<
-    string,
-    { stamp: string; bytes: Buffer; digest: string }
-  >();
   function artifact(machine: string) {
-    if (!settings || !machines.includes(machine as any)) return undefined;
-    const path = join(settings.distDir, `farhelm-agent-linux-${machine}`);
-    if (!existsSync(path)) return undefined;
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.size < 64 || stat.size > 64 * 1024 * 1024)
-      return undefined;
-    const stamp = `${stat.ino}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
-    if (cache.get(machine)?.stamp !== stamp) {
-      const bytes = readFileSync(path);
-      if (
-        bytes.subarray(0, 6).toString("hex") !== "7f454c460201" ||
-        bytes.readUInt16LE(18) !== (machine === "x86_64" ? 62 : 183)
-      )
-        return undefined;
-      cache.set(machine, { stamp, bytes, digest: hash(bytes) });
-    }
-    return cache.get(machine)!;
+    return d.releases.has(machine)
+      ? d.releases.latest(machine)
+      : d.artifact(machine);
   }
   function available() {
+    d.releases.list();
     return Object.fromEntries(
       machines.flatMap((m) => {
         const file = artifact(m);
@@ -248,7 +232,11 @@ export function registerAgentInstall(
     async (req, reply) => {
       d.rate.check("install-download:" + req.ip, 60);
       const row = lookup(req, true);
-      const file = artifact(req.params.machine);
+      const file =
+        d.releases.get(
+          row.config.artifacts[req.params.machine],
+          req.params.machine,
+        ) ?? d.artifact(req.params.machine);
       if (!file || file.digest !== row.config.artifacts[req.params.machine])
         fail(409, "AGENT_PACKAGE_CHANGED");
       return reply.type("application/octet-stream").send(file.bytes);

@@ -47,7 +47,7 @@ npm run dev
 
 管理员可在「系统设置」修改并保存「平台服务端地址」，立即生效并持久保存；添加 Agent 时自动带入，并自动同步到支持此功能的在线 Agent；终端结束后切换，失败保留原地址，前端可查看逐台结果。
 
-管理员可在「Agent 升级」选择设备并批量更新，支持并发限制、离线排队、现有终端完成后切换、失败回退和逐台结果。新版运行账号无需 sudo；更早的 Agent 首次需更新一次基础程序。见 [Agent 批量升级](docs/agent-upgrades.md)。
+管理员可在「Agent 升级」上传安装包及版本清单，管理多版本、停用或启用包，再选择目标版本和设备批量更新，支持并发限制、离线排队、现有终端完成后切换、失败回退和逐台结果。新版运行账号无需 sudo；更早的 Agent 首次需更新一次基础程序。见 [Agent 批量升级](docs/agent-upgrades.md)。
 
 「添加设备」的 SSH 和 Agent 接入均为弹窗表单。Agent 可生成一条安装命令，在目标 Linux 执行后自动安装、注册并启动；平台先用 `npm run build:agent:installers` 准备 ARM64 / x86_64 静态安装包。地址、CA、运行账号和 systemd/容器启动说明见 [Agent 一键安装](docs/agent-installation.md)。
 

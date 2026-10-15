@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-release-manifest.schema.json",
+  "title": "Farhelm v1 agent-release-manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "arch": {
+      "enum": ["aarch64", "x86_64"]
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+    },
+    "sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 64,
+      "maximum": 67108864
+    },
+    "upgrade_protocol": {
+      "const": 1
+    }
+  },
+  "required": ["arch", "version", "sha256", "size", "upgrade_protocol"]
+}

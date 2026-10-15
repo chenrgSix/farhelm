@@ -4,18 +4,19 @@
 
 每批最多 100 台，并发数为 1–5 台（默认 2），平台所有批次合计最多同时升级 5 台。离线且曾报告升级能力的设备可排队，上线后自动接收；未开始的任务排队超过 24 小时失败，可重新发起。网络丢失导致提交结果不明确时，前端以同一批次 ID 核对，不产生重复任务。
 
-## 版本发布
+## 前端管理安装包
 
-平台维护者只需在平台侧构建和发布新包，无需逐台登录目标服务器：
+管理员在「Agent 升级 → 升级包管理」选择本地的 **Agent Linux 安装包**和配套 **JSON 版本清单**，点击「上传安装包」。版本、架构、大小和 SHA-256 自动读取；无需登录平台服务器或手动放置文件。构建仍使用 `npm run build:agent:installers`，可以在构建机或 CI 生成，再把输出的二进制和同名 `.json` 文件下载到本地上传。支持 ARM64（aarch64）和 x86_64，每包最多 64 MiB。
 
-```bash
-npm run build:agent:installers
-# 单一架构：bash scripts/build-agent-installers.sh arm64
-```
+平台校验清单、大小、ELF 架构、升级协议和 SHA-256 后保存，整个过程不会在平台上执行上传的二进制。Agent 下载后还会在目标 Linux 上验证 `--build-info` 与清单一致，并执行已有的试运行和回退流程。版本清单须与同次构建的二进制配套；不接受压缩包或任意下载 URL。
 
-构建输出到 `FLEET_AGENT_DIST_DIR`（默认 `.dev/agent-dist`）：每种架构的 `farhelm-agent-linux-{aarch64,x86_64}` 和同名 `.json` 清单。清单包含版本、架构、升级协议版本、大小、SHA-256；构建脚本从二进制的 `--build-info` 获取版本。发布时必须一起提供二进制和清单。平台只展示清单与文件完全匹配的包，无需重启即可发现发布变化。
+版本库持久保存多个版本。选择「目标版本」后，再勾选设备、设置并发数并提交批量升级；缺少对应架构、当前版本更高或已在升级的设备不可选择。上传或刷新列表不会悄悄改变已选择的目标版本。
 
-发布版本使用 `major.minor.patch` 三段数字，每段最多六位；禁止降级。每次正式发布应提高 `agent/Cargo.toml` 和锁文件中的版本。已发起批次固定包哈希，平台另存该包，因此后续发布不改变正在升级的目标。该页面不接受任意下载 URL 或上传可执行文件；发布目录属于平台维护边界。
+- 同一版本和架构固定为一个 SHA-256，不允许用另一份文件覆盖。发布不同构建需提高版本号；相同文件重复上传不会产生重复版本或自动重新启用已停用包。
+- 管理员可以「停用 / 启用」安装包。停用后不能用于新的升级或安装，已经创建的升级批次和未过期的安装命令仍固定使用原包。停用不删除文件和记录。
+- 新生成的安装命令按架构使用版本库中最高的可用版本。某架构全部停用后，新命令不再提供该架构。上传、兼容导入、启用和停用均写入审计。
+- 包和数据库元数据分别保存在平台 `objects/agent-releases/<sha256>` 与 `agent_releases` 表中，纳入现有离线备份。文件先完整落盘，再提交数据库和审计；重启后保留。上传结果不确定时，可重传同一文件确认。
+- 版本使用 `major.minor.patch` 三段数字，每段最多六位；禁止降级。现有 `FLEET_AGENT_DIST_DIR` 中配套的有效二进制和清单会兼容导入版本库，新上传的包不依赖该目录。无清单的历史安装包只保留原安装兼容路径。
 
 ## 升级行为
 
@@ -38,8 +39,11 @@ npm run build:agent:installers
 - `GET /api/v1/agent-upgrades`：管理员读取已发布包、Agent 能力及最新 500 条升级记录。
 - `POST /api/v1/agent-upgrades`：管理员提交 `{v:1, request_id:UUID, concurrency:1..5, targets:[{device_id,sha256}]}`；同一操作者及相同请求可重放，变更请求内容返回 409。
 - `GET /api/agent/upgrades/:id/package`：仅目标设备的短期身份令牌可下载自己的未终结任务包，24 小时有效。
-- 审计动作：`agent.upgrade_requested`、`agent.upgrade_status`。
+- `GET /api/v1/agent-releases`：管理员读取所有可用和停用的版本。
+- `PUT /api/v1/agent-releases/:sha256`：管理员上传 `application/octet-stream`，`X-Agent-Manifest` 头为构建生成的 JSON 清单。先鉴权，再接收最多 64 MiB 二进制；最多同时接收两个上传，相同内容可安全重传。
+- `POST /api/v1/agent-releases/:sha256`：管理员提交 `{v:1, enabled:boolean}`，设置包可用状态。
+- 审计动作：`agent.upgrade_requested`、`agent.upgrade_status`、`agent.release_uploaded`、`agent.release_imported`、`agent.release_availability`。
 
-`npm run test:agent:upgrade` 使用独立 HTTPS 服务、真实浏览器、ARM64/x86_64 Linux 容器验证前端批量提交、离线排队、活动终端及录制保留、阻止新操作、非 root 升级、身份与配置不变、重启持久化，以及可启动但工作进程崩溃的坏版本自动回退。需先构建服务端、安装 Playwright Chromium；另提供之前支持升级的版本包到 `FLEET_AGENT_BASELINE_DIST_DIR`（默认 `.test-output/upgrade-baseline`），新版包放在 `FLEET_AGENT_DIST_DIR`（默认 `.dev/agent-dist`）。基线必须与目标包不同，可在旧版源码下设置输出目录后运行构建脚本生成。
+`npm run test:agent:upgrade` 使用独立 HTTPS 服务、真实浏览器、ARM64/x86_64 Linux 容器验证浏览器上传双架构包、选择保留的版本、停用不影响已排队任务、新安装使用上传包，以及前端批量提交、离线排队、活动终端及录制保留、阻止新操作、非 root 升级、身份与配置不变、重启持久化，以及可启动但工作进程崩溃的坏版本自动回退。需先构建服务端、安装 Playwright Chromium；另提供之前支持升级的版本包到 `FLEET_AGENT_BASELINE_DIST_DIR`（默认 `.test-output/upgrade-baseline`），新版包放在 `FLEET_AGENT_DIST_DIR`（默认 `.dev/agent-dist`）。基线必须与目标包不同，可在旧版源码下设置输出目录后运行构建脚本生成。
 
 已验证 Docker 后台服务生命周期；尚未在真实主机验证 systemd 开机启动。无需将容器验证等同于生产验收。

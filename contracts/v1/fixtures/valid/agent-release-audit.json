@@ -1,0 +1,14 @@
+{
+  "id": 1,
+  "at": 1,
+  "actor_id": "admin",
+  "device_id": null,
+  "task_id": null,
+  "action": "agent.release_uploaded",
+  "detail": {
+    "arch": "aarch64",
+    "version": "0.3.0",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size": 128
+  }
+}

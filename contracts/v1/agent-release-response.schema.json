@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-release-response.schema.json",
+  "title": "Farhelm v1 agent-release-response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "arch": {
+          "enum": ["aarch64", "x86_64"]
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 67108864
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "source": {
+          "enum": ["upload", "directory"]
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "arch",
+        "version",
+        "sha256",
+        "size",
+        "enabled",
+        "source",
+        "created_at"
+      ]
+    }
+  },
+  "required": ["v", "release"]
+}

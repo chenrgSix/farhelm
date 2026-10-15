@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { api, ApiError } from "../api/client";
+import AgentReleasePanel from "./AgentReleasePanel.vue";
 import { formatTime } from "../model";
 type Release = { arch: string; version: string; sha256: string; size: number };
 type Device = {
@@ -34,6 +35,7 @@ type Request = {
 };
 const data = ref<Snapshot>({ releases: [], devices: [], jobs: [] }),
   selected = ref<string[]>([]),
+  selectedVersion = ref(""),
   concurrency = ref(2),
   loading = ref(false),
   busy = ref(false),
@@ -63,8 +65,22 @@ const reasons: Record<string, string> = {
   PACKAGE_MISSING: "安装包不可用",
   RESULT_UNCONFIRMED: "尚未收到确切结果，请等待设备回报，勿重复发起",
 };
+const versions = computed(() =>
+  [...new Set(data.value.releases.map((r) => r.version))].sort((a, b) => {
+    const x = a.split(".").map(Number),
+      y = b.split(".").map(Number);
+    for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return y[i]! - x[i]!;
+    return 0;
+  }),
+);
+const targetReleases = computed(() =>
+  data.value.releases.filter((r) => r.version === selectedVersion.value),
+);
 const target = (device: Device) =>
-  data.value.releases.find((r) => r.arch === device.arch);
+  targetReleases.value.find((r) => r.arch === device.arch);
+watch(selectedVersion, () => {
+  selected.value = [];
+});
 const active = (id: string) =>
   data.value.jobs.find((j) => j.device_id === id && !complete(j.status));
 const downgrade = (d: Device) => {
@@ -101,11 +117,11 @@ function status(d: Device) {
     : !d.supported
       ? "需先更新基础版本"
       : !target(d)
-        ? "暂无对应架构安装包"
+        ? "所选版本缺少此架构包"
         : downgrade(d)
-          ? "当前版本高于发布版本"
+          ? "当前版本高于目标版本"
           : target(d)!.sha256 === d.sha256
-            ? "已是当前版本"
+            ? "已是目标版本"
             : d.online
               ? "可升级"
               : "上线后升级";
@@ -117,6 +133,8 @@ async function load() {
     const value = await api.request<Snapshot>("/agent-upgrades");
     if (disposed) return;
     data.value = value;
+    if (!selectedVersion.value && versions.value.length)
+      selectedVersion.value = versions.value[0]!;
     loadError.value = "";
     if (
       pending.value &&
@@ -213,8 +231,28 @@ onBeforeUnmount(() => {
       {{ error || loadError }}
     </p>
     <p v-if="message" class="upgrade-success" role="status">{{ message }}</p>
+    <AgentReleasePanel @changed="load" />
+    <label class="target-version"
+      >目标版本<select
+        v-model="selectedVersion"
+        aria-label="目标版本"
+        :disabled="busy || !!pending"
+      >
+        <option value="" disabled>请选择版本</option>
+        <option
+          v-if="selectedVersion && !versions.includes(selectedVersion)"
+          :value="selectedVersion"
+          disabled
+        >
+          {{ selectedVersion }}（已不可用）
+        </option>
+        <option v-for="version in versions" :key="version" :value="version">
+          v{{ version }}
+        </option>
+      </select></label
+    >
     <div class="release-list">
-      <div v-for="release in data.releases" :key="release.arch">
+      <div v-for="release in targetReleases" :key="release.arch">
         <strong>{{ release.arch }} · v{{ release.version }}</strong
         ><span class="muted"
           >{{ (release.size / 1048576).toFixed(1) }} MB · 构建
@@ -223,7 +261,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <p v-if="!data.releases.length" class="notice">
-      平台尚未发布可升级安装包，请先构建并发布对应架构的 Agent 安装包。
+      暂无可用安装包，请在上方上传对应架构的安装包。
     </p>
     <p class="field-hint">
       每批最多 100
@@ -242,7 +280,7 @@ onBeforeUnmount(() => {
             />全选可升级设备</label
           ><label class="inline"
             >同时升级
-            <select v-model.number="concurrency">
+            <select v-model.number="concurrency" aria-label="同时升级数量">
               <option v-for="n in 5" :key="n" :value="n">{{ n }} 台</option>
             </select></label
           >
@@ -326,6 +364,11 @@ onBeforeUnmount(() => {
   </section>
 </template>
 <style scoped>
+.target-version {
+  max-width: 360px;
+  display: block;
+  margin-top: 24px;
+}
 .upgrade-panel {
   padding: 24px;
 }
@@ -427,6 +470,11 @@ small {
   margin: 0;
 }
 @media (max-width: 600px) {
+  .target-version {
+    max-width: 360px;
+    display: block;
+    margin-top: 24px;
+  }
   .upgrade-panel {
     padding: 16px;
   }
