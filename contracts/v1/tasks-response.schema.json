@@ -8,6 +8,7 @@
     "v": {
       "const": 1
     },
+    "page": { "$ref": "history-page.schema.json" },
     "tasks": {
       "type": "array",
       "items": {
@@ -15,8 +16,5 @@
       }
     }
   },
-  "required": [
-    "v",
-    "tasks"
-  ]
+  "required": ["v", "tasks"]
 }

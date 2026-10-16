@@ -1,4 +1,9 @@
 export type Role = "admin" | "ops" | "business" | "auditor";
+export interface HistoryPage {
+  limit: number;
+  has_more: boolean;
+  next_cursor: string | null;
+}
 export interface User {
   id: string;
   username: string;

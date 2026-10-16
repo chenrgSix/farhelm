@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { hasPermission, type Permission } from "./permissions.js";
 import type { Store } from "./store.js";
+import { historyPage } from "./history.js";
 import type { User } from "./types.js";
 import type { TargetTerminal } from "./ssh-target.js";
 import {
@@ -272,15 +273,11 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   app.get("/api/v1/terminal-sessions", async (req) => {
     const user = d.userAuth(req);
     if (!hasPermission(user, "recordings.read")) fail(403, "PERMISSION_DENIED");
+    const { rows, page } = historyPage(db, user, "sessions", req.query);
     return {
       v: 1,
-      sessions: (
-        db
-          .prepare(
-            "SELECT * FROM terminal_sessions ORDER BY created_at DESC LIMIT 500",
-          )
-          .all() as any[]
-      ).filter((s) => d.inScope(user, s.device_id)),
+      sessions: rows,
+      page,
     };
   });
   app.post("/api/v1/terminal-sessions/:id/close", async (req) => {

@@ -1353,5 +1353,25 @@
     "path": "valid/audit-certificate.agent_ca_synced.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/history-page.json",
+    "schema": "history-page.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/history-page-missing-cursor.json",
+    "schema": "history-page.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/tasks-paginated.json",
+    "schema": "tasks-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-paginated.json",
+    "schema": "audit-response.schema.json",
+    "valid": true
   }
 ]

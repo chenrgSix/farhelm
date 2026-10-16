@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/history-page.schema.json",
+  "title": "Farhelm v1 history page",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["limit", "has_more", "next_cursor"],
+  "properties": {
+    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+    "has_more": { "type": "boolean" },
+    "next_cursor": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 2048
+    }
+  },
+  "if": { "properties": { "has_more": { "const": true } } },
+  "then": { "properties": { "next_cursor": { "type": "string" } } },
+  "else": { "properties": { "next_cursor": { "type": "null" } } }
+}

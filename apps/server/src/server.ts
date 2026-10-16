@@ -25,6 +25,7 @@ import {
 } from "node:fs";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
+import { historyPage } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
 import { registerAccessControl } from "./access-control.js";
 import { hasPermission, type Permission } from "./permissions.js";
@@ -1142,23 +1143,8 @@ export async function buildServer(config: ServerConfig) {
   });
   app.get("/api/v1/tasks", async (req) => {
     const user = permitted(req, "tasks.read");
-    const unrestricted = user.role === "admin" || user.device_scope === "*";
-    const scope = Array.isArray(user.device_scope) ? user.device_scope : [];
-    const where = unrestricted
-      ? ""
-      : scope.length
-        ? " WHERE device_id IN (SELECT value FROM json_each(?))"
-        : " WHERE 0";
-    const rows = db
-      .prepare(
-        "SELECT * FROM tasks" +
-          where +
-          " ORDER BY created_at DESC,id DESC LIMIT 500",
-      )
-      .all(
-        ...(unrestricted || !scope.length ? [] : [JSON.stringify(scope)]),
-      ) as any[];
-    return { v: 1, tasks: rows.map((r) => store.taskView(r)) };
+    const { rows, page } = historyPage(db, user, "tasks", req.query);
+    return { v: 1, tasks: rows.map((r) => store.taskView(r)), page };
   });
   app.get("/api/v1/tasks/:id", async (req) => {
     const user = permitted(req, "tasks.read");
@@ -1185,27 +1171,7 @@ export async function buildServer(config: ServerConfig) {
   });
   app.get("/api/v1/audit", async (req) => {
     const user = permitted(req, "audit.read");
-    const unrestricted = user.role === "admin";
-    const scope = Array.isArray(user.device_scope) ? user.device_scope : [];
-    const where = unrestricted
-      ? ""
-      : user.device_scope === "*"
-        ? " WHERE device_id IS NOT NULL OR actor_id=?"
-        : " WHERE actor_id=?" +
-          (scope.length
-            ? " OR device_id IN (SELECT value FROM json_each(?))"
-            : "");
-    const rows = db
-      .prepare("SELECT * FROM audit" + where + " ORDER BY id DESC LIMIT 1000")
-      .all(
-        ...(unrestricted
-          ? []
-          : user.device_scope === "*"
-            ? [user.id]
-            : scope.length
-              ? [user.id, JSON.stringify(scope)]
-              : [user.id]),
-      ) as any[];
+    const { rows, page } = historyPage(db, user, "audit", req.query);
     return {
       v: 1,
       audit: rows.map((r) => ({
@@ -1217,6 +1183,7 @@ export async function buildServer(config: ServerConfig) {
         action: r.action,
         detail: JSON.parse(r.detail_json),
       })),
+      page,
     };
   });
   app.put(

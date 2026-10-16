@@ -15,6 +15,7 @@
     "check": "npm --prefix apps/server run typecheck && npm --prefix apps/server test && npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix tests/contracts test && cargo test --manifest-path agent/Cargo.toml --locked",
     "build": "npm --prefix apps/server run build && npm --prefix apps/web run build && cargo build --manifest-path agent/Cargo.toml --locked --release",
     "test:browser": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/browser-smoke.ts",
+    "test:frontend": "npm --prefix apps/web run build && node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/frontend-optimization.ts",
     "test:terminal": "node tests/e2e/terminal.mjs",
     "test:terminal:browser": "node tests/e2e/terminal-browser.mjs",
     "test:health:browser": "node tests/e2e/health-browser.mjs",

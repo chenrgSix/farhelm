@@ -2,6 +2,11 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
 import { api } from "./api/client";
 import { useListResource } from "./composables/useListResource";
+import {
+  useHistoryList,
+  type HistoryFilters as HistoryCriteria,
+} from "./composables/useHistoryList";
+import HistoryFilters from "./components/HistoryFilters.vue";
 import type {
   AuditEntry,
   Device,
@@ -53,12 +58,42 @@ type View =
 const view = ref<View>("devices");
 const closingSession = ref<string | null>(null);
 const deviceList = useListResource<Device>("/devices", "devices");
-const taskList = useListResource<Task>("/tasks", "tasks");
-const auditList = useListResource<AuditEntry>("/audit", "audit");
-const sessionList = useListResource<TerminalSession>(
+const overviewTaskList = useListResource<Task>("/tasks", "tasks");
+const taskHistory = useHistoryList<Task>("/tasks", "tasks");
+const auditHistory = useHistoryList<AuditEntry>("/audit", "audit");
+const sessionHistory = useHistoryList<TerminalSession>(
   "/terminal-sessions",
   "sessions",
 );
+const taskList = taskHistory.resource;
+const auditList = auditHistory.resource;
+const sessionList = sessionHistory.resource;
+const currentHistory = computed(() =>
+  view.value === "tasks"
+    ? taskHistory
+    : view.value === "audit"
+      ? auditHistory
+      : view.value === "terminals"
+        ? sessionHistory
+        : null,
+);
+const historyState = computed(() => ({
+  kind:
+    view.value === "audit"
+      ? ("audit" as const)
+      : view.value === "terminals"
+        ? ("terminals" as const)
+        : ("tasks" as const),
+  filters: currentHistory.value?.filters.value ?? taskHistory.filters.value,
+  number: currentHistory.value?.number.value ?? 1,
+  hasMore: currentHistory.value?.resource.page.value?.has_more ?? false,
+  loading: currentHistory.value?.resource.loading.value ?? false,
+  filtered: currentHistory.value?.filtered.value ?? false,
+  count: currentHistory.value?.resource.items.value.length ?? 0,
+}));
+function applyHistoryFilters(filters: HistoryCriteria) {
+  currentHistory.value?.apply(filters);
+}
 const devices = deviceList.items;
 const tasks = taskList.items;
 const audit = auditList.items;
@@ -98,9 +133,13 @@ const lastUpdated = computed(
     (currentList.value ? null : sessionUpdatedAt.value),
 );
 const listError = computed(() => currentList.value?.error.value ?? "");
-const taskError = taskList.error;
+const deviceError = deviceList.error;
+const taskError = overviewTaskList.error;
 const tasksReady = computed(
-  () => !sessionError.value && !!taskList.updatedAt.value && !taskError.value,
+  () =>
+    !sessionError.value &&
+    !!overviewTaskList.updatedAt.value &&
+    !taskError.value,
 );
 const terminalTarget = ref<{
   id: string;
@@ -194,35 +233,20 @@ function toggleVisibleDevices(selected: boolean) {
 function refreshDeviceTags() {
   void deviceList.load();
 }
-const filteredTasks = computed(() =>
-  tasks.value.filter((t) =>
-    `${t.task_id} ${t.device_id} ${t.actor_id} ${t.argv.join(" ")} ${t.status}`
-      .toLowerCase()
-      .includes(search.value.toLowerCase()),
-  ),
-);
-const filteredAudit = computed(() =>
-  audit.value.filter((a) =>
-    `${a.action} ${a.actor_id} ${a.device_id} ${a.task_id}`
-      .toLowerCase()
-      .includes(search.value.toLowerCase()),
-  ),
-);
-const filteredSessions = computed(() =>
-  terminalSessions.value.filter((s) =>
-    `${deviceName(s.device_id)} ${s.actor_id} ${s.id}`
-      .toLowerCase()
-      .includes(search.value.toLowerCase()),
-  ),
-);
+const filteredTasks = tasks;
+const filteredAudit = audit;
+const filteredSessions = terminalSessions;
 const onlineCount = computed(
   () => devices.value.filter((d) => d.control_online && !d.revoked_at).length,
 );
 const activeCount = computed(
-  () => tasks.value.filter((t) => !terminalStates.has(t.status)).length,
+  () =>
+    overviewTaskList.items.value.filter((t) => !terminalStates.has(t.status))
+      .length,
 );
 const unknownCount = computed(
-  () => tasks.value.filter((t) => t.status === "UNKNOWN").length,
+  () =>
+    overviewTaskList.items.value.filter((t) => t.status === "UNKNOWN").length,
 );
 const isExecAllowed = computed(() => canExecute(user.value));
 
@@ -234,6 +258,10 @@ function logout(message = "") {
   view.value = "devices";
   password.value = "";
   for (const list of Object.values(lists)) list.reset();
+  overviewTaskList.reset();
+  taskHistory.reset();
+  auditHistory.reset();
+  sessionHistory.reset();
   selectedDeviceIds.value = [];
   deviceGroupFilter.value = "";
   selectedTask.value = null;
@@ -316,11 +344,10 @@ let userRefresh: Promise<void> | undefined;
 function refreshTargets() {
   const targets = [];
   if (hasPermission(user.value, "devices.read")) targets.push(deviceList);
-  if (
-    (view.value === "devices" || view.value === "tasks") &&
-    hasPermission(user.value, "tasks.read")
-  )
-    targets.push(taskList);
+  if (hasPermission(user.value, "tasks.read")) {
+    if (view.value === "devices") targets.push(overviewTaskList);
+    if (view.value === "tasks") targets.push(taskList);
+  }
   if (view.value === "audit" && hasPermission(user.value, "audit.read"))
     targets.push(auditList);
   if (
@@ -349,6 +376,7 @@ function refreshUser() {
       } as const;
       for (const key of Object.keys(lists) as (keyof typeof lists)[])
         if (!hasPermission(freshUser, permissions[key])) lists[key].reset();
+      if (!hasPermission(freshUser, "tasks.read")) overviewTaskList.reset();
       if (!navigation.value.some((item) => item.id === view.value))
         view.value = navigation.value[0]?.id ?? "devices";
     } catch (e) {
@@ -374,7 +402,7 @@ async function refresh() {
     selectedDeviceIds.value = selectedDeviceIds.value.filter((id) =>
       devices.value.some((d) => d.id === id),
     );
-    if (view.value === "tasks" && selectedTask.value)
+    if (view.value === "tasks" && selectedTask.value && !loadingTask.value)
       await selectTask(selectedTask.value.task_id, true);
   }
 }
@@ -383,14 +411,14 @@ async function selectTask(id: string, quiet = false) {
   const session = sessionGeneration;
   if (!quiet) {
     loadingTask.value = true;
-    switchView("tasks");
+    if (view.value !== "tasks") switchView("tasks");
   }
   try {
     const task = await api.request<Task>(`/tasks/${encodeURIComponent(id)}`);
     if (generation === taskGeneration && session === sessionGeneration)
       selectedTask.value = task;
   } catch (e) {
-    if (session === sessionGeneration)
+    if (session === sessionGeneration && generation === taskGeneration)
       error.value = e instanceof Error ? e.message : "任务读取失败";
   } finally {
     if (generation === taskGeneration) loadingTask.value = false;
@@ -604,7 +632,7 @@ onBeforeUnmount(() => {
         <div class="topbar-right">
           <HealthBadge
             :value="currentReady ? true : null"
-            good="列表已更新"
+            :good="currentList ? '列表已更新' : '会话有效'"
           /><span class="muted small">{{
             lastUpdated ? `更新于 ${formatTime(lastUpdated)}` : "尚未获取数据"
           }}</span
@@ -655,6 +683,15 @@ onBeforeUnmount(() => {
           <span v-if="view === 'devices'">当前设备状态未知。</span>
         </div>
         <div
+          v-if="view !== 'devices' && deviceError"
+          class="notice danger"
+          role="alert"
+        >
+          设备信息刷新失败：{{
+            deviceError
+          }}。设备名称可能已过期，当前页面的独立查询仍可继续。
+        </div>
+        <div
           v-if="view === 'devices' && taskError"
           class="notice danger"
           role="alert"
@@ -685,18 +722,18 @@ onBeforeUnmount(() => {
             <p>Agent WSS 心跳状态，SSH 按需连接</p>
           </div>
           <div class="metric">
-            <span>当前列表进行中</span
+            <span>最近任务进行中</span
             ><strong
               >{{ tasksReady ? activeCount : "—" }}<small>条</small></strong
             >
-            <p>排队、下发、接收或运行中</p>
+            <p>最近 500 条中的排队、下发、接收或运行中</p>
           </div>
           <div class="metric">
-            <span>当前列表待核对</span
+            <span>最近任务待核对</span
             ><strong :class="unknownCount ? 'text-warning' : ''"
               >{{ tasksReady ? unknownCount : "—" }}<small>条</small></strong
             >
-            <p>UNKNOWN 不会自动重跑</p>
+            <p>最近 500 条中的 UNKNOWN，不会自动重跑</p>
           </div>
         </section>
         <p v-if="!navigation.length" class="notice">
@@ -757,7 +794,7 @@ onBeforeUnmount(() => {
                     仅展示当前角色与设备范围允许访问的服务端记录
                   </p>
                 </div>
-                <label class="search-label"
+                <label v-if="view === 'devices'" class="search-label"
                   ><span class="sr-only">筛选当前列表</span
                   ><input
                     v-model="search"
@@ -770,6 +807,14 @@ onBeforeUnmount(() => {
                     aria-label="筛选当前列表"
                 /></label>
               </div>
+              <HistoryFilters
+                v-if="currentHistory"
+                :key="historyState.kind"
+                :kind="historyState.kind"
+                :filters="historyState.filters"
+                :devices="devices"
+                @apply="applyHistoryFilters"
+              />
               <DeviceGroupTools
                 v-if="view === 'devices'"
                 :devices="devices"
@@ -1004,7 +1049,11 @@ onBeforeUnmount(() => {
               <template v-else-if="view === 'tasks'"
                 ><div v-if="!filteredTasks.length" class="empty-state">
                   <span class="empty-icon">≡</span>
-                  <h3>{{ search ? "没有匹配的任务" : "暂无执行记录" }}</h3>
+                  <h3>
+                    {{
+                      historyState.filtered ? "没有匹配的任务" : "暂无执行记录"
+                    }}
+                  </h3>
                   <p>授权执行后，真实任务与持久化结果将在这里显示</p>
                 </div>
                 <div v-else class="table-scroll">
@@ -1083,7 +1132,11 @@ onBeforeUnmount(() => {
               <template v-else-if="view === 'terminals'">
                 <div v-if="!filteredSessions.length" class="empty-state">
                   <span class="empty-icon">&gt;_</span>
-                  <h3>暂无终端会话</h3>
+                  <h3>
+                    {{
+                      historyState.filtered ? "没有匹配的会话" : "暂无终端会话"
+                    }}
+                  </h3>
                   <p>在设备页点击“连接终端”即可开始操作</p>
                 </div>
                 <div v-else class="table-scroll">
@@ -1182,7 +1235,13 @@ onBeforeUnmount(() => {
               <template v-else
                 ><div v-if="!filteredAudit.length" class="empty-state">
                   <span class="empty-icon">◷</span>
-                  <h3>{{ search ? "没有匹配的记录" : "暂无可见审计记录" }}</h3>
+                  <h3>
+                    {{
+                      historyState.filtered
+                        ? "没有匹配的记录"
+                        : "暂无可见审计记录"
+                    }}
+                  </h3>
                   <p>平台操作、授权决定和输出查看会在此留痕</p>
                 </div>
                 <div v-else class="table-scroll">
@@ -1234,15 +1293,40 @@ onBeforeUnmount(() => {
                 </div></template
               >
               <div class="table-footer">
-                <span>{{
-                  view === "tasks"
-                    ? "最近最多 500 条可见任务"
-                    : view === "terminals"
-                      ? "最近最多 500 条可见会话"
-                      : view === "audit"
-                        ? "最近最多 1000 条可见审计记录"
-                        : "仅显示当前账号可见设备"
-                }}</span
+                <template v-if="currentHistory">
+                  <span role="status"
+                    >第 {{ historyState.number }} 页 · 本页
+                    {{ historyState.count }} 条 · 每页 50 条</span
+                  >
+                  <div class="history-pagination" aria-label="历史分页">
+                    <button
+                      class="button secondary small"
+                      :disabled="
+                        historyState.loading || historyState.number === 1
+                      "
+                      @click="currentHistory.first()"
+                    >
+                      返回首页
+                    </button>
+                    <button
+                      class="button secondary small"
+                      :disabled="
+                        historyState.loading || historyState.number === 1
+                      "
+                      @click="currentHistory.back()"
+                    >
+                      上一页
+                    </button>
+                    <button
+                      class="button secondary small"
+                      :disabled="historyState.loading || !historyState.hasMore"
+                      @click="currentHistory.next()"
+                    >
+                      下一页
+                    </button>
+                  </div>
+                </template>
+                <span v-else>仅显示当前账号可见设备</span
                 ><span
                   >10 秒自动刷新 ·
                   {{ Intl.DateTimeFormat().resolvedOptions().timeZone }}</span
@@ -1366,6 +1450,11 @@ onBeforeUnmount(() => {
 }
 .mobile-device-selection {
   display: none;
+}
+.history-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 @media (max-width: 800px) {
   .mobile-device-selection {

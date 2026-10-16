@@ -42,6 +42,7 @@ function navigate(label: string) {
 }
 function mockApi(extra: (path: string) => unknown = () => undefined) {
   return vi.spyOn(api, "request").mockImplementation(async (path) => {
+    path = path.split("?")[0]!;
     const result = extra(path);
     if (result !== undefined) return result;
     if (path === "/login") return { access_token: "test-token", user };

@@ -130,6 +130,8 @@ export class ApiClient {
         /* Untrusted error body is optional. */
       }
       const upgradeHints: Record<string, string> = {
+        INVALID_HISTORY_QUERY: "历史筛选条件无效，请核对时间范围和状态。",
+        INVALID_HISTORY_CURSOR: "历史分页已失效，请返回首页重新查询。",
         DEVICE_GROUP_SIZE_LIMIT:
           "每个设备组最多包含 1000 台设备，请缩小选择范围。",
         EMPTY_TAG_SELECTION: "请选择设备和标签。",

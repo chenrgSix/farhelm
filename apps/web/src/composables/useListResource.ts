@@ -1,5 +1,6 @@
 import { onBeforeUnmount, ref, shallowRef } from "vue";
 import { api } from "../api/client";
+import type { HistoryPage } from "../api/types";
 
 /** Each list keeps its own last successful data and refresh status. */
 export function useListResource<T>(
@@ -10,6 +11,7 @@ export function useListResource<T>(
   const loading = ref(false);
   const error = ref("");
   const updatedAt = ref<number | null>(null);
+  const page = shallowRef<HistoryPage | null>(null);
   let generation = 0;
   let pending = false;
   let running: Promise<void> | undefined;
@@ -22,6 +24,7 @@ export function useListResource<T>(
     loading.value = false;
     error.value = "";
     updatedAt.value = null;
+    page.value = null;
   }
 
   function load(): Promise<void> {
@@ -35,13 +38,14 @@ export function useListResource<T>(
       do {
         pending = false;
         try {
-          const response = await api.request<Record<string, T[]>>(
-            typeof path === "function" ? path() : path,
-          );
+          const response = await api.request<
+            Record<string, T[]> & { page?: HistoryPage }
+          >(typeof path === "function" ? path() : path);
           if (current !== generation) return;
           if (!Array.isArray(response[field]))
             throw new Error("API 列表响应格式错误");
           items.value = response[field];
+          page.value = response.page ?? null;
           updatedAt.value = Date.now();
           error.value = "";
         } catch (e) {
@@ -59,5 +63,5 @@ export function useListResource<T>(
   }
 
   onBeforeUnmount(reset);
-  return { items, loading, error, updatedAt, load, reset };
+  return { items, loading, error, updatedAt, page, load, reset };
 }
