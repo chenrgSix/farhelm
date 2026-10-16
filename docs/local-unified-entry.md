@@ -19,8 +19,10 @@ docker compose -f deploy/dev/compose.entry.yaml ps
 
 ## CA 与切换顺序
 
-浏览器需要首次信任平台私有 CA；当前用户的 macOS 信任可限制为 `host.docker.internal` 的 SSL 用途。CA 公共证书保存在 `.dev/unified-entry/ca.crt`，也可以在系统设置下载。此文件不含私钥。日常服务端续签不改变 CA。
+浏览器需要首次信任平台私有 CA；macOS 应为当前用户设置标准 SSL 用途的根 CA 信任，不使用按域名限定的 `security -s` 信任记录；Chromium 会跳过这类记录，即使系统 `security verify-cert` 显示成功。标准 SSL 根信任会覆盖该 CA 为其他域名签发的 HTTPS 证书；从域名限定信任改为标准 SSL 根信任前，须得到管理员对该范围的明确授权。CA 公共证书保存在 `.dev/unified-entry/ca.crt`，也可以在系统设置下载。此文件不含私钥。日常服务端续签不改变 CA。
 
 迁移现有环境时，先备份数据库和原配置，在系统设置保存私有模式、创建 CA，先让已有 Agent 全部同步并确认，再启用证书。替换 5173 上的 Vite 之前，可以通过平台地址同步让 Agent 暂时连接已验证的 `https://host.docker.internal:8443`，待新入口正常后再同步回 5173；地址迁移会等待活跃终端结束。最后从 5173 验证登录、终端输入输出、退出和录制。
 
 统一入口故障时可直接访问已使用相同证书的 `https://host.docker.internal:8443/`。应通过平台设置迁移地址，勿删除 Agent 身份或手工覆盖信任文件。需要恢复 Vite 开发模式时，先将 Agent 迁移到有效入口，再停用本转发容器；独立 Vite 使用自己的证书，不会自动跟随平台私有 CA 续签。
+
+Chromium 的 macOS 信任实现明确跳过带 `kSecTrustSettingsPolicyString` 的记录，详见 [官方实现](https://raw.githubusercontent.com/chromium/chromium/main/net/cert/internal/trust_store_mac.cc)。迁移时必须先用正常校验证书的实际浏览器验证后端入口，再停用旧网页入口。
