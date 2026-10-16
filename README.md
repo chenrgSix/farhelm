@@ -1,6 +1,6 @@
 # Farhelm · 遥舵
 
-**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前为 P0/P1 本地最小版本。
+**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前预览版为 **v0.2.6**。
 
 Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，支持可选 SSH 统一入口；不依赖 MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
@@ -89,6 +89,12 @@ Agent：FLEET_SERVER_URL（HTTPS origin）、FLEET_CA_CERT、FLEET_STATE_DIR（�
 - 输出硬限额会停止任务，保存已捕获部分并标 audit_complete=false；UI 预览截断与原始审计不完整分开
 - WSS 最大 64 KiB；输出对象最大 1 MiB/任务配置限额；无无限 WSS 输出
 - SQLite WAL + synchronous=FULL、foreign_keys、busy_timeout；实际断电保证仍依赖底层文件系统
+
+## 发布包
+
+GitHub Release 提供 Linux ARM64（aarch64）与 x86_64 Agent、各自的 JSON 清单、源码 ZIP 和 `SHA256SUMS`。Agent 二进制与同架构 JSON 清单配对上传到前端「Agent 升级」即可管理和批量安装。源码 ZIP 包含当前提交的逐文件校验清单，不包含本地 `.dev/`、凭据或未提交文件。
+
+维护者在干净提交上执行 `npm run package:source`，导出到 `.dev/releases/v<版本>/`；不会修改源码树。预览版仍需在目标部署环境自行完成验收。变更见 [CHANGELOG](CHANGELOG.md)。
 
 ## 开发与测试
 
