@@ -21,6 +21,7 @@ export FLEET_PUBLIC_URL="${FLEET_PUBLIC_URL:-$FLEET_SERVER_URL}"
 export FLEET_DEV_DIR
 export FLEET_CONSOLE_ORIGIN="https://localhost:${FLEET_DEV_WEB_PORT:-5173}"
 if [[ ! -f "$FLEET_TLS_CERT" ]]; then bash deploy/dev/generate-tls.sh "$FLEET_DEV_DIR/tls"; fi
+if [[ "${FLEET_DEV_TLS_AUTO_RENEW:-1}" != 0 ]]; then node scripts/dev-tls.mjs renew "$FLEET_DEV_DIR/tls"; fi
 [[ -x agent/target/debug/farhelm-agent ]] || { echo 'Build first: cargo build --manifest-path agent/Cargo.toml --locked' >&2; exit 1; }
 pids=()
 cleanup(){ trap - INT TERM EXIT; for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait || true; }

@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
+import { watchTlsContext } from "../../../lib/tls-context.mjs";
 import { registerAccessControl } from "./access-control.js";
 import { hasPermission, type Permission } from "./permissions.js";
 import { registerTerminals } from "./terminal.js";
@@ -148,6 +149,24 @@ export async function buildServer(config: ServerConfig) {
         }
       : false,
     logController: new LogController({ disableRequestLogging: true }),
+  });
+  let tlsWatcher: ReturnType<typeof watchTlsContext> | undefined;
+  app.addHook("onListen", async () => {
+    if (
+      typeof config.tlsCert === "string" &&
+      !config.tlsCert.includes("-----BEGIN ") &&
+      typeof config.tlsKey === "string" &&
+      !config.tlsKey.includes("-----BEGIN ")
+    ) {
+      tlsWatcher = watchTlsContext(app.server, {
+        certPath: config.tlsCert,
+        keyPath: config.tlsKey,
+        log: (message) => app.log.warn(message),
+      });
+    }
+  });
+  app.addHook("onClose", async () => {
+    tlsWatcher?.close();
   });
   app.setErrorHandler((err: any, req, reply) => {
     if (err instanceof ApiError && err.statusCode === 403) {

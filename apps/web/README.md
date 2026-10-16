@@ -13,7 +13,7 @@ Node.js 24+。在本目录运行 `npm ci`、`npm test`、`npm run typecheck`、`
 npm run dev:web
 ```
 
-浏览器访问 `https://localhost:5173` 并显式信任开发证书；与 Docker Agent 共用入口时使用 `https://host.docker.internal:5173`，并配置宿主机解析。可同时设置 `FLEET_DEV_WEB_TLS_CERT` 和 `FLEET_DEV_WEB_TLS_KEY` 覆盖证书，详见[统一平台入口](../../docs/platform-entry.md)。代理涵盖 `/api/`、`/agent/` 和 `/healthz`，包括 Agent 的安装下载与 WSS 控制连接。仅本机开发允许 HTTP；远程控制台登录必须使用 HTTPS。Vite 到 API 的 TLS 始终校验，禁止 `secure:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0`。未配置 API 代理时 API 缺失会显示明确错误，不会伪造数据。
+浏览器访问 `https://localhost:5173` 并一次性信任开发根证书；与 Docker Agent 共用入口时使用 `https://host.docker.internal:5173`，并配置宿主机解析。可同时设置 `FLEET_DEV_WEB_TLS_CERT` 和 `FLEET_DEV_WEB_TLS_KEY` 覆盖证书，详见[统一平台入口](../../docs/platform-entry.md)。代理涵盖 `/api/`、`/agent/` 和 `/healthz`，包括 Agent 的安装下载与 WSS 控制连接。仅本机开发允许 HTTP；远程控制台登录必须使用 HTTPS。Vite 到 API 的 TLS 始终校验，禁止 `secure:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0`。未配置 API 代理时 API 缺失会显示明确错误，不会伪造数据。`dev:web` 对项目管理的开发证书每小时检查并提前 30 天续签，前后端热加载，已有终端连接保持；自定义证书仅热加载，不自动签发。
 
 ## 已实现
 
