@@ -50,8 +50,8 @@ const actions = computed(() => {
 function close(restoreFocus = false) {
   open.value = false;
   document.removeEventListener("pointerdown", outside);
-  document.removeEventListener("scroll", dismiss, true);
-  window.removeEventListener("resize", dismiss);
+  document.removeEventListener("scroll", place, true);
+  window.removeEventListener("resize", place);
   if (restoreFocus) trigger.value?.focus();
 }
 function outside(event: Event) {
@@ -61,13 +61,7 @@ function outside(event: Event) {
   )
     close();
 }
-function dismiss() {
-  close();
-}
-async function toggle() {
-  if (open.value) return close(true);
-  open.value = true;
-  await nextTick();
+function place() {
   if (!open.value || !trigger.value || !menu.value) return;
   const anchor = trigger.value.getBoundingClientRect();
   const bounds = menu.value.getBoundingClientRect();
@@ -75,10 +69,20 @@ async function toggle() {
     left: `${Math.max(8, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - 8))}px`,
     top: `${Math.max(8, anchor.bottom + bounds.height + 8 <= window.innerHeight ? anchor.bottom + 6 : anchor.top - bounds.height - 6)}px`,
   };
+}
+async function toggle() {
+  if (open.value) return close(true);
+  open.value = true;
+  await nextTick();
+  place();
+  await nextTick();
+  if (!open.value || !menu.value) return;
   document.addEventListener("pointerdown", outside);
-  document.addEventListener("scroll", dismiss, true);
-  window.addEventListener("resize", dismiss);
-  menu.value.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  document.addEventListener("scroll", place, true);
+  window.addEventListener("resize", place);
+  menu.value
+    .querySelector<HTMLButtonElement>("button:not(:disabled)")
+    ?.focus({ preventScroll: true });
 }
 function select(kind: Action) {
   close(true);

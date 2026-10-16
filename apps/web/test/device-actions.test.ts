@@ -64,6 +64,12 @@ it("keeps secondary operations in a menu and restores focus after selecting", as
 it("supports arrows and Escape while skipping disabled actions", async () => {
   setup({ busy: { network: true } });
   const menu = await open();
+  document.dispatchEvent(new Event("scroll"));
+  window.dispatchEvent(new Event("resize"));
+  await flushPromises();
+  expect(
+    wrapper.get('[aria-haspopup="menu"]').attributes("aria-expanded"),
+  ).toBe("true");
   document.activeElement!.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   );
