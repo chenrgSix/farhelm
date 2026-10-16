@@ -34,7 +34,7 @@ export function hasPermission(
   if (!user) return false;
   const allowed = user.permissions
     ? user.permissions.includes(permission)
-    : permission === "recordings.read_all"
+    : permission.endsWith(".read_all")
       ? ["admin", "auditor"].includes(user.role)
       : ["admin", "ops"].includes(user.role) ||
         [

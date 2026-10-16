@@ -301,3 +301,23 @@ describe("login and real-data-only console", () => {
     wrapper.unmount();
   });
 });
+
+it("task audit grants do not expose cancellation for another user's task", () => {
+  const reviewer: User = {
+    ...user,
+    role: "ops",
+    permissions: [
+      "devices.read",
+      "tasks.read",
+      "tasks.read_all",
+      "tasks.execute",
+    ],
+  };
+  const wrapper = mount(TaskDetail, {
+    props: { task: { ...task, actor_id: "other" }, user: reviewer },
+  });
+  expect(
+    wrapper.findAll("button").some((b) => b.text().includes("取消任务")),
+  ).toBe(false);
+  wrapper.unmount();
+});

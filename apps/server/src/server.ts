@@ -38,7 +38,11 @@ import { localAdminServer } from "./local-admin.js";
 import { historyPage } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
 import { registerAccessControl } from "./access-control.js";
-import { hasPermission, type Permission } from "./permissions.js";
+import {
+  hasPermission,
+  canReadOtherHistory,
+  type Permission,
+} from "./permissions.js";
 import { registerTerminals } from "./terminal.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
@@ -1269,6 +1273,8 @@ export async function buildServer(config: ServerConfig) {
     const user = permitted(req, "tasks.read");
     const row = store.task(str((req.params as any).id, 1, 128));
     requireScope(user, row.device_id);
+    if (row.actor_id !== user.id && !canReadOtherHistory(user, "tasks"))
+      fail(403, "PERMISSION_DENIED");
     return { v: 1, ...store.taskView(row) };
   });
   app.post("/api/v1/tasks/:id/cancel", async (req) => {
@@ -1278,6 +1284,8 @@ export async function buildServer(config: ServerConfig) {
     keys(b, ["v"]);
     const row = store.task(str((req.params as any).id, 1, 128));
     requireScope(user, row.device_id);
+    if (user.role !== "admin" && row.actor_id !== user.id)
+      fail(403, "TASK_OWNER_REQUIRED");
     if (!TERMINAL.has(row.status))
       store.transaction(() => {
         db.prepare(
@@ -1373,6 +1381,8 @@ export async function buildServer(config: ServerConfig) {
     const row = store.task(str(params.task_id, 1, 128));
     const user = permitted(req, "tasks.read");
     requireScope(user, row.device_id);
+    if (row.actor_id !== user.id && !canReadOtherHistory(user, "tasks"))
+      fail(403, "PERMISSION_DENIED");
     const actor = user.id;
     const stream = str(params.stream, 1, 16);
     if (stream !== "stdout" && stream !== "stderr") fail(400, "INVALID_STREAM");

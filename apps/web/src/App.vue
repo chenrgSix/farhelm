@@ -830,6 +830,13 @@ onBeforeUnmount(() => {
                   <p v-if="view === 'devices'" class="field-hint">
                     控制、私网与业务状态独立判断；未采集的状态为未知
                   </p>
+                  <p v-else-if="view === 'tasks'" class="field-hint">
+                    {{
+                      hasPermission(user, "tasks.read_all")
+                        ? "可查看授权设备上所有用户的任务及输出"
+                        : "仅展示本人在授权设备上的任务及输出"
+                    }}
+                  </p>
                   <p v-else-if="view === 'terminals'" class="field-hint">
                     {{
                       user.role === "admin" ||
@@ -839,7 +846,11 @@ onBeforeUnmount(() => {
                     }}
                   </p>
                   <p v-else-if="view === 'audit'" class="field-hint">
-                    仅展示当前角色与设备范围允许访问的服务端记录
+                    {{
+                      hasPermission(user, "audit.read_all")
+                        ? "可查看本人及授权范围内其他用户的操作审计"
+                        : "仅展示本人的操作审计"
+                    }}
                   </p>
                 </div>
                 <label v-if="view === 'devices'" class="search-label"

@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { User } from "./types.js";
-import { canReadOtherRecordings } from "./permissions.js";
+import { canReadOtherHistory } from "./permissions.js";
 import { fail, hash, integer, keys, object, str } from "./util.js";
 
 type Kind = "tasks" | "audit" | "sessions";
@@ -71,7 +71,7 @@ export function historyPage(
       user: user.id,
       scope: user.device_scope,
       role: user.role,
-      otherRecordings: kind === "sessions" && canReadOtherRecordings(user),
+      readOthers: canReadOtherHistory(user, kind),
       limit,
       q,
       device,
@@ -91,9 +91,10 @@ export function historyPage(
   const scope = Array.isArray(user.device_scope) ? user.device_scope : [];
   if (user.role !== "admin") {
     if (kind === "audit") {
-      if (user.device_scope === "*")
-        add("r.device_id IS NOT NULL OR r.actor_id=?", user.id);
-      else if (scope.length)
+      if (!canReadOtherHistory(user, kind)) add("r.actor_id=?", user.id);
+      else if (user.device_scope === "*") {
+        /* Explicit global audit scope. */
+      } else if (scope.length)
         add(
           "r.actor_id=? OR r.device_id IN (SELECT value FROM json_each(?))",
           user.id,
@@ -109,7 +110,7 @@ export function historyPage(
       else add("0");
     }
   }
-  if (kind === "sessions" && !canReadOtherRecordings(user))
+  if (kind !== "audit" && !canReadOtherHistory(user, kind))
     add("r.actor_id=?", user.id);
   if (device) add("r.device_id=?", device);
   if (actor) add("r.actor_id=? OR u.username=?", actor, actor);

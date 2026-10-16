@@ -30,8 +30,14 @@ const catalog = [
   },
   {
     id: "tasks.read",
-    label: "查看任务",
-    description: "查看授权设备的任务及输出",
+    label: "查看本人任务",
+    description: "查看本人在授权设备上的任务及输出",
+  },
+  {
+    id: "tasks.read_all",
+    label: "查看他人任务",
+    description:
+      "审计授权设备上其他用户的任务、详情及输出，不授予取消他人任务的权限",
   },
   {
     id: "tasks.execute",
@@ -51,8 +57,14 @@ const catalog = [
   },
   {
     id: "audit.read",
-    label: "查看审计",
-    description: "查看本人及授权设备的操作审计",
+    label: "查看本人操作审计",
+    description: "查看本人发起的操作及结果",
+  },
+  {
+    id: "audit.read_all",
+    label: "查看他人操作审计",
+    description:
+      "审计授权设备上其他用户的操作；设备范围为全部设备时也可查看平台级事件",
   },
   {
     id: "health.manage",
@@ -321,6 +333,16 @@ export function registerAccessControl(
       !permissions.includes("recordings.read")
     )
       fail(400, "RECORDING_READ_PERMISSION_REQUIRED");
+    if (
+      permissions.includes("tasks.read_all") &&
+      !permissions.includes("tasks.read")
+    )
+      fail(400, "TASK_READ_PERMISSION_REQUIRED");
+    if (
+      permissions.includes("audit.read_all") &&
+      !permissions.includes("audit.read")
+    )
+      fail(400, "AUDIT_READ_PERMISSION_REQUIRED");
     return {
       name: name(b.name),
       description: description(b.description),

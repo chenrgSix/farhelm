@@ -21,6 +21,9 @@ const data: AccessManagement = {
   permissions: [
     { id: "devices.read", label: "查看设备", description: "设备" },
     { id: "tasks.read", label: "查看任务", description: "任务" },
+    { id: "tasks.read_all", label: "查看他人任务", description: "审计" },
+    { id: "audit.read", label: "查看本人操作审计", description: "本人" },
+    { id: "audit.read_all", label: "查看他人操作审计", description: "审计" },
     { id: "recordings.read", label: "查看本人会话与录制", description: "本人" },
     {
       id: "recordings.read_all",
@@ -259,5 +262,32 @@ it("cross-user recording permission requires own recording access and does not f
       "recordings.read_all",
     ),
   ).toBe(false);
+  wrapper.unmount();
+});
+
+it("task and audit review grants select and lock their base read permissions", async () => {
+  const { wrapper, request, button } = await setup();
+  await wrapper.get('[role="tab"]:nth-child(2)').trigger("click");
+  await button("创建角色").trigger("click");
+  await wrapper.get('input[maxlength="64"]').setValue("操作审计");
+  for (const kind of ["tasks", "audit"]) {
+    await wrapper.get(`input[value="${kind}.read_all"]`).setValue(true);
+    const base = wrapper.get<HTMLInputElement>(`input[value="${kind}.read"]`);
+    expect(base.element.checked).toBe(true);
+    expect(base.attributes("disabled")).toBeDefined();
+  }
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  const saved = request.mock.calls.find(([path]) => path === "/roles")![1]!
+    .body as any;
+  expect(saved.permissions).toEqual(
+    expect.arrayContaining([
+      "tasks.read",
+      "tasks.read_all",
+      "audit.read",
+      "audit.read_all",
+      "devices.read",
+    ]),
+  );
   wrapper.unmount();
 });

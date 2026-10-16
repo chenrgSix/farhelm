@@ -1146,3 +1146,32 @@ test("recording visibility migration preserves operational/custom roles and runs
   );
   store.close();
 });
+
+test("task and audit cross-user permissions require their read permissions and are not implicit ops grants", async () => {
+  const f = await fixture();
+  try {
+    for (const kind of ["tasks", "audit"]) {
+      const body = {
+        v: 1,
+        name: kind + " review",
+        description: "",
+        permissions: ["devices.read", kind + ".read_all"],
+      };
+      assert.equal((await f.api("POST", "/roles", body)).status, 400);
+      body.permissions.push(kind + ".read");
+      const r = await f.api("POST", "/roles", body);
+      assert.equal(r.status, 200);
+      assertValid("access-role-response", r.body);
+    }
+    const all = await f.all();
+    for (const role of all.roles.filter((r: any) => r.builtin)) {
+      for (const permission of ["tasks.read_all", "audit.read_all"])
+        assert.equal(
+          role.permissions.includes(permission),
+          ["admin", "auditor"].includes(role.id),
+        );
+    }
+  } finally {
+    await f.close();
+  }
+});

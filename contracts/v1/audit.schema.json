@@ -690,16 +690,18 @@
                       "devices.read",
                       "terminal.connect",
                       "tasks.read",
+                      "tasks.read_all",
                       "tasks.execute",
                       "recordings.read",
                       "recordings.read_all",
                       "audit.read",
+                      "audit.read_all",
                       "health.manage",
                       "network.manage"
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 9
+                  "maxItems": 11
                 },
                 "member_ids": {
                   "type": "array",
@@ -1977,16 +1979,18 @@
                         "devices.read",
                         "terminal.connect",
                         "tasks.read",
+                        "tasks.read_all",
                         "tasks.execute",
                         "recordings.read",
                         "recordings.read_all",
                         "audit.read",
+                        "audit.read_all",
                         "health.manage",
                         "network.manage"
                       ]
                     },
                     "uniqueItems": true,
-                    "maxItems": 9
+                    "maxItems": 11
                   },
                   "member_ids": {
                     "type": "array",

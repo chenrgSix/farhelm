@@ -149,6 +149,10 @@ export class ApiClient {
         DEVICE_GROUP_SIZE_LIMIT:
           "每个设备组最多包含 1000 台设备，请缩小选择范围。",
         EMPTY_TAG_SELECTION: "请选择设备和标签。",
+        TASK_OWNER_REQUIRED:
+          "只能取消本人创建的任务；管理员可取消其他人的任务。",
+        TASK_READ_PERMISSION_REQUIRED: "请先授予查看本人任务权限。",
+        AUDIT_READ_PERMISSION_REQUIRED: "请先授予查看本人操作审计权限。",
         RECORDING_READ_PERMISSION_REQUIRED:
           "查看他人会话与录制需要先授予查看本人会话与录制。",
         INVALID_PASSWORD_POLICY:
@@ -164,7 +168,6 @@ export class ApiClient {
         INVALID_USERNAME:
           "账号只能包含字母、数字、点、下划线、@ 和短横线，并以字母或数字开头",
         DEVICE_READ_PERMISSION_REQUIRED: "请同时选择查看设备权限",
-        TASK_READ_PERMISSION_REQUIRED: "执行命令需要同时选择查看任务权限",
         ACCESS_ENTRY_LIMIT: "已达到用户、角色或用户组数量上限",
 
         AGENT_RELEASE_CONFLICT:

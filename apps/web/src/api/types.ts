@@ -249,10 +249,12 @@ export type Permission =
   | "devices.read"
   | "terminal.connect"
   | "tasks.read"
+  | "tasks.read_all"
   | "tasks.execute"
   | "recordings.read"
   | "recordings.read_all"
   | "audit.read"
+  | "audit.read_all"
   | "health.manage"
   | "network.manage";
 export type DeviceScope = "*" | string[];

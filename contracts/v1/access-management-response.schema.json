@@ -18,10 +18,12 @@
               "devices.read",
               "terminal.connect",
               "tasks.read",
+              "tasks.read_all",
               "tasks.execute",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
+              "audit.read_all",
               "health.manage",
               "network.manage"
             ]
@@ -39,7 +41,7 @@
         },
         "required": ["id", "label", "description"]
       },
-      "maxItems": 9
+      "maxItems": 11
     },
     "users": {
       "type": "array",
@@ -107,16 +109,18 @@
                 "devices.read",
                 "terminal.connect",
                 "tasks.read",
+                "tasks.read_all",
                 "tasks.execute",
                 "recordings.read",
                 "recordings.read_all",
                 "audit.read",
+                "audit.read_all",
                 "health.manage",
                 "network.manage"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 9
+            "maxItems": 11
           },
           "effective_device_scope": {
             "anyOf": [
@@ -187,16 +191,18 @@
                 "devices.read",
                 "terminal.connect",
                 "tasks.read",
+                "tasks.read_all",
                 "tasks.execute",
                 "recordings.read",
                 "recordings.read_all",
                 "audit.read",
+                "audit.read_all",
                 "health.manage",
                 "network.manage"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 9
+            "maxItems": 11
           },
           "builtin": {
             "type": "boolean"
@@ -401,16 +407,18 @@
               "devices.read",
               "terminal.connect",
               "tasks.read",
+              "tasks.read_all",
               "tasks.execute",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
+              "audit.read_all",
               "health.manage",
               "network.manage"
             ]
           },
           "uniqueItems": true,
-          "maxItems": 9
+          "maxItems": 11
         },
         "effective_device_scope": {
           "anyOf": [
@@ -477,16 +485,18 @@
               "devices.read",
               "terminal.connect",
               "tasks.read",
+              "tasks.read_all",
               "tasks.execute",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
+              "audit.read_all",
               "health.manage",
               "network.manage"
             ]
           },
           "uniqueItems": true,
-          "maxItems": 9
+          "maxItems": 11
         },
         "builtin": {
           "type": "boolean"

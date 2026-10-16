@@ -67,6 +67,42 @@ try {
       }),
     );
   }
+  for (const actor of [alice, bob]) {
+    for (let n = 0; n < 2; n++) {
+      const id = actor.username + "-task-" + n;
+      const task = {
+        task_id: id,
+        device_id: "shared",
+        actor_id: actor.id,
+        action: "exec",
+        argv: ["echo", actor.username + " private task"],
+        cwd: "/tmp",
+        created_at: 1000 + n,
+        expires_at: 3000,
+        timeout_ms: 1000,
+        max_output_bytes: 1000,
+        payload_hash: "a".repeat(64),
+      };
+      db.prepare(
+        "INSERT INTO tasks(id,device_id,actor_id,task_json,payload_hash,status,created_at,updated_at) VALUES(?,'shared',?,?,?,'SUCCEEDED',?,?)",
+      ).run(
+        id,
+        actor.id,
+        JSON.stringify(task),
+        task.payload_hash,
+        task.created_at,
+        task.created_at,
+      );
+      server.store.audit("task.created", actor.id, "shared", id, {
+        action: "AGENT_EXEC",
+        argv: task.argv,
+        cwd: task.cwd,
+        role: "ops",
+        authorized: true,
+        payload_hash: task.payload_hash,
+      });
+    }
+  }
   await server.app.listen({ host: "127.0.0.1", port: 0 });
   const origin = `https://localhost:${server.app.server.address().port}`;
   browser = await chromium.launch({
@@ -150,6 +186,36 @@ try {
     path: join(out, "session-visibility-owner.png"),
     fullPage: true,
   });
+  await own.page.getByRole("button", { name: "任务中心", exact: true }).click();
+  await expect(own.page.locator("tbody tr")).toHaveCount(2);
+  await expect(own.page.locator("tbody")).not.toContainText("bob private task");
+  for (const path of ["/tasks/bob-task-0", "/tasks/bob-task-0/output/stdout"]) {
+    const status = await own.page.evaluate(
+      async ({ path, auth }) =>
+        (
+          await fetch("/api/v1" + path, {
+            headers: { authorization: "Bearer " + auth },
+          })
+        ).status,
+      { path, auth: own.auth },
+    );
+    assert.equal(status, 403);
+  }
+  await own.page.getByRole("button", { name: "操作审计", exact: true }).click();
+  await expect(
+    own.page.getByText("仅展示本人的操作审计", { exact: true }),
+  ).toBeVisible();
+  const ownAudit = await own.page.evaluate(
+    async (auth) =>
+      (
+        await fetch("/api/v1/audit", {
+          headers: { authorization: "Bearer " + auth },
+        })
+      ).json(),
+    own.auth,
+  );
+  assert.ok(ownAudit.audit.length > 0);
+  assert.ok(ownAudit.audit.every((e) => e.actor_id === alice.id));
   const other = await login("bob");
   await expect(other.page.locator("tbody tr")).toHaveCount(3);
   await expect(other.page.locator("tbody")).not.toContainText(alice.id);
@@ -160,12 +226,33 @@ try {
       exact: true,
     }),
   ).toBeVisible();
+  await auditor.page
+    .getByRole("button", { name: "任务中心", exact: true })
+    .click();
+  await expect(auditor.page.locator("tbody tr")).toHaveCount(4);
+  await auditor.page
+    .getByRole("button", { name: "操作审计", exact: true })
+    .click();
+  const audit = await auditor.page.evaluate(
+    async (auth) =>
+      (
+        await fetch("/api/v1/audit", {
+          headers: { authorization: "Bearer " + auth },
+        })
+      ).json(),
+    auditor.auth,
+  );
+  assert.ok(audit.audit.some((e) => e.actor_id === alice.id));
+  assert.ok(audit.audit.some((e) => e.actor_id === bob.id));
   const admin = await login("admin");
   await expect(admin.page.locator("tbody tr")).toHaveCount(5);
   const report = {
     passed: true,
     trusted_https: true,
     same_device_owners_isolated: true,
+    own_tasks_and_audit_only: true,
+    other_task_details_and_output_denied: true,
+    explicit_task_and_audit_review: true,
     web_and_ssh_history: true,
     direct_recording_and_export_denied: true,
     own_playback_and_export: true,

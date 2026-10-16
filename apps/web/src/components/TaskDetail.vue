@@ -33,6 +33,7 @@ watch(
 const cancelAllowed = computed(
   () =>
     canExecute(props.user, props.task.device_id) &&
+    (props.user.role === "admin" || props.user.id === props.task.actor_id) &&
     !terminalStates.has(props.task.status),
 );
 async function cancel() {

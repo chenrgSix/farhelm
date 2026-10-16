@@ -47,11 +47,12 @@ async function fixture() {
     at: number,
     device = "visible",
     argv = ["/bin/echo", "recent"],
+    actor = admin,
   ) {
     const body = {
       task_id: id,
       device_id: device,
-      actor_id: admin,
+      actor_id: actor,
       action: "exec",
       argv,
       cwd: "/tmp",
@@ -66,7 +67,7 @@ async function fixture() {
     ).run(
       id,
       device,
-      admin,
+      actor,
       JSON.stringify(body),
       body.payload_hash,
       "SUCCEEDED",
@@ -133,6 +134,7 @@ async function fixture() {
     reader,
     readerToken,
     emptyToken,
+    login,
     cleanup: async () => {
       await server.close();
       rmSync(root, { recursive: true, force: true });
@@ -282,6 +284,120 @@ test("history rejects malformed filters and cursors from other queries or users"
       (await f.get("/tasks?limit=50&q=%27%20OR%201%3D1--")).body.tasks.length,
       0,
     );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("ordinary users only read their own tasks and audit; read-all grants remain scoped and do not permit cancellation", async () => {
+  const f = await fixture();
+  try {
+    const owner = f.store.seedUser({
+      username: "owner",
+      password: "history-test-password1",
+      role: "ops",
+      deviceScope: ["visible"],
+    });
+    const auth = await f.login("owner");
+    f.task("own-older", 10, "visible", ["echo", "own-only"], owner.id);
+    f.task("own-newer", 11, "visible", ["echo", "own-only"], owner.id);
+    f.task("own-outside", 12, "outside", ["echo", "hidden"], owner.id);
+    f.store.audit("user.login", owner.id, null, null);
+    f.store.audit("task.cancel_requested", owner.id, "outside", "own-outside");
+    const first = await f.get("/tasks?limit=1", auth);
+    assert.equal(first.body.tasks[0].task_id, "own-newer");
+    const next = await f.get(
+      "/tasks?limit=1&cursor=" + first.body.page.next_cursor,
+      auth,
+    );
+    assert.equal(next.body.tasks[0].task_id, "own-older");
+    assert.equal(next.body.page.has_more, false);
+    for (const query of ["?actor_id=admin", "?q=recent"])
+      assert.deepEqual((await f.get("/tasks" + query, auth)).body.tasks, []);
+    assert.equal((await f.get("/tasks/task-0000", auth)).status, 403);
+    assert.equal(
+      (await f.get("/tasks/task-0000/output/stdout", auth)).status,
+      403,
+    );
+    assert.equal((await f.get("/tasks/own-older", auth)).status, 200);
+    assert.equal(
+      (await f.get("/tasks/own-older/output/stdout", auth)).status,
+      404,
+    );
+    assert.equal((await f.get("/tasks/own-outside", auth)).status, 403);
+    const audit = await f.get("/audit?limit=100", auth);
+    assert.ok(audit.body.audit.length > 0);
+    assert.ok(audit.body.audit.every((r: any) => r.actor_id === owner.id));
+    assert.ok(audit.body.audit.some((r: any) => r.device_id === "outside"));
+    assert.deepEqual(
+      (await f.get("/audit?actor_id=admin", auth)).body.audit,
+      [],
+    );
+    // A role may audit other users' tasks without acquiring permission to cancel them.
+    const permissions = [
+      "devices.read",
+      "tasks.read",
+      "tasks.execute",
+      "tasks.read_all",
+      "audit.read",
+      "audit.read_all",
+    ];
+    f.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(JSON.stringify(permissions));
+    assert.equal((await f.get("/tasks/task-0000", auth)).status, 200);
+    assert.equal((await f.get("/tasks/task-0001", auth)).status, 403);
+    assert.equal(
+      (await f.get("/tasks/task-0000/output/stdout", auth)).status,
+      404,
+    );
+    const cancel = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/tasks/task-0000/cancel",
+      headers: { authorization: "Bearer " + auth },
+      payload: { v: 1 },
+    });
+    assert.equal(cancel.statusCode, 403);
+    assert.equal(cancel.json().error, "TASK_OWNER_REQUIRED");
+    assert.ok(
+      (await f.get("/audit?actor_id=admin", auth)).body.audit.length > 0,
+    );
+    assert.deepEqual(
+      (await f.get("/audit?action=user.login&actor_id=admin", auth)).body.audit,
+      [],
+    );
+    // Device-global auditing explicitly includes platform-level events.
+    f.db
+      .prepare("UPDATE users SET device_scope='\"*\"' WHERE id=?")
+      .run(owner.id);
+    assert.ok(
+      (await f.get("/audit?action=user.login&actor_id=admin", auth)).body.audit
+        .length > 0,
+    );
+    const broad = await f.get("/tasks?limit=1", auth);
+    const broadAudit = await f.get("/audit?limit=1", auth);
+    f.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(JSON.stringify(permissions.filter((p) => !p.endsWith(".read_all"))));
+    assert.equal(
+      (
+        await f.get(
+          "/tasks?limit=1&cursor=" + broad.body.page.next_cursor,
+          auth,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.get(
+          "/audit?limit=1&cursor=" + broadAudit.body.page.next_cursor,
+          auth,
+        )
+      ).status,
+      400,
+    );
+    assert.equal((await f.get("/tasks/task-0000", auth)).status, 403);
   } finally {
     await f.cleanup();
   }
