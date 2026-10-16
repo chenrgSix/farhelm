@@ -52,7 +52,7 @@ security add-trusted-cert -r trustRoot -p ssl \
 
 如果启用了系统代理，在当前网络的代理例外中追加 `host.docker.internal`，保留已有代理和例外。否则浏览器可能把该本地域名交给外部代理，表现为连接被关闭；代理软件重新设置系统配置后也需核对该例外。命令行测试可对单次请求使用 `curl --noproxy host.docker.internal --cacert .dev/tls/ca.crt https://host.docker.internal:5173/healthz`。
 
-hosts 和钥匙串修改可能要求系统授权；开发启动脚本不会自动执行这些操作。服务端证书由下方续签流程维护；自定义正式证书仍由部署方的签发系统管理。真正远程的机器需要可达域名或 IP，不能照抄开发回环地址。
+hosts 和钥匙串修改可能要求系统授权；开发启动脚本不会自动执行这些操作。服务端证书由下方续签流程维护；自定义外部证书由部署方管理；Farhelm 托管的公网证书见 [正式证书自动管理](production-certificates.md)。真正远程的机器需要可达域名或 IP，不能照抄开发回环地址。
 
 ## 自动续签与热加载
 
@@ -62,7 +62,7 @@ hosts 和钥匙串修改可能要求系统授权；开发启动脚本不会自�
 
 前后端每 5 秒检查证书文件，调用 TLS `setSecureContext` 热加载有效证书；已有 HTTPS/WSS/终端连接继续使用原连接，新的握手使用新证书。无效或不匹配的证书文件不会覆盖当前 TLS 上下文，修复文件后会继续加载。行为依据 [Node.js TLS 热加载接口](https://nodejs.org/docs/latest-v24.x/api/tls.html#serversetsecurecontextoptions)。后端支持文件路径证书的热加载，直接传入 PEM/Buffer 的测试或嵌入式配置不监听文件。
 
-自动签发仅处理 `server.crt`、`server.key` 和同目录 `managed.json` 标记的开发证书；不改写自定义生产证书。设置 `FLEET_DEV_TLS_AUTO_RENEW=0` 可关闭自动签发，热加载仍可供外部签发程序使用。公网正式域名的 ACME 签发和 Nginx reload 应由部署侧配置，不由此开发 CA 处理。
+自动签发仅处理 `server.crt`、`server.key` 和同目录 `managed.json` 标记的开发证书；不改写自定义生产证书。设置 `FLEET_DEV_TLS_AUTO_RENEW=0` 可关闭自动签发，热加载仍可供外部签发程序使用。正式域名可使用独立的 [ACME 自动证书管理](production-certificates.md)，在系统设置配置域名、查看状态及有效期；开发 CA 不参与公网证书签发。
 
 手动检查或验证一次换证：
 

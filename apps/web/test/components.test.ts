@@ -245,6 +245,28 @@ describe("login and real-data-only console", () => {
       if (path === "/tasks") return { tasks: [] };
       if (path === "/terminal-sessions") return { sessions: [] };
       if (path === "/settings/agent-sync") return { revision: 1, devices: [] };
+      if (path === "/settings/certificate")
+        return {
+          v: 1,
+          revision: 0,
+          domain: "",
+          email: "",
+          enabled: false,
+          tos_agreed: false,
+          available: false,
+          status: "external",
+          last_error: null,
+          last_success_at: null,
+          next_attempt_at: null,
+          retry_allowed_at: null,
+          certificate: {
+            managed: false,
+            domain: null,
+            expired: false,
+            issuer: "Test CA",
+            expires_at: 1900000000000,
+          },
+        };
       if (path === "/settings")
         return {
           v: 1,

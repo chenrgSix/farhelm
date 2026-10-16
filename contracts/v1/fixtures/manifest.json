@@ -1243,5 +1243,45 @@
     "path": "valid/audit-agent-enabled.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/certificate-settings-update.json",
+    "schema": "certificate-settings-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/certificate-check.json",
+    "schema": "certificate-check.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/certificate-status.json",
+    "schema": "certificate-status.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-certificate.configured.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-certificate.check_requested.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-certificate.issued.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-certificate.failed.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/certificate-extra-secret.json",
+    "schema": "certificate-settings-update.schema.json",
+    "valid": false
   }
 ]

@@ -1,0 +1,24 @@
+[Unit]
+Description=Farhelm platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=farhelm
+Group=farhelm
+WorkingDirectory=/opt/farhelm
+EnvironmentFile=/etc/farhelm/server.env
+ExecStart=/usr/bin/node /opt/farhelm/apps/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/farhelm
+
+[Install]
+WantedBy=multi-user.target

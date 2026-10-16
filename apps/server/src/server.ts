@@ -1,7 +1,14 @@
 import Fastify, { LogController, type FastifyRequest } from "fastify";
 import websocket from "@fastify/websocket";
 import { WebSocket } from "ws";
-import { randomUUID, randomBytes, createPublicKey, verify } from "node:crypto";
+import {
+  randomUUID,
+  randomBytes,
+  createPublicKey,
+  verify,
+  X509Certificate,
+} from "node:crypto";
+import { createSecureContext } from "node:tls";
 import {
   readFileSync,
   mkdirSync,
@@ -31,6 +38,8 @@ import { registerDeviceConnections } from "./device-connections.js";
 import { registerAgentReleases, legacyArtifacts } from "./agent-releases.js";
 import { registerAgentInstall } from "./agent-install.js";
 import { registerSettings } from "./settings.js";
+import { managedCertificate } from "./certificate-files.js";
+import { CertificateManager, registerCertificates } from "./certificates.js";
 import { registerAgentUpgrades, type UpgradeInfo } from "./agent-upgrades.js";
 import {
   ApiError,
@@ -125,11 +134,54 @@ export async function buildServer(config: ServerConfig) {
         deviceScope: "*",
       });
   }
+  if (config.acme?.testDirectoryUrl && !config.testMode)
+    throw new Error(
+      "Custom ACME directories are restricted to isolated test mode",
+    );
+  if (config.acme && config.agentInstall?.caCert)
+    throw new Error(
+      "ACME mode requires Agents to use public trust roots; remove the private Agent CA setting",
+    );
+  const managed = config.acme ? managedCertificate(config.dataDir) : undefined;
+  const identity = (cert: string | Buffer, key: string | Buffer) => ({
+    certificate: new X509Certificate(cert),
+    context: createSecureContext({ cert, key, minVersion: "TLSv1.2" }),
+  });
+  const bootstrapIdentity = config.acme
+    ? identity(readPem(config.tlsCert), readPem(config.tlsKey))
+    : undefined;
+  let activeIdentity = managed
+    ? identity(managed.cert, managed.key)
+    : undefined;
+  const retired = config.acme
+    ? managedCertificate(config.dataDir, "retired.json")
+    : undefined;
+  let retiredIdentity = retired
+    ? identity(retired.cert, retired.key)
+    : undefined;
+  let activeDomain = managed?.domain;
   const app = Fastify({
     https: {
-      key: readPem(config.tlsKey),
-      cert: readPem(config.tlsCert),
+      key: managed?.key ?? readPem(config.tlsKey),
+      cert: managed?.cert ?? readPem(config.tlsCert),
       minVersion: "TLSv1.2",
+      ...(config.acme
+        ? {
+            SNICallback: (name, callback) => {
+              const selected = [
+                activeIdentity,
+                retiredIdentity,
+                bootstrapIdentity,
+              ].find((item) =>
+                item?.certificate.checkHost(name, {
+                  subject: "never",
+                  wildcards: false,
+                }),
+              );
+              callback(null, selected?.context);
+            },
+          }
+        : {}),
     },
     bodyLimit: MAX_FRAME,
     requestTimeout: 30000,
@@ -153,6 +205,7 @@ export async function buildServer(config: ServerConfig) {
   let tlsWatcher: ReturnType<typeof watchTlsContext> | undefined;
   app.addHook("onListen", async () => {
     if (
+      !config.acme &&
       typeof config.tlsCert === "string" &&
       !config.tlsCert.includes("-----BEGIN ") &&
       typeof config.tlsKey === "string" &&
@@ -365,6 +418,26 @@ export async function buildServer(config: ServerConfig) {
       if (row.cancel_requested) send(c, "task.cancel", { task_id: row.id });
     }
   }
+  const certificates = new CertificateManager({
+    store,
+    config: config.acme,
+    initial: managed,
+    fallback: () => readPem(config.tlsCert),
+    warn: (message) => app.log.warn(message),
+    activate: (bundle) => {
+      const next = identity(bundle.cert, bundle.key);
+      app.server.setSecureContext({
+        cert: bundle.cert,
+        key: bundle.key,
+        minVersion: "TLSv1.2",
+      });
+      if (activeDomain && activeDomain !== bundle.domain)
+        retiredIdentity = activeIdentity;
+      activeIdentity = next;
+      activeDomain = bundle.domain;
+    },
+  });
+  registerCertificates(app, certificates, admin);
   const settings = registerSettings(app, {
     store,
     admin,

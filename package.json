@@ -32,7 +32,8 @@
     "test:agent:network": "node tests/e2e/agent-network.mjs",
     "test:access:browser": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/access-management.ts",
     "test:ssh:install-agent": "FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs",
-    "test:platform-entry": "FLEET_TEST_FRONTEND_PROXY=vite FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs && FLEET_TEST_FRONTEND_PROXY=nginx FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs"
+    "test:platform-entry": "FLEET_TEST_FRONTEND_PROXY=vite FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs && FLEET_TEST_FRONTEND_PROXY=nginx FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs",
+    "test:acme": "node tests/e2e/acme.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

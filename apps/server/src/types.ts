@@ -44,6 +44,7 @@ export interface ServerConfig {
   logger?: boolean;
   webDist?: string;
   consoleOrigin?: string;
+  acme?: import("./certificates.js").AcmeConfig;
   agentInstall?: { distDir: string; publicUrl: string; caCert?: string };
   ssh?: {
     host: string;

@@ -13,6 +13,10 @@ if (!tlsCert || !tlsKey)
 if (
   process.env.FLEET_TEST_MODE === "1" &&
   (!["127.0.0.1", "::1", "localhost"].includes(host) ||
+    (process.env.FLEET_ACME_ENABLED === "1" &&
+      !["127.0.0.1", "::1", "localhost"].includes(
+        process.env.FLEET_ACME_HTTP_HOST ?? "0.0.0.0",
+      )) ||
     (process.env.FLEET_SSH_PORT &&
       process.env.FLEET_SSH_PORT !== "0" &&
       !["127.0.0.1", "::1", "localhost"].includes(
@@ -20,6 +24,15 @@ if (
       )))
 )
   throw new Error("Test mode requires loopback binding");
+if (process.env.FLEET_ACME_ENABLED === "1") {
+  const challengePort = Number(process.env.FLEET_ACME_HTTP_PORT ?? 80);
+  if (
+    !Number.isInteger(challengePort) ||
+    challengePort < 1 ||
+    challengePort > 65535
+  )
+    throw new Error("Invalid FLEET_ACME_HTTP_PORT");
+}
 const server = await buildServer({
   dataDir: resolve(process.env.FLEET_DATA_DIR ?? "./data"),
   tlsCert,
@@ -30,6 +43,13 @@ const server = await buildServer({
   logger: true,
   webDist: process.env.FLEET_WEB_DIST,
   consoleOrigin: process.env.FLEET_CONSOLE_ORIGIN,
+  acme:
+    process.env.FLEET_ACME_ENABLED === "1"
+      ? {
+          httpHost: process.env.FLEET_ACME_HTTP_HOST ?? "0.0.0.0",
+          httpPort: Number(process.env.FLEET_ACME_HTTP_PORT ?? 80),
+        }
+      : undefined,
   agentInstall: {
     distDir: resolve(process.env.FLEET_AGENT_DIST_DIR ?? "./data/agent-dist"),
     publicUrl: process.env.FLEET_PUBLIC_URL ?? "",

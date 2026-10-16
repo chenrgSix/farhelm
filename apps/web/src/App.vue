@@ -27,6 +27,7 @@ import DeviceConnectionPanel from "./components/DeviceConnectionPanel.vue";
 import AddDevicePanel from "./components/AddDevicePanel.vue";
 import AgentInstallPanel from "./components/AgentInstallPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
+import CertificateSettingsPanel from "./components/CertificateSettingsPanel.vue";
 import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
 import DeviceGroupTools from "./components/DeviceGroupTools.vue";
 import AccessManagementPanel from "./components/AccessManagementPanel.vue";
@@ -613,6 +614,9 @@ onBeforeUnmount(() => {
         <SystemSettingsPanel
           v-if="view === 'settings' && user.role === 'admin'"
           @saved="refresh"
+        />
+        <CertificateSettingsPanel
+          v-if="view === 'settings' && user.role === 'admin'"
         />
         <AgentUpgradePanel
           v-if="view === 'upgrades' && user.role === 'admin'"

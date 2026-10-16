@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/certificate-status.schema.json",
+  "title": "Farhelm v1 certificate-status",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "domain": {
+      "type": "string",
+      "maxLength": 253
+    },
+    "email": {
+      "type": "string",
+      "maxLength": 254
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "tos_agreed": {
+      "type": "boolean"
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "challenge_port": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "challenge_ready": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "external",
+        "disabled",
+        "pending",
+        "issuing",
+        "renewing",
+        "valid",
+        "error",
+        "expired"
+      ]
+    },
+    "last_error": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": ["code", "message"]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_attempt_at": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_success_at": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "next_attempt_at": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retry_allowed_at": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subject": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "issuer": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "domains": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "valid_from": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+        },
+        "renew_at": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "managed": {
+          "type": "boolean"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 253
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "subject",
+        "issuer",
+        "domains",
+        "valid_from",
+        "expires_at",
+        "fingerprint",
+        "renew_at",
+        "managed",
+        "domain",
+        "expired"
+      ]
+    }
+  },
+  "required": [
+    "v",
+    "revision",
+    "domain",
+    "email",
+    "enabled",
+    "tos_agreed",
+    "updated_at",
+    "available",
+    "challenge_port",
+    "challenge_ready",
+    "status",
+    "last_error",
+    "last_attempt_at",
+    "last_success_at",
+    "next_attempt_at",
+    "retry_allowed_at",
+    "certificate"
+  ]
+}

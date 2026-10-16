@@ -1,0 +1,13 @@
+{
+  "id": 1,
+  "at": 1700000000000,
+  "actor_id": null,
+  "device_id": null,
+  "task_id": null,
+  "action": "certificate.configured",
+  "detail": {
+    "revision": 1,
+    "domain": "fleet.example.com",
+    "enabled": true
+  }
+}
