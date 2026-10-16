@@ -363,8 +363,16 @@ pub async fn supervise(cfg: Config) -> Result<()> {
         let status = loop {
             tokio::select! {
              status=child.wait()=>break status?,
-             _=terminate.recv()=>{if let Some(pid)=child.id(){unsafe{libc::kill(pid as i32,libc::SIGTERM);}}if tokio::time::timeout(Duration::from_secs(20),child.wait()).await.is_err(){child.kill().await?;}return Ok(());},
-             _=tokio::signal::ctrl_c()=>{if let Some(pid)=child.id(){unsafe{libc::kill(pid as i32,libc::SIGTERM);}}if tokio::time::timeout(Duration::from_secs(20),child.wait()).await.is_err(){child.kill().await?;}return Ok(());},
+             _=terminate.recv()=>{
+                 if let Some(pid)=child.id(){unsafe{libc::kill(pid as i32,libc::SIGTERM);}}
+                 if tokio::time::timeout(Duration::from_secs(20),child.wait()).await.is_err(){child.kill().await?;}
+                 return Ok(());
+             },
+             _=tokio::signal::ctrl_c()=>{
+                 if let Some(pid)=child.id(){unsafe{libc::kill(pid as i32,libc::SIGTERM);}}
+                 if tokio::time::timeout(Duration::from_secs(20),child.wait()).await.is_err(){child.kill().await?;}
+                 return Ok(());
+             },
              _=poll.tick()=>{release=Release::load(&journal)?;if release.trial && started.elapsed()>Duration::from_secs(60){child.kill().await?;let status=child.wait().await?;rollback(&journal,&mut release)?;break status;}},
             }
         };

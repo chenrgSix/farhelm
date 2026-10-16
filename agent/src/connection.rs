@@ -61,20 +61,20 @@ pub async fn run(
             let http = selected.http_client()?;
             let tls = selected.tls_config()?;
             let access = identity.authenticate(&http, &selected, &journal).await?;
-            session(
-                &selected,
-                &journal,
-                &http,
-                &access,
-                tls.clone(),
-                identity.clone(),
-                &running_hash,
-                &mut network,
+            session(Session {
+                cfg: &selected,
+                journal: &journal,
+                http: &http,
+                access: &access,
+                tls: tls.clone(),
+                identity: identity.clone(),
+                running_hash: &running_hash,
+                network: &mut network,
                 contact,
-                &probes,
-                &route,
+                probes: &probes,
+                route: &route,
                 channel,
-            )
+            })
             .await
         };
         let result = tokio::select! {
@@ -214,20 +214,35 @@ async fn probe(
     let _ = socket.close(None).await;
     Ok(())
 }
-async fn session(
-    cfg: &Config,
-    journal: &Journal,
-    http: &reqwest::Client,
-    access: &Access,
+struct Session<'a> {
+    cfg: &'a Config,
+    journal: &'a Journal,
+    http: &'a reqwest::Client,
+    access: &'a Access,
     tls: Arc<rustls::ClientConfig>,
     identity: Arc<Identity>,
-    running_hash: &str,
-    network: &mut Monitor,
+    running_hash: &'a str,
+    network: &'a mut Monitor,
     contact: tokio::sync::watch::Sender<Option<tokio::time::Instant>>,
-    probes: &crate::network_probes::Probes,
-    route: &crate::routes::Settings,
-    channel: &str,
-) -> Result<SessionEnd> {
+    probes: &'a crate::network_probes::Probes,
+    route: &'a crate::routes::Settings,
+    channel: &'a str,
+}
+async fn session(context: Session<'_>) -> Result<SessionEnd> {
+    let Session {
+        cfg,
+        journal,
+        http,
+        access,
+        tls,
+        identity,
+        running_hash,
+        network,
+        contact,
+        probes,
+        route,
+        channel,
+    } = context;
     let mut access = access.clone();
     let mut http = http.clone();
     let mut trust_receipt: Option<crate::trust::Receipt> = None;
