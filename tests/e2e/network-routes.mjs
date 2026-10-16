@@ -376,6 +376,17 @@ try {
     "Agent authenticated over real EasyTier P2P",
     90000,
   );
+  await api("PUT", "/settings", {
+    v: 1,
+    revision: 0,
+    platform_server_url: policy.agent.public_url,
+  });
+  const managed = assertValid(
+    "agent-address-sync-response",
+    await api("GET", "/settings/agent-sync"),
+  ).devices.find((d) => d.device_id === id);
+  assert.equal(managed.online, true);
+  assert.equal(managed.status, "network_managed");
   record(
     "Agent uses authenticated HTTPS/WSS through actual EasyTier P2P and OS tunnel route",
   );

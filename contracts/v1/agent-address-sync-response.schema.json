@@ -43,7 +43,8 @@
               "saved",
               "applied",
               "failed",
-              "unsupported"
+              "unsupported",
+              "network_managed"
             ]
           },
           "reason": {
@@ -77,9 +78,5 @@
       }
     }
   },
-  "required": [
-    "v",
-    "revision",
-    "devices"
-  ]
+  "required": ["v", "revision", "devices"]
 }

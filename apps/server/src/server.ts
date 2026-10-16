@@ -575,9 +575,10 @@ export async function buildServer(config: ServerConfig) {
     store,
     admin,
     initialServerUrl: config.agentInstall?.publicUrl,
+    networkManaged: (id) => !!networkRoutes.current(id).policy,
     agent: (id) => {
       const c = connections.get(id);
-      return c?.ready && live(c) && !networkRoutes.current(id).policy
+      return c?.ready && live(c)
         ? { supported: c.address, send: (type, body) => send(c, type, body) }
         : undefined;
     },

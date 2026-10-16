@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
         </p>
         <div class="notice settings-scope">
           保存后立即用于新生成的安装命令，并自动同步到支持此功能的
-          Agent，无需重启平台。已生成的安装命令保留原地址。
+          Agent，无需重启平台。启用网络策略的设备由下方「平台网络策略」管理运行入口。已生成的安装命令保留原地址。
         </div>
         <p class="field-hint">
           此设置保存后会随平台数据持久化。{{

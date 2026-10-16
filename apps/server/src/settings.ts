@@ -32,6 +32,7 @@ export function registerSettings(
     store: Store;
     admin: (req: FastifyRequest) => User;
     initialServerUrl?: string;
+    networkManaged?: (id: string) => boolean;
     agent?: (
       id: string,
     ) =>
@@ -40,7 +41,11 @@ export function registerSettings(
   },
 ) {
   const { db } = d.store;
-  const sync = agentAddressSync(d.store, d.agent ?? (() => undefined));
+  const sync = agentAddressSync(
+    d.store,
+    d.agent ?? (() => undefined),
+    d.networkManaged,
+  );
   function current() {
     const row = db
       .prepare(

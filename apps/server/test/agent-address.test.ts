@@ -24,23 +24,27 @@ function fixture() {
     ["online", true],
     ["legacy", false],
   ]);
-  const sync = agentAddressSync(store, (id) =>
-    connections.has(id)
-      ? {
-          supported: connections.get(id)!,
-          send: (type, body) => {
-            frames.push({ id, type, body });
-            return true;
-          },
-        }
-      : undefined,
+  const managed = new Set<string>();
+  const sync = agentAddressSync(
+    store,
+    (id) =>
+      connections.has(id)
+        ? {
+            supported: connections.get(id)!,
+            send: (type, body) => {
+              frames.push({ id, type, body });
+              return true;
+            },
+          }
+        : undefined,
+    (id) => managed.has(id),
   );
   const target = {
     revision: 1,
     platform_server_url: "https://new.example.com",
   };
   const snapshot = () => sync.snapshot(target).devices;
-  return { store, sync, frames, connections, target, snapshot };
+  return { store, sync, frames, connections, target, snapshot, managed };
 }
 test("sync queues offline Agents, negotiates capabilities, excludes SSH/revoked devices and resumes after reconnect", () => {
   const f = fixture();
@@ -179,6 +183,52 @@ test("latest revision wins, retry uses a fresh request id, failures persist and 
       f.sync.snapshot(target).devices.find((d) => d.name === "online")!.status,
       "applied",
       "late durable confirmation resolves uncertainty",
+    );
+  } finally {
+    f.store.close();
+  }
+});
+
+test("network-managed Agents retain online state, pause legacy updates and resume when policy is disabled", () => {
+  const f = fixture();
+  try {
+    f.managed.add("online");
+    f.managed.add("offline");
+    f.sync.connected("online", "https://vpn.example.com", f.target);
+    f.sync.flush();
+    const online = f.snapshot().find((d) => d.device_id === "online")!;
+    assert.equal(online.online, true);
+    assert.equal(online.status, "network_managed");
+    assert.equal(online.reason, null);
+    assert.equal(
+      f.snapshot().find((d) => d.device_id === "offline")!.online,
+      false,
+    );
+    assert.equal(
+      f.snapshot().find((d) => d.device_id === "offline")!.status,
+      "network_managed",
+    );
+    assert.equal(f.frames.length, 0);
+    f.managed.delete("online");
+    f.sync.flush();
+    assert.equal(f.frames.length, 1);
+    assert.equal(
+      f.snapshot().find((d) => d.device_id === "online")!.status,
+      "checking",
+    );
+    f.managed.add("online");
+    f.store.db
+      .prepare(
+        "UPDATE agent_address_sync SET updated_at=? WHERE device_id='online'",
+      )
+      .run(Date.now() - 46000);
+    f.sync.flush();
+    f.managed.delete("online");
+    f.sync.flush();
+    assert.equal(f.frames.length, 2);
+    assert.equal(
+      f.snapshot().find((d) => d.device_id === "online")!.reason,
+      null,
     );
   } finally {
     f.store.close();

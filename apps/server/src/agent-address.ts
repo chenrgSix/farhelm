@@ -21,6 +21,7 @@ type Row = {
 export function agentAddressSync(
   store: Store,
   agent: (id: string) => Agent | undefined,
+  networkManaged: (id: string) => boolean = () => false,
 ) {
   const { db } = store;
   function enqueue(target: AddressTarget, retry = false) {
@@ -95,7 +96,8 @@ export function agentAddressSync(
   function deliver(id: string) {
     const r = row(id),
       a = agent(id);
-    if (!r || r.status !== "pending" || !a?.supported) return;
+    if (!r || r.status !== "pending" || !a?.supported || networkManaged(id))
+      return;
     if (
       a.send("agent.address.update", {
         request_id: r.request_id,
@@ -113,6 +115,7 @@ export function agentAddressSync(
     if (target.revision < 1) return;
     // Include Agents enrolled after the setting was saved.
     enqueue(target);
+    if (networkManaged(id)) return;
     const r = row(id)!;
     if (r.status === "applied" && r.server_url === url) return;
     if (["checking", "saved", "applied"].includes(r.status))
@@ -127,7 +130,10 @@ export function agentAddressSync(
         "SELECT * FROM agent_address_sync WHERE status IN ('pending','checking')",
       )
       .all() as Row[]) {
-      if (r.status === "checking" && !agent(r.device_id))
+      if (
+        r.status === "checking" &&
+        (!agent(r.device_id) || networkManaged(r.device_id))
+      )
         db.prepare(
           "UPDATE agent_address_sync SET status='pending',updated_at=? WHERE device_id=?",
         ).run(Date.now(), r.device_id);
@@ -153,8 +159,12 @@ export function agentAddressSync(
           name: r.name,
           revision: r.revision,
           server_url: r.server_url,
-          status: a && !a.supported ? "unsupported" : r.status,
-          reason: r.reason,
+          status: networkManaged(r.device_id)
+            ? "network_managed"
+            : a && !a.supported
+              ? "unsupported"
+              : r.status,
+          reason: networkManaged(r.device_id) ? null : r.reason,
           online: !!a,
           updated_at: r.updated_at,
         };
