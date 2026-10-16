@@ -39,13 +39,14 @@
           "tasks.read",
           "tasks.execute",
           "recordings.read",
+          "recordings.read_all",
           "audit.read",
           "health.manage",
           "network.manage"
         ]
       },
       "uniqueItems": true,
-      "maxItems": 8
+      "maxItems": 9
     },
     "role_ids": {
       "type": "array",

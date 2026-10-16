@@ -149,6 +149,8 @@ export class ApiClient {
         DEVICE_GROUP_SIZE_LIMIT:
           "每个设备组最多包含 1000 台设备，请缩小选择范围。",
         EMPTY_TAG_SELECTION: "请选择设备和标签。",
+        RECORDING_READ_PERMISSION_REQUIRED:
+          "查看他人会话与录制需要先授予查看本人会话与录制。",
         INVALID_PASSWORD_POLICY:
           "密码至少 8 个字符，必须同时包含英文字母和数字。",
         ACCESS_NAME_EXISTS: "该账号、角色或用户组名称已存在",

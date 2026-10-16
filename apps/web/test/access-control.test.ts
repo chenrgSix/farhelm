@@ -21,6 +21,12 @@ const data: AccessManagement = {
   permissions: [
     { id: "devices.read", label: "查看设备", description: "设备" },
     { id: "tasks.read", label: "查看任务", description: "任务" },
+    { id: "recordings.read", label: "查看本人会话与录制", description: "本人" },
+    {
+      id: "recordings.read_all",
+      label: "查看他人会话与录制",
+      description: "审计",
+    },
     { id: "tasks.execute", label: "执行命令", description: "执行" },
   ],
   users: [
@@ -207,5 +213,51 @@ it("validates the same password policy when an administrator resets a password",
     method: "POST",
     body: { v: 1, revision: 3, password: "abcd1234" },
   });
+  wrapper.unmount();
+});
+
+it("cross-user recording permission requires own recording access and does not follow ops by default", async () => {
+  const { wrapper, request, button } = await setup();
+  await wrapper.get('[role="tab"]:nth-child(2)').trigger("click");
+  await button("创建角色").trigger("click");
+  await wrapper.get('input[maxlength="64"]').setValue("会话审计");
+  await wrapper.get('input[value="recordings.read_all"]').setValue(true);
+  expect(
+    wrapper.get<HTMLInputElement>('input[value="recordings.read"]').element
+      .checked,
+  ).toBe(true);
+  expect(
+    wrapper.get('input[value="recordings.read"]').attributes("disabled"),
+  ).toBeDefined();
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith("/roles", {
+    method: "POST",
+    body: {
+      v: 1,
+      name: "会话审计",
+      description: "",
+      permissions: ["recordings.read_all", "devices.read", "recordings.read"],
+    },
+  });
+  for (const role of ["ops", "business", "admin", "auditor"] as const)
+    expect(
+      hasPermission(
+        { id: "u", username: "u", role, device_scope: "*" },
+        "recordings.read_all",
+      ),
+    ).toBe(["admin", "auditor"].includes(role));
+  expect(
+    hasPermission(
+      {
+        id: "u",
+        username: "u",
+        role: "auditor",
+        device_scope: "*",
+        permissions: ["recordings.read"],
+      },
+      "recordings.read_all",
+    ),
+  ).toBe(false);
   wrapper.unmount();
 });

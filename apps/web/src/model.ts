@@ -34,10 +34,15 @@ export function hasPermission(
   if (!user) return false;
   const allowed = user.permissions
     ? user.permissions.includes(permission)
-    : ["admin", "ops"].includes(user.role) ||
-      ["devices.read", "tasks.read", "recordings.read", "audit.read"].includes(
-        permission,
-      );
+    : permission === "recordings.read_all"
+      ? ["admin", "auditor"].includes(user.role)
+      : ["admin", "ops"].includes(user.role) ||
+        [
+          "devices.read",
+          "tasks.read",
+          "recordings.read",
+          "audit.read",
+        ].includes(permission);
   return (
     allowed &&
     (!deviceId ||

@@ -1036,3 +1036,113 @@ test("all account password setters enforce eight characters plus letters and dig
     await f.close();
   }
 });
+
+test("cross-user recording access is a separate explicit role grant, including user-group inheritance", async () => {
+  const f = await fixture();
+  try {
+    f.device("one");
+    const roleBody = {
+      v: 1,
+      name: "会话审计",
+      description: "",
+      permissions: ["devices.read", "recordings.read_all"],
+    };
+    assert.equal(
+      (await f.api("POST", "/roles", roleBody)).body.error,
+      "RECORDING_READ_PERMISSION_REQUIRED",
+    );
+    roleBody.permissions.push("recordings.read");
+    const result = await f.api("POST", "/roles", roleBody);
+    assert.equal(result.status, 200);
+    assertValid("access-role-response", result.body);
+    const u = await f.user("scoped-reviewer");
+    const group = await f.api("POST", "/groups", {
+      v: 1,
+      name: "审计组",
+      description: "",
+      role_ids: [result.body.role.id],
+      member_ids: [u.id],
+      device_scope: ["one"],
+    });
+    assert.equal(group.status, 200);
+    const auth = (await f.login(u.username)).body.access_token;
+    const me = (await f.api("GET", "/me", undefined, auth)).body;
+    assertValid("me-response", me);
+    assert.ok(me.permissions.includes("recordings.read_all"));
+    assert.deepEqual(me.device_scope, ["one"]);
+    const all = await f.all();
+    assert.ok(
+      all.roles
+        .find((r: any) => r.id === "admin")
+        .permissions.includes("recordings.read_all"),
+    );
+    assert.ok(
+      all.roles
+        .find((r: any) => r.id === "auditor")
+        .permissions.includes("recordings.read_all"),
+    );
+    for (const id of ["ops", "business"])
+      assert.ok(
+        !all.roles
+          .find((r: any) => r.id === id)
+          .permissions.includes("recordings.read_all"),
+      );
+  } finally {
+    await f.close();
+  }
+});
+
+test("recording visibility migration preserves operational/custom roles and runs only once", () => {
+  const dir = mkdtempSync(join(root, "recording-migration-"));
+  let store = new Store(dir);
+  // Reconstruct the persisted state immediately before this migration.
+  store.db
+    .prepare("DELETE FROM meta WHERE key='recording_visibility_v1'")
+    .run();
+  const permissions = JSON.stringify(["devices.read", "recordings.read"]);
+  store.db
+    .prepare(
+      "UPDATE access_roles SET permissions=? WHERE id IN ('admin','auditor')",
+    )
+    .run(permissions);
+  store.db
+    .prepare(
+      "INSERT INTO access_roles(id,name,description,permissions,builtin,created_at,updated_at) VALUES('custom','Custom','',?,0,0,0)",
+    )
+    .run(permissions);
+  const unchanged = store.db
+    .prepare(
+      "SELECT * FROM access_roles WHERE id IN ('ops','business','custom') ORDER BY id",
+    )
+    .all();
+  store.close();
+  store = new Store(dir);
+  assert.deepEqual(
+    store.db
+      .prepare(
+        "SELECT * FROM access_roles WHERE id IN ('ops','business','custom') ORDER BY id",
+      )
+      .all(),
+    unchanged,
+  );
+  for (const id of ["admin", "auditor"])
+    assert.ok(
+      JSON.parse(
+        (
+          store.db
+            .prepare("SELECT permissions FROM access_roles WHERE id=?")
+            .get(id) as any
+        ).permissions,
+      ).includes("recordings.read_all"),
+    );
+  const migrated = store.db
+    .prepare("SELECT * FROM access_roles ORDER BY id")
+    .all();
+  store.close();
+  store = new Store(dir);
+  assert.deepEqual(
+    store.db.prepare("SELECT * FROM access_roles ORDER BY id").all(),
+    migrated,
+  );
+  store.close();
+});

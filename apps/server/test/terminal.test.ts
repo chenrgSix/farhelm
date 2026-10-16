@@ -520,3 +520,153 @@ test("management and personal password changes immediately revoke affected activ
     }
   }
 });
+
+test("session lists, recordings and exports isolate owners unless cross-user auditing is explicitly granted", async () => {
+  const f = await fixture();
+  try {
+    const db = f.store.db;
+    const users = Object.fromEntries(
+      (["alice", "bob", "business", "auditor", "outside"] as const).map(
+        (username) => [
+          username,
+          f.store.seedUser({
+            username,
+            password: "terminal-test-password1",
+            role:
+              username === "business"
+                ? "business"
+                : ["auditor", "outside"].includes(username)
+                  ? "auditor"
+                  : "ops",
+            deviceScope: username === "outside" ? [] : ["device"],
+          }),
+        ],
+      ),
+    );
+    const auth: Record<string, string> = {};
+    for (const name of Object.keys(users)) auth[name] = await f.login(name);
+    const insert = db.prepare(
+      "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,ended_at,transport,last_seq) VALUES(?,'device',?,'CLOSED',80,24,?,?,?,1)",
+    );
+    for (const [id, owner, at, transport] of [
+      ["alice-web", "alice", 1, "web"],
+      ["alice-ssh", "alice", 2, "ssh"],
+      ["bob-web", "bob", 3, "web"],
+      ["bob-ssh", "bob", 4, "ssh"],
+      ["business-own", "business", 5, "web"],
+    ] as const) {
+      insert.run(id, users[owner].id, at, at + 1, transport);
+      db.prepare(
+        "INSERT INTO terminal_recordings(session_id,seq,at,kind,data) VALUES(?,1,?,'output',?)",
+      ).run(
+        id,
+        at,
+        JSON.stringify({
+          data: Buffer.from(id + " private output").toString("base64"),
+        }),
+      );
+    }
+    const list = (token: string, query = "") =>
+      f.api("GET", "/api/v1/terminal-sessions" + query, undefined, token);
+    for (const name of ["alice", "bob", "business"]) {
+      const result = await list(auth[name]);
+      assert.equal(result.status, 200);
+      assert.ok(result.body.sessions.length > 0);
+      assert.ok(
+        result.body.sessions.every((s: any) => s.actor_id === users[name].id),
+      );
+    }
+    assert.equal((await list(f.admin)).body.sessions.length, 5);
+    assert.equal((await list(auth.auditor)).body.sessions.length, 5);
+    assert.equal((await list(auth.outside)).body.sessions.length, 0);
+    // Owner filtering precedes limit/cursor/search/actor filters, for both transports.
+    const first = await list(auth.alice, "?limit=1");
+    assert.equal(first.body.sessions[0].id, "alice-ssh");
+    const next = await list(
+      auth.alice,
+      "?limit=1&cursor=" + first.body.page.next_cursor,
+    );
+    assert.equal(next.body.sessions[0].id, "alice-web");
+    assert.equal(next.body.page.has_more, false);
+    for (const query of [
+      "?actor_id=bob",
+      "?q=bob",
+      "?actor_id=" + users.bob.id,
+    ])
+      assert.deepEqual((await list(auth.alice, query)).body.sessions, []);
+    for (const [method, suffix, body] of [
+      ["GET", "recording", undefined],
+      ["POST", "export", { v: 1 }],
+    ] as const) {
+      const path = "/api/v1/terminal-sessions/bob-web/" + suffix;
+      for (const name of ["alice", "business", "outside"])
+        assert.equal((await f.api(method, path, body, auth[name])).status, 403);
+      for (const token of [auth.bob, auth.auditor, f.admin])
+        assert.equal((await f.api(method, path, body, token)).status, 200);
+    }
+    const active = await f.create(auth.bob);
+    assert.equal(active.status, 200);
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          `/api/v1/terminal-sessions/${active.body.session_id}/recording`,
+          undefined,
+          auth.alice,
+        )
+      ).status,
+      403,
+    );
+    for (const token of [auth.alice, auth.auditor])
+      assert.equal(
+        (
+          await f.api(
+            "POST",
+            `/api/v1/terminal-sessions/${active.body.session_id}/close`,
+            { v: 1 },
+            token,
+          )
+        ).status,
+        403,
+      );
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          `/api/v1/terminal-sessions/${active.body.session_id}/close`,
+          { v: 1 },
+          auth.bob,
+        )
+      ).status,
+      200,
+    );
+    // Existing tokens and pagination cursors cannot retain a removed audit grant.
+    const auditPage = await list(auth.auditor, "?limit=1");
+    db.prepare("UPDATE access_roles SET permissions=? WHERE id='auditor'").run(
+      JSON.stringify(["devices.read", "recordings.read"]),
+    );
+    assert.deepEqual((await list(auth.auditor)).body.sessions, []);
+    assert.equal(
+      (
+        await list(
+          auth.auditor,
+          "?limit=1&cursor=" + auditPage.body.page.next_cursor,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          "/api/v1/terminal-sessions/bob-web/recording",
+          undefined,
+          auth.auditor,
+        )
+      ).status,
+      403,
+    );
+  } finally {
+    await f.close();
+  }
+});

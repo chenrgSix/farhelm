@@ -6,6 +6,7 @@ export const PERMISSIONS = [
   "tasks.read",
   "tasks.execute",
   "recordings.read",
+  "recordings.read_all",
   "audit.read",
   "health.manage",
   "network.manage",
@@ -18,10 +19,18 @@ export const READ_PERMISSIONS: Permission[] = [
   "audit.read",
 ];
 export function rolePermissions(role: Role): Permission[] {
-  return role === "admin" || role === "ops"
+  return role === "admin"
     ? [...PERMISSIONS]
-    : [...READ_PERMISSIONS];
+    : role === "ops"
+      ? PERMISSIONS.filter((p) => p !== "recordings.read_all")
+      : role === "auditor"
+        ? [...READ_PERMISSIONS, "recordings.read_all"]
+        : [...READ_PERMISSIONS];
 }
 export function hasPermission(user: User, permission: Permission): boolean {
   return (user.permissions ?? rolePermissions(user.role)).includes(permission);
+}
+
+export function canReadOtherRecordings(user: User): boolean {
+  return user.role === "admin" || hasPermission(user, "recordings.read_all");
 }

@@ -1,5 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { User } from "./types.js";
+import { canReadOtherRecordings } from "./permissions.js";
 import { fail, hash, integer, keys, object, str } from "./util.js";
 
 type Kind = "tasks" | "audit" | "sessions";
@@ -70,6 +71,7 @@ export function historyPage(
       user: user.id,
       scope: user.device_scope,
       role: user.role,
+      otherRecordings: kind === "sessions" && canReadOtherRecordings(user),
       limit,
       q,
       device,
@@ -107,6 +109,8 @@ export function historyPage(
       else add("0");
     }
   }
+  if (kind === "sessions" && !canReadOtherRecordings(user))
+    add("r.actor_id=?", user.id);
   if (device) add("r.device_id=?", device);
   if (actor) add("r.actor_id=? OR u.username=?", actor, actor);
   if (status) add("r.status=?", status);

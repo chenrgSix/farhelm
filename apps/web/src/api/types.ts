@@ -251,6 +251,7 @@ export type Permission =
   | "tasks.read"
   | "tasks.execute"
   | "recordings.read"
+  | "recordings.read_all"
   | "audit.read"
   | "health.manage"
   | "network.manage";

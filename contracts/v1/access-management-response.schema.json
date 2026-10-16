@@ -20,6 +20,7 @@
               "tasks.read",
               "tasks.execute",
               "recordings.read",
+              "recordings.read_all",
               "audit.read",
               "health.manage",
               "network.manage"
@@ -38,7 +39,7 @@
         },
         "required": ["id", "label", "description"]
       },
-      "maxItems": 8
+      "maxItems": 9
     },
     "users": {
       "type": "array",
@@ -108,13 +109,14 @@
                 "tasks.read",
                 "tasks.execute",
                 "recordings.read",
+                "recordings.read_all",
                 "audit.read",
                 "health.manage",
                 "network.manage"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 8
+            "maxItems": 9
           },
           "effective_device_scope": {
             "anyOf": [
@@ -187,13 +189,14 @@
                 "tasks.read",
                 "tasks.execute",
                 "recordings.read",
+                "recordings.read_all",
                 "audit.read",
                 "health.manage",
                 "network.manage"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 8
+            "maxItems": 9
           },
           "builtin": {
             "type": "boolean"
@@ -400,13 +403,14 @@
               "tasks.read",
               "tasks.execute",
               "recordings.read",
+              "recordings.read_all",
               "audit.read",
               "health.manage",
               "network.manage"
             ]
           },
           "uniqueItems": true,
-          "maxItems": 8
+          "maxItems": 9
         },
         "effective_device_scope": {
           "anyOf": [
@@ -475,13 +479,14 @@
               "tasks.read",
               "tasks.execute",
               "recordings.read",
+              "recordings.read_all",
               "audit.read",
               "health.manage",
               "network.manage"
             ]
           },
           "uniqueItems": true,
-          "maxItems": 8
+          "maxItems": 9
         },
         "builtin": {
           "type": "boolean"

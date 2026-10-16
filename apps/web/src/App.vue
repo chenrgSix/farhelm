@@ -830,6 +830,14 @@ onBeforeUnmount(() => {
                   <p v-if="view === 'devices'" class="field-hint">
                     控制、私网与业务状态独立判断；未采集的状态为未知
                   </p>
+                  <p v-else-if="view === 'terminals'" class="field-hint">
+                    {{
+                      user.role === "admin" ||
+                      hasPermission(user, "recordings.read_all")
+                        ? "可查看授权设备上所有用户的会话与录制"
+                        : "仅展示本人在授权设备上的会话与录制"
+                    }}
+                  </p>
                   <p v-else-if="view === 'audit'" class="field-hint">
                     仅展示当前角色与设备范围允许访问的服务端记录
                   </p>

@@ -40,8 +40,14 @@ const catalog = [
   },
   {
     id: "recordings.read",
-    label: "查看录制",
-    description: "查看和导出授权设备的终端录制",
+    label: "查看本人会话与录制",
+    description: "查看本人在授权设备上的终端会话，回放和导出本人的录制",
+  },
+  {
+    id: "recordings.read_all",
+    label: "查看他人会话与录制",
+    description:
+      "审计授权设备上其他用户的终端会话，回放和导出其录制；不授予操作或结束他人会话的权限",
   },
   {
     id: "audit.read",
@@ -310,6 +316,11 @@ export function registerAccessControl(
       !permissions.includes("tasks.read")
     )
       fail(400, "TASK_READ_PERMISSION_REQUIRED");
+    if (
+      permissions.includes("recordings.read_all") &&
+      !permissions.includes("recordings.read")
+    )
+      fail(400, "RECORDING_READ_PERMISSION_REQUIRED");
     return {
       name: name(b.name),
       description: description(b.description),

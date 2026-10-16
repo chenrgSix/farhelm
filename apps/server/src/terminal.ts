@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
-import { hasPermission, type Permission } from "./permissions.js";
+import {
+  hasPermission,
+  canReadOtherRecordings,
+  type Permission,
+} from "./permissions.js";
 import type { Store } from "./store.js";
 import { historyPage } from "./history.js";
 import type { User } from "./types.js";
@@ -185,6 +189,12 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       .get(id) as any;
     if (!row) fail(404, "TERMINAL_NOT_FOUND");
     d.requireScope(user, row.device_id);
+    if (
+      permission === "recordings.read" &&
+      row.actor_id !== user.id &&
+      !canReadOtherRecordings(user)
+    )
+      fail(403, "PERMISSION_DENIED");
     return { row, user };
   }
   function backend(deviceId: string): "agent" | "ssh" | null {
