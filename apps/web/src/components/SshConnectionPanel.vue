@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { copyText } from "../clipboard";
 import { api } from "../api/client";
 import type { Device, User } from "../api/types";
 const props = defineProps<{ device: Device; user: User }>();
@@ -33,7 +34,7 @@ const command = computed(() =>
 );
 async function copy() {
   try {
-    await navigator.clipboard.writeText(command.value);
+    await copyText(command.value);
     copied.value = true;
   } catch {
     error.value = "无法访问剪贴板，请选中命令手动复制";

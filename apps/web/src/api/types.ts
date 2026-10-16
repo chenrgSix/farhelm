@@ -4,7 +4,13 @@ export interface HistoryPage {
   has_more: boolean;
   next_cursor: string | null;
 }
+export interface RuntimeSettings {
+  device_access: "agent-ssh" | "ssh-only";
+  web_enabled: boolean;
+  web_protocol: "http" | "https";
+}
 export interface User {
+  runtime?: RuntimeSettings;
   id: string;
   username: string;
   role: Role;

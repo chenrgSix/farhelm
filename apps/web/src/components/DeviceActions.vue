@@ -5,13 +5,17 @@ import { canExecute, hasPermission } from "../model";
 
 type Action =
   "connection" | "install" | "network" | "health" | "ssh" | "exec" | "revoke";
-const props = defineProps<{
-  device: Device;
-  user: User;
-  ready: boolean;
-  busy: Partial<Record<Action | "terminal", boolean>>;
-  revoking: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    device: Device;
+    user: User;
+    ready: boolean;
+    agentEnabled?: boolean;
+    busy: Partial<Record<Action | "terminal", boolean>>;
+    revoking: boolean;
+  }>(),
+  { agentEnabled: true },
+);
 const emit = defineEmits<{ action: [kind: Action | "terminal"] }>();
 const open = ref(false);
 const trigger = ref<HTMLButtonElement>();
@@ -21,10 +25,15 @@ const position = ref({ top: "0px", left: "0px" });
 const actions = computed(() => {
   const active = !props.device.revoked_at;
   const admin = props.user.role === "admin" && active;
-  const agent = props.device.connection_kind !== "ssh";
+  const agent =
+    props.agentEnabled !== false && props.device.connection_kind !== "ssh";
   const options: { kind: Action; label: string; visible: boolean }[] = [
     { kind: "connection", label: "接入配置", visible: admin },
-    { kind: "install", label: "安装 Agent", visible: admin && !agent },
+    {
+      kind: "install",
+      label: "安装 Agent",
+      visible: props.agentEnabled !== false && admin && !agent,
+    },
     { kind: "network", label: "网络记录", visible: agent },
     { kind: "health", label: "健康检查", visible: agent },
     {

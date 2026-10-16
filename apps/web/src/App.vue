@@ -32,6 +32,7 @@ import SessionDuration from "./components/SessionDuration.vue";
 import DeviceConnectionPanel from "./components/DeviceConnectionPanel.vue";
 import AddDevicePanel from "./components/AddDevicePanel.vue";
 import AgentInstallPanel from "./components/AgentInstallPanel.vue";
+import DeploymentPanel from "./components/DeploymentPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import CertificateSettingsPanel from "./components/CertificateSettingsPanel.vue";
 import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
@@ -43,6 +44,12 @@ const TerminalPanel = defineAsyncComponent(
 );
 
 const user = ref<User | null>(null);
+const agentEnabled = computed(
+  () => user.value?.runtime?.device_access !== "ssh-only",
+);
+const httpsEnabled = computed(
+  () => user.value?.runtime?.web_protocol !== "http",
+);
 const username = ref("");
 const password = ref("");
 const loginBusy = ref(false);
@@ -183,7 +190,9 @@ const navigation = computed(
         : []),
       ...(user.value?.role === "admin"
         ? [
-            { id: "upgrades", label: "Agent 升级", icon: "↑" } as const,
+            ...(agentEnabled.value
+              ? [{ id: "upgrades", label: "Agent 升级", icon: "↑" } as const]
+              : []),
             { id: "settings", label: "系统设置", icon: "⚙" } as const,
             { id: "access", label: "用户与权限", icon: "♙" } as const,
           ]
@@ -196,7 +205,7 @@ const titles = {
   tasks: ["任务中心", "从授权到真实结果，追踪每条命令的生命周期"],
   audit: ["操作审计", "平台内操作、授权与输出查看的持久化记录"],
   terminals: ["终端会话", "查看连接记录与会话回放"],
-  settings: ["系统设置", "管理平台配置，保存后立即生效"],
+  settings: ["系统设置", "查看平台运行方式，管理接入与证书设置"],
   upgrades: ["Agent 升级", "批量更新，跟踪每台设备的真实升级结果"],
 };
 const filteredDevices = computed(() =>
@@ -248,7 +257,9 @@ const unknownCount = computed(
   () =>
     overviewTaskList.items.value.filter((t) => t.status === "UNKNOWN").length,
 );
-const isExecAllowed = computed(() => canExecute(user.value));
+const isExecAllowed = computed(
+  () => agentEnabled.value && canExecute(user.value),
+);
 
 function logout(message = "") {
   sessionGeneration++;
@@ -292,11 +303,6 @@ async function login() {
   loginBusy.value = true;
   loginError.value = "";
   try {
-    if (
-      location.protocol !== "https:" &&
-      !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)
-    )
-      throw new Error("请通过 HTTPS 打开控制台后登录");
     const response = await api.request<{ access_token: string; user: User }>(
       "/login",
       {
@@ -744,12 +750,17 @@ onBeforeUnmount(() => {
           :current-user-id="user.id"
           :devices="devices"
         />
+        <DeploymentPanel
+          v-if="view === 'settings' && user.role === 'admin' && user.runtime"
+          :runtime="user.runtime"
+        />
         <SystemSettingsPanel
-          v-if="view === 'settings' && user.role === 'admin'"
+          v-if="view === 'settings' && user.role === 'admin' && agentEnabled"
           @saved="refresh"
         />
         <CertificateSettingsPanel
-          v-if="view === 'settings' && user.role === 'admin'"
+          v-if="view === 'settings' && user.role === 'admin' && httpsEnabled"
+          :agent-enabled="agentEnabled"
         />
         <AgentUpgradePanel
           v-if="view === 'upgrades' && user.role === 'admin'"
@@ -850,7 +861,9 @@ onBeforeUnmount(() => {
                       search || deviceGroupFilter
                         ? "尝试其他设备组、名称或设备 ID"
                         : user.role === "admin"
-                          ? "点击“添加设备”，选择 SSH 或 Agent 接入"
+                          ? agentEnabled
+                            ? "点击“添加设备”，选择 SSH 或 Agent 接入"
+                            : "点击“添加设备”，配置 SSH 接入"
                           : "请联系管理员完成设备注册与范围授权"
                     }}
                   </p>
@@ -933,18 +946,25 @@ onBeforeUnmount(() => {
                               ><small class="mono" :title="device.id"
                                 >{{ device.id.slice(0, 12) }}… ·
                                 {{
-                                  device.connection_kind === "ssh"
-                                    ? "SSH 接入"
-                                    : (device.ssh_configured
-                                        ? "Agent + 备用 SSH · "
-                                        : "Agent · ") +
-                                      (device.agent_version ?? "版本未知")
+                                  !agentEnabled
+                                    ? device.ssh_configured ||
+                                      device.connection_kind === "ssh"
+                                      ? "SSH 接入"
+                                      : "尚未配置 SSH"
+                                    : device.connection_kind === "ssh"
+                                      ? "SSH 接入"
+                                      : (device.ssh_configured
+                                          ? "Agent + 备用 SSH · "
+                                          : "Agent · ") +
+                                        (device.agent_version ?? "版本未知")
                                 }}</small
                               >
                             </div>
                           </div>
                           <small
-                            v-if="device.connection_kind !== 'ssh'"
+                            v-if="
+                              agentEnabled && device.connection_kind !== 'ssh'
+                            "
                             class="muted mono"
                             :title="(device.ip_addresses ?? []).join(', ')"
                           >
@@ -961,7 +981,9 @@ onBeforeUnmount(() => {
                         </td>
                         <td data-label="连接状态">
                           <div
-                            v-if="device.connection_kind === 'ssh'"
+                            v-if="
+                              !agentEnabled || device.connection_kind === 'ssh'
+                            "
                             class="small"
                           >
                             <span>按需连接</span><br /><span class="muted">{{
@@ -984,6 +1006,7 @@ onBeforeUnmount(() => {
                           />
                           <small
                             v-if="
+                              agentEnabled &&
                               device.connection_kind === 'agent' &&
                               device.ssh_configured
                             "
@@ -1017,7 +1040,7 @@ onBeforeUnmount(() => {
                         >
                           {{
                             formatTime(
-                              device.connection_kind === "ssh"
+                              !agentEnabled || device.connection_kind === "ssh"
                                 ? (device.ssh_checked_at ?? null)
                                 : device.last_seen,
                             )
@@ -1028,6 +1051,7 @@ onBeforeUnmount(() => {
                             :device="device"
                             :user="user"
                             :ready="apiReady"
+                            :agent-enabled="agentEnabled"
                             :revoking="revokeBusy === device.id"
                             :busy="{
                               terminal: !!terminalTarget,
@@ -1375,6 +1399,7 @@ onBeforeUnmount(() => {
       />
       <AddDevicePanel
         v-if="addDeviceOpen && user?.role === 'admin'"
+        :agent-enabled="agentEnabled"
         @close="addDeviceOpen = false"
         @select="selectDeviceAccess"
       />
@@ -1397,6 +1422,7 @@ onBeforeUnmount(() => {
         v-if="connectionOpen && user?.role === 'admin'"
         :key="connectionTarget?.id ?? 'new'"
         :device="connectionTarget"
+        :agent-enabled="agentEnabled"
         @close="
           connectionOpen = false;
           connectionTarget = undefined;

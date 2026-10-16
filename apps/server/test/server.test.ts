@@ -668,3 +668,29 @@ test("cross-device denial is auditable; malformed Unicode and huge frames reject
   }
 });
 test.after(() => rmSync(root, { recursive: true, force: true }));
+
+test("disabling web pages leaves HTTPS Agent and management APIs available", async () => {
+  const s = await fixture({
+    dataDir: join(root, "agent-without-web"),
+    deviceAccess: "agent-ssh",
+    webEnabled: false,
+    webDist: "/unused-web-directory",
+  });
+  try {
+    assert.equal((await s.app.inject({ url: "/" })).statusCode, 404);
+    assert.equal((await s.app.inject({ url: "/healthz" })).statusCode, 200);
+    assert.equal((await s.app.inject({ url: "/api/v1/me" })).statusCode, 401);
+    const challenge = await s.app.inject({
+      method: "POST",
+      url: "/api/agent/challenge",
+      payload: { v: 1 },
+    });
+    assert.notEqual(challenge.json().error, "AGENT_ACCESS_DISABLED");
+    assert.equal(
+      challenge.headers["strict-transport-security"],
+      "max-age=31536000",
+    );
+  } finally {
+    await s.close();
+  }
+});

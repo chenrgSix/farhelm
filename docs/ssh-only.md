@@ -1,57 +1,72 @@
-# 仅 SSH 模式
+# SSH 接入与网页管理
 
-设置 `FLEET_MODE=ssh-only` 后，Farhelm 只对网络开放 SSH 入口。平台、SSH 客户端和目标设备都不需要 HTTPS 证书或 CA，也不需要安装 Agent。目标设备需运行 sshd，并允许平台使用已配置的私钥登录。
+设备仅使用 SSH，并不要求关闭网页。三个部署配置分别控制设备接入、网页开关及 HTTP/HTTPS 协议：
 
-```text
-SSH 客户端 → Farhelm SSH 入口 → 目标 sshd
-                 │
-                 ├─ 平台账号、角色、用户组和设备范围校验
-                 └─ 终端输出录制、审计和历史保存
-```
+| 配置 | 取值及默认行为 |
+| --- | --- |
+| `FLEET_DEVICE_ACCESS` | `agent-ssh`（默认）或 `ssh-only`；后者关闭 Agent 注册、认证及控制通道，已有双接入设备沿原 ID 使用 SSH |
+| `FLEET_WEB_ENABLED` | `1`（默认）开启网页管理，`0` 关闭网页管理 |
+| `FLEET_WEB_PROTOCOL` | `https`（默认）或 `http`；HTTP 网页用于 `ssh-only`，无需证书；Agent 接入仍要求 HTTPS |
+| `FLEET_WEB_DIST` | 网页构建产物目录，开启网页时指向 `apps/web/dist` |
+| `FLEET_HOST` / `FLEET_PORT` | 管理监听地址/端口，默认 `127.0.0.1`，HTTP 默认 8080、HTTPS 默认 8443 |
+| `FLEET_SSH_HOST` / `FLEET_SSH_PORT` | SSH 入口地址/端口；仅 SSH 设备接入默认启用 2222。网页开启时可显式设端口为 `0` 关闭 SSH 入口，仅使用网页终端 |
+| `FLEET_DATA_DIR` | 持久目录，保存原设备、凭据、账号权限、录制和 SSH 主机密钥 |
 
-## 启动
+配置修改后重启平台生效；系统设置展示当前运行方式。切换前结束活跃终端。同一数据目录只能运行一个平台实例。
 
-需要 Linux 或 macOS、Node.js 24+ 和服务端依赖；无需构建网页或 Agent。
+| 设备接入 | 网页开关 | 协议 | 结果 |
+| --- | --- | --- | --- |
+| `ssh-only` | `1` | `http` | HTTP 网页管理 + SSH 入口，无 HTTPS 证书、CA 或 Agent |
+| `ssh-only` | `1` | `https` | HTTPS 网页管理 + SSH 入口，网页需要证书，目标设备无需 CA |
+| `ssh-only` | `0` | 任意 | SSH 入口 + 本机 Unix 管理套接字，无 HTTP/HTTPS TCP 管理入口 |
+| `agent-ssh` | `1` | `https` | 原完整模式，网页、Agent 和可选 SSH 入口 |
+| `agent-ssh` | `0` | 任意 | 关闭网页页面，保留供 Agent 使用的 HTTPS API；仍需要证书 |
+
+原 `FLEET_MODE=ssh-only` 保留“设备仅 SSH、网页关闭”的兼容预设，新变量可独立覆盖。新部署建议使用上面三个明确配置，避免将“只用 SSH 接入”理解为“关闭网页”。
+
+## 无证书的 HTTP 网页管理
+
+需要 Linux 或 macOS、Node.js 24+，目标设备运行 sshd 并允许平台使用已配置私钥登录。无需构建或安装 Agent。
 
 ```bash
 npm --prefix apps/server ci
+npm --prefix apps/web ci
 npm --prefix apps/server run build
-export FLEET_MODE=ssh-only
+npm --prefix apps/web run build
+export FLEET_DEVICE_ACCESS=ssh-only
+export FLEET_WEB_ENABLED=1
+export FLEET_WEB_PROTOCOL=http
+export FLEET_WEB_DIST="$PWD/apps/web/dist"
+export FLEET_HOST=127.0.0.1
+export FLEET_PORT=8080
 export FLEET_DATA_DIR=/var/lib/farhelm
-export FLEET_SSH_HOST=0.0.0.0
+export FLEET_SSH_HOST=127.0.0.1
 export FLEET_SSH_PORT=2222
 export FLEET_ADMIN_USER=admin
 export FLEET_ADMIN_PASSWORD='请替换为你自己的至少12字符密码'
 node apps/server/dist/index.js
 ```
 
-也可把 [仅 SSH 环境配置](../deploy/server/ssh-only.env.example) 保存为 `/etc/farhelm/server.env`，配合现有 [systemd 服务](../deploy/server/farhelm.service) 使用。首次启动生成管理员；已有数据库沿用原用户及密码，不会被环境变量重置。
+访问 `http://127.0.0.1:8080`，使用平台账号登录，即可添加 SSH 设备、管理设备组、账号、角色和用户组，以及使用网页终端和查看会话录制。终端通过同源 `ws://` 连接；仅传输协议变化，认证、一次性终端票据、权限范围、动态撤权和录制保持一致。系统设置不再请求不可用的 Agent 或证书接口。没有 SSH 配置的旧 Agent 设备需要在原设备的「接入配置」补充 SSH，不需要新建设备。
 
-| 配置 | 行为 |
-| --- | --- |
-| `FLEET_MODE` | 默认 `full` 保持原 HTTPS/网页/Agent 模式；显式 `ssh-only` 开启本模式，其他值拒绝启动 |
-| `FLEET_SSH_HOST` | 默认 `FLEET_HOST`，未设置时为 `127.0.0.1`；远程接入需配置实际绑定地址 |
-| `FLEET_SSH_PORT` | 本模式默认 `2222`，必须为 1–65535，不能使用 `0` 关闭唯一网络入口 |
-| `FLEET_DATA_DIR` | 持久目录；保存账号、加密目标凭据、录制、SSH 主机密钥和本机管理套接字 |
+HTTP 不加密浏览器与平台之间的密码、终端和录制流量，适用于可信内网；默认只绑定本机。远程访问可显式修改监听地址，也可保留 HTTPS 网页协议。即使 HTTP 网页通过代理提供，也应保持 API 与终端 WebSocket 同源；只有配置的 `FLEET_CONSOLE_ORIGIN` 可作为额外允许来源。
 
-本模式不读取 HTTPS 证书、CA、托管证书文件、网页目录和 Agent 安装配置，不启动 HTTPS 或 ACME 监听/续签。旧环境中残留的这些变量不会导致尝试读取证书。数据目录路径应简短，`<FLEET_DATA_DIR>/admin.sock` 的 UTF-8 路径长度不能超过 100 字节。
+本组合不读取 HTTPS 证书、CA、托管证书文件或 Agent 安装配置，不启动证书续签；残留的旧证书配置不会阻止启动。已签发证书及 Agent 数据保留在原数据目录，恢复原模式可继续使用。浏览器若曾为同一域名缓存 HSTS，可能自动将 HTTP 升级为 HTTPS；本机切换可使用 `http://127.0.0.1`，或使用单独的 HTTP 管理域名。
 
-启动日志显示 SSH 主机指纹。首次启用自动生成 `<FLEET_DATA_DIR>/ssh_host_ed25519_key`，权限 0600，后续启动复用；损坏时拒绝启动，不自动更换身份。目录权限为 0700。应备份整个数据目录，包含 `credentials.key` 和 SQLite 数据，保留设备、权限、录制与主机身份。
+可用 [SSH + HTTP 配置](../deploy/server/ssh-only.env.example) 配合现有 [systemd 服务](../deploy/server/farhelm.service)。已有数据库沿用原用户及密码，不会被环境变量重置。只关闭网页时将 `FLEET_WEB_ENABLED=0`，参考 [无网页配置](../deploy/server/ssh-only-headless.env.example)。开发用 Vite 的 `FLEET_DEV_API_TARGET` 也支持 HTTP 上游。
 
-连接方式与完整模式一致，使用**平台账号密码**：
+SSH 入口使用原平台账号密码：
 
 ```bash
-# 显示该用户有权使用的设备，再按编号选择。
 ssh -tt -p 2222 -l admin platform-host
-# 直接连接指定设备。
 ssh -tt -p 2222 -l 'admin:设备ID' platform-host
 ```
 
-首次连接核对启动日志中的 SSH 指纹，后续由客户端 `known_hosts` 检查。目标主机指纹也必须固定核验；平台 SSH 主机密钥和目标登录私钥均与 HTTPS CA 无关。
+首次启用自动生成 `<dataDir>/ssh_host_ed25519_key`（0600），后续启动复用；损坏时拒绝启动，不自动更换身份。首次连接核对日志中的主机指纹，后续由客户端 `known_hosts` 检查。目标主机指纹也必须固定核验。平台 SSH 主机密钥、目标登录私钥与 HTTPS CA 相互独立。
 
 ## 无网页时管理设备、用户和录制
 
-平台同时提供 `<FLEET_DATA_DIR>/admin.sock`，权限 0600，仅运行平台的本机账号或 root 可访问。它通过 Unix 套接字复用原管理 API，仍需平台登录及角色授权；**不会绑定任何明文 HTTP TCP 端口**，也不会因为拿到文件访问权限而跳过平台认证。无需额外证书，浏览器不能直接访问此套接字。
+关闭网页且设备仅用 SSH 时，平台提供 `<FLEET_DATA_DIR>/admin.sock`，权限 0600，仅运行平台的本机账号或 root 可访问。它通过 Unix 套接字复用原管理 API，仍需平台登录及角色授权；**不会绑定任何明文 HTTP TCP 端口**，也不会因为拿到文件访问权限而跳过平台认证。无需额外证书，浏览器不能直接访问此套接字。
 
 以下示例使用 curl 和 jq，以平台运行账号执行。先在权限 0700 的私有目录创建 `login.json`，内容为平台账号和密码，例如 `{"username":"admin","password":"你的平台密码"}`，文件权限设为 0600。不要把真实凭据提交到 Git。
 
@@ -94,9 +109,9 @@ curl --fail-with-body --silent --show-error --unix-socket "$SOCK" \
 
 ## 切换与边界
 
-可在停服后用同一数据目录从完整模式切到本模式，保留设备 ID、用户、角色、用户组、设备标签和历史录制。已配置备用 SSH 的 Agent 设备可沿原 ID 使用 SSH；仅有 Agent 的设备在此模式中无法连接。切换运行模式需要重启，因此先结束活跃终端；不能用两个进程同时打开同一数据目录。
+可在停服后用同一数据目录调整设备接入方式或网页开关，保留设备 ID、用户、角色、用户组、设备标签和历史录制。已配置备用 SSH 的 Agent 设备可沿原 ID 使用 SSH；仅有 Agent 的设备在此模式中无法连接。切换运行模式需要重启，因此先结束活跃终端；不能用两个进程同时打开同一数据目录。
 
-启动会检查已有本机管理套接字：运行中拒绝重复启动，异常退出留下的旧套接字可自动恢复；普通文件、符号链接或其他用户的套接字不会被覆盖。恢复完整模式时设置 `FLEET_MODE=full` 并提供原 HTTPS 配置。
+启动会检查已有本机管理套接字：运行中拒绝重复启动，异常退出留下的旧套接字可自动恢复；普通文件、符号链接或其他用户的套接字不会被覆盖。恢复 Agent 接入时设置 `FLEET_DEVICE_ACCESS=agent-ssh`、`FLEET_WEB_PROTOCOL=https` 并提供原 HTTPS 配置；网页是否开启仍由 `FLEET_WEB_ENABLED` 控制。旧 `FLEET_MODE=ssh-only` 是关闭网页的兼容预设，显式的新配置优先。
 
 SSH PTY、设备菜单、权限动态校验和录制使用与完整模式相同的流程。仍不开放 SFTP/SCP、端口转发、任意 SSH exec 或免审计通道。依赖 Agent 的命令任务、健康和网络采集、Agent 升级在本模式不可用。
 
@@ -107,6 +122,9 @@ npm --prefix apps/server test
 npm --prefix apps/server run build
 docker build -t farhelm-sshd-test:local tests/e2e/ssh-target
 npm run test:ssh:only
+npm run test:ssh:web
 ```
 
 端到端测试使用独立临时数据库与 Linux OpenSSH 容器，通过实际服务端启动入口运行，无 HTTPS 证书、网页或 Agent。验证系统 OpenSSH 的严格主机指纹检查、用户组设备筛选、越权拒绝、撤权断连、隐藏输入不录制、正常结束及完整录制，并检查正常重启和异常退出后的主机密钥及数据保持。结果保存在 `.test-output/ssh-only-e2e.json`；不会修改当前开发平台。
+
+`test:ssh:web` 另验证 HTTP 网页：设备接入配置、创建角色/用户组/账号、按组授权、权限拒绝、真实 SSH 网页终端、录制回放和普通 HTTP 下复制 SSH 命令。使用独立数据库、无 Agent 的 Linux sshd 和 Chromium，不修改当前平台。可用 `FLEET_CHROMIUM_BIN` 指定本机 Chromium。结果为 `.test-output/ssh-web-e2e.json`。

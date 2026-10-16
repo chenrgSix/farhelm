@@ -145,3 +145,50 @@ describe("independent list refresh", () => {
     expect(wrapper.text()).not.toContain("旧会话设备");
   });
 });
+
+it("keeps web management in SSH-only mode and hides unavailable Agent and certificate controls", async () => {
+  const request = mockApi((path) =>
+    path === "/me"
+      ? {
+          ...user,
+          runtime: {
+            device_access: "ssh-only",
+            web_enabled: true,
+            web_protocol: "http",
+          },
+        }
+      : undefined,
+  );
+  wrapper = mount(App);
+  await login();
+  expect(wrapper.text()).toContain("生产设备");
+  expect(
+    wrapper
+      .findAll("nav button")
+      .map((b) => b.text())
+      .join(" "),
+  ).toContain("用户与权限");
+  expect(
+    wrapper
+      .findAll("nav button")
+      .map((b) => b.text())
+      .join(" "),
+  ).not.toContain("Agent 升级");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text().includes("添加设备"))!
+    .trigger("click");
+  expect(wrapper.find('[aria-label="SSH 接入"]').exists()).toBe(true);
+  expect(wrapper.find('[aria-label="Agent 接入"]').exists()).toBe(false);
+  await wrapper.get('[aria-label="关闭添加设备"]').trigger("click");
+  await navigate("系统设置");
+  await flushPromises();
+  expect(wrapper.text()).toContain("仅 SSH");
+  expect(wrapper.text()).toContain("HTTP 无需 HTTPS 证书");
+  expect(
+    request.mock.calls.some(
+      ([path]) =>
+        path === "/settings" || path.startsWith("/settings/certificate"),
+    ),
+  ).toBe(false);
+});

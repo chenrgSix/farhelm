@@ -22,6 +22,7 @@ const root = resolve(import.meta.dirname, "../.."),
 const dataDir = join(temp, "server"),
   socketPath = join(dataDir, "admin.sock"),
   out = join(root, ".test-output");
+const webEnabled = process.env.FLEET_TEST_SSH_WEB === "1";
 const password = "isolated-ssh-only-test-password",
   container = `farhelm-ssh-only-${process.pid}`;
 const steps = [],
@@ -49,6 +50,9 @@ async function reserve() {
   await new Promise((r) => s.listen(0, "127.0.0.1", r));
   return s;
 }
+const webProbe = webEnabled ? await reserve() : undefined;
+const webPort = webProbe?.address().port;
+if (webProbe) await new Promise((r) => webProbe.close(r));
 const unusedHttps = await reserve(),
   sshProbe = await reserve();
 gatewayPort = sshProbe.address().port;
@@ -68,6 +72,14 @@ Object.assign(env, {
   FLEET_WEB_DIST: "/missing/web",
   FLEET_ACME_ENABLED: "1",
 });
+if (webEnabled)
+  Object.assign(env, {
+    FLEET_DEVICE_ACCESS: "ssh-only",
+    FLEET_WEB_ENABLED: "1",
+    FLEET_WEB_PROTOCOL: "http",
+    FLEET_PORT: String(webPort),
+    FLEET_WEB_DIST: join(root, "apps/web/dist"),
+  });
 function startChild() {
   return spawn(process.execPath, ["apps/server/dist/index.js"], {
     cwd: root,
@@ -81,7 +93,7 @@ async function http(method, path, body, auth = token) {
       body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     const r = request(
       {
-        socketPath,
+        ...(webEnabled ? { host: "127.0.0.1", port: webPort } : { socketPath }),
         method,
         path: "/api/v1" + path,
         headers: {
@@ -135,10 +147,15 @@ async function start() {
   assert.equal(info.enabled, true);
   if (fingerprint) assert.equal(info.fingerprint, fingerprint);
   fingerprint = info.fingerprint;
-  assert.equal(statSync(socketPath).mode & 0o777, 0o600);
+  if (!webEnabled) assert.equal(statSync(socketPath).mode & 0o777, 0o600);
+  else assert.equal(existsSync(socketPath), false);
   assert.equal(statSync(dataDir).mode & 0o777, 0o700);
   assert.equal(existsSync(join(dataDir, "certificates")), false);
-  assert.ok(serverOutput.includes("HTTPS disabled"));
+  assert.ok(
+    serverOutput.includes(
+      webEnabled ? "Farhelm HTTP listening" : "HTTPS disabled",
+    ),
+  );
   assert.equal((await http("GET", "/devices", undefined, "")).status, 401);
   assert.equal((await http("GET", "/settings/certificate")).status, 404);
 }
@@ -282,7 +299,9 @@ try {
   );
   await start();
   steps.push(
-    "Actual server CLI starts without TLS/CA files, HTTPS/ACME ports or Agent; management is Unix-only and still requires authentication",
+    webEnabled
+      ? "Actual server CLI serves HTTP management without TLS/CA files or Agent; login remains required"
+      : "Actual server CLI starts without TLS/CA files, HTTPS/ACME ports or Agent; management is Unix-only and still requires authentication",
   );
   const keyPath = join(dataDir, "ssh_host_ed25519_key"),
     hostKey = readFileSync(keyPath);
@@ -359,13 +378,15 @@ try {
   await menu.text("$ ");
   menu.input("stty -echo; printf '__SSH_ONLY_%s__\\n' READY\r");
   await menu.text("__SSH_ONLY_READY__");
-  const duplicate = startChild();
-  let duplicateOutput = "";
-  duplicate.stderr.on("data", (d) => (duplicateOutput += d));
-  duplicate.stdout.resume();
-  const [duplicateCode] = await once(duplicate, "exit");
-  assert.notEqual(duplicateCode, 0);
-  assert.match(duplicateOutput, /already in use/);
+  if (!webEnabled) {
+    const duplicate = startChild();
+    let duplicateOutput = "";
+    duplicate.stderr.on("data", (d) => (duplicateOutput += d));
+    duplicate.stdout.resume();
+    const [duplicateCode] = await once(duplicate, "exit");
+    assert.notEqual(duplicateCode, 0);
+    assert.match(duplicateOutput, /already in use/);
+  }
   menu.input("printf '__AFTER_DUPLICATE_%s__\\n' OK\r");
   await menu.text("__AFTER_DUPLICATE_OK__");
   menu.input(
@@ -391,8 +412,25 @@ try {
   assert.ok(!text.includes("E2E_SSH_ONLY_NOT_RECORDED"));
   assert.ok(!text.includes("输入设备编号"));
   steps.push(
-    "System OpenSSH -> permission-filtered device menu -> real Linux sshd; UTF-8, hidden input privacy, normal exit and complete recording; duplicate server startup cannot interrupt the session",
+    "System OpenSSH -> permission-filtered device menu -> real Linux sshd; UTF-8, hidden input privacy, normal exit and complete recording" +
+      (webEnabled
+        ? ""
+        : "; duplicate server startup cannot interrupt the session"),
   );
+  if (webEnabled) {
+    const { verifySshWeb } = await import("./ssh-web-browser.mjs");
+    await verifySshWeb({
+      port: webPort,
+      password,
+      deviceId: device.device_id,
+      api,
+      recording,
+      out,
+    });
+    steps.push(
+      "Non-secure HTTP browser: device connection settings, custom role and user group creation, scoped account login, real web terminal over SSH, complete recording/replay, and HTTP clipboard fallback",
+    );
+  }
   const active = cli("groupops:" + device.device_id);
   await active.text("$ ");
   active.input("stty -echo; printf '__REVOCATION_%s__\\n' READY\r");
@@ -428,14 +466,16 @@ try {
     "Graceful restart preserves SSH host key, strict known_hosts verification, device credentials, permissions and historical recordings",
   );
   await stop("SIGKILL");
-  assert.ok(existsSync(socketPath));
+  assert.equal(existsSync(socketPath), !webEnabled);
   await start();
   assert.deepEqual(readFileSync(keyPath), hostKey);
   assert.equal((await api("GET", "/devices")).devices.length, 2);
   const audit = await api("GET", "/audit");
   assert.ok(JSON.stringify(audit).includes("authorization.denied"));
   steps.push(
-    "Crash restart removes only its stale Unix socket and preserves the SSH host identity; no HTTPS certificate is created",
+    webEnabled
+      ? "HTTP web and SSH recover after crash with the same identity and recordings; no HTTPS certificate is created"
+      : "Crash restart removes only its stale Unix socket and preserves the SSH host identity; no HTTPS certificate is created",
   );
   mkdirSync(out, { recursive: true });
   const result = {
@@ -446,10 +486,11 @@ try {
     https_certificates_required: false,
     agent_required: false,
     strict_host_key_verification: true,
-    local_admin_authenticated: true,
+    local_admin_authenticated: !webEnabled,
+    http_web_management: webEnabled,
   };
   writeFileSync(
-    join(out, "ssh-only-e2e.json"),
+    join(out, webEnabled ? "ssh-web-e2e.json" : "ssh-only-e2e.json"),
     JSON.stringify(result, null, 2),
   );
   console.log(JSON.stringify(result, null, 2));

@@ -291,6 +291,15 @@ fixture("login-response", "login-response", {
   user,
 });
 fixture("me-response", "me-response", { v: 1, ...user });
+fixture("me-ssh-web", "me-response", {
+  v: 1,
+  ...user,
+  runtime: {
+    device_access: "ssh-only",
+    web_enabled: true,
+    web_protocol: "http",
+  },
+});
 const device = {
   id: task.device_id,
   name: "fixture-agent",

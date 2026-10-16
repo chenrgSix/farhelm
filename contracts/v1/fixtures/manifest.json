@@ -1373,5 +1373,10 @@
     "path": "valid/audit-paginated.json",
     "schema": "audit-response.schema.json",
     "valid": true
+  },
+  {
+    "schema": "me-response.schema.json",
+    "path": "valid/me-ssh-web.json",
+    "valid": true
   }
 ]

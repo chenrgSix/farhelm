@@ -32,7 +32,7 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 
 ## 不使用 HTTPS 的部署
 
-只需要 SSH 入口时，设置 `FLEET_MODE=ssh-only`，无需提供 HTTPS 证书或 CA。SSH 主机密钥继续自动生成并持久保存；设备、用户和录制可通过本机私有管理套接字维护，详见[仅 SSH 模式](ssh-only.md)。默认 `full` 模式维持现有 HTTPS/网页/Agent 功能。
+设备仅用 SSH 时，设置 `FLEET_DEVICE_ACCESS=ssh-only`。保留网页管理可用 `FLEET_WEB_ENABLED=1`、`FLEET_WEB_PROTOCOL=http`，无需 HTTPS 证书或 CA；显式设置 `FLEET_WEB_ENABLED=0` 才关闭网页。SSH 主机密钥自动生成并持久保存，详见 [SSH 接入与网页管理](ssh-only.md)。
 
 ## 服务端配置
 

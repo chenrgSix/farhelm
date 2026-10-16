@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+withDefaults(defineProps<{ agentEnabled?: boolean }>(), { agentEnabled: true });
 const emit = defineEmits<{
   close: [];
   select: [kind: "ssh" | "agent"];
@@ -41,6 +42,7 @@ onMounted(() => closeButton.value?.focus());
           <small>配置地址、端口、账号和私钥，由平台连接设备。</small>
         </button>
         <button
+          v-if="agentEnabled"
           class="access-option"
           aria-label="Agent 接入"
           @click="emit('select', 'agent')"

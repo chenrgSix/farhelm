@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AgentCASyncPanel from "./AgentCASyncPanel.vue";
 import { api, ApiError } from "../api/client";
+withDefaults(defineProps<{ agentEnabled?: boolean }>(), { agentEnabled: true });
 const formatTime = (value: number) =>
   new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
@@ -492,6 +493,7 @@ onBeforeUnmount(() => {
             更换和客户端信任迁移。平台不会自动更换根 CA。
           </p>
           <AgentCASyncPanel
+            v-if="agentEnabled"
             :revision="state.revision"
             :fingerprint="state.private_ca.fingerprint"
             :disabled="busy || dirty || conflict || state.mode !== 'private'"

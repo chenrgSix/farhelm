@@ -3,9 +3,9 @@ import { buildServer } from "./server.js";
 import { prepareLocalAdmin } from "./local-admin.js";
 import { runtimeConfig } from "./runtime-config.js";
 
-const { config, host, port, sshOnly } = runtimeConfig();
+const { config, host, port, localAdmin, tls } = runtimeConfig();
 // Check for a live instance before touching session recovery or the database.
-const adminSocket = sshOnly
+const adminSocket = localAdmin
   ? await prepareLocalAdmin(config.dataDir)
   : undefined;
 const server = await buildServer(config);
@@ -31,7 +31,10 @@ if (adminSocket)
   console.log(
     `Farhelm SSH-only mode; local management socket: ${adminSocket} (0600); HTTPS disabled`,
   );
-else console.log(`Farhelm HTTPS listening at https://${host}:${port}`);
+else
+  console.log(
+    `Farhelm ${tls ? "HTTPS" : "HTTP"} listening at ${tls ? "https" : "http"}://${host}:${port}; web management ${config.webEnabled ? "enabled" : "disabled"}; device access: ${config.deviceAccess}`,
+  );
 let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {

@@ -2,10 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api } from "../api/client";
 import type { Device, DeviceConnection } from "../api/types";
-const props = defineProps<{ device?: Device }>();
+const props = withDefaults(
+  defineProps<{ device?: Device; agentEnabled?: boolean }>(),
+  { agentEnabled: true },
+);
 const emit = defineEmits<{ close: []; changed: [] }>();
 const kind = props.device?.connection_kind ?? (props.device ? "agent" : "ssh");
-const sshEnabled = ref(kind === "ssh");
+const sshEnabled = ref(kind === "ssh" || !props.agentEnabled);
 const deviceId = ref(props.device?.id ?? "");
 const name = ref(props.device?.name ?? "");
 const host = ref("");
@@ -67,7 +70,7 @@ function report(e: unknown) {
 function apply(result: DeviceConnection) {
   state.value = result;
   deviceId.value = result.device_id;
-  sshEnabled.value = kind === "ssh" || !!result.ssh;
+  sshEnabled.value = kind === "ssh" || !props.agentEnabled || !!result.ssh;
   if (result.ssh) {
     host.value = result.ssh.host;
     port.value = result.ssh.port;
@@ -144,7 +147,7 @@ async function save() {
     if (disposed) return;
     apply(result);
     message.value =
-      kind === "ssh"
+      kind === "ssh" || !props.agentEnabled
         ? "配置已保存，可测试连接或关闭面板进入终端。"
         : sshEnabled.value
           ? "备用 SSH 已保存，连接时优先使用 Agent，不可用时尝试 SSH。"
@@ -197,7 +200,7 @@ async function testConnection() {
           </h2>
           <p class="muted">
             接入方式：{{
-              kind === "ssh"
+              kind === "ssh" || !props.agentEnabled
                 ? "SSH · 无需安装 Agent"
                 : "Agent · 设备主动连接平台"
             }}
@@ -220,7 +223,7 @@ async function testConnection() {
         <p v-if="!loaded">正在读取配置…</p>
         <template v-else>
           <fieldset :disabled="busy">
-            <template v-if="kind === 'agent'">
+            <template v-if="kind === 'agent' && agentEnabled">
               <label class="connection-check"
                 ><input
                   v-model="sshEnabled"
@@ -336,7 +339,7 @@ async function testConnection() {
                 私钥和口令加密保存，保存后不再返回浏览器。有设备终端权限的用户可通过平台连接，无需获知私钥。
               </p>
             </template>
-            <template v-if="kind === 'agent'">
+            <template v-if="kind === 'agent' && agentEnabled">
               <label
                 >sudo 密码（可选{{
                   state?.has_sudo_password ? "，已保存" : ""

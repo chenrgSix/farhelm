@@ -31,6 +31,7 @@ import {
 } from "node:fs";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
+import { deployment } from "./deployment.js";
 import { localAdminServer } from "./local-admin.js";
 import { historyPage } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
@@ -100,27 +101,31 @@ const readPem = (x: string | Buffer) =>
       ? Buffer.from(x)
       : readFileSync(x);
 export async function buildServer(config: ServerConfig) {
-  const sshOnly = config.mode === "ssh-only";
-  if (config.mode !== undefined && config.mode !== "full" && !sshOnly)
-    throw new Error("Invalid server mode");
-  if (sshOnly) {
-    if (!config.ssh) throw new Error("SSH-only mode requires an SSH listener");
-    // Ignore stale HTTPS/Agent deployment settings, including certificate files.
-    config = {
-      ...config,
-      tlsCert: undefined,
-      tlsKey: undefined,
-      webDist: undefined,
-      acme: undefined,
-      certificateTest: undefined,
-      agentInstall: undefined,
-      consoleOrigin: undefined,
-    };
-  } else if (!config.tlsCert || !config.tlsKey) {
-    throw new Error(
-      "Explicit TLS certificate and key are required in full mode",
-    );
-  }
+  const {
+    deviceAccess,
+    webEnabled,
+    webProtocol,
+    agentEnabled,
+    localAdmin,
+    tls,
+  } = deployment(config);
+  if (localAdmin && !config.ssh)
+    throw new Error("SSH-only mode requires an SSH listener");
+  if (tls && (!config.tlsCert || !config.tlsKey))
+    throw new Error("Explicit TLS certificate and key are required for HTTPS");
+  config = {
+    ...config,
+    ...(!tls
+      ? {
+          tlsCert: undefined,
+          tlsKey: undefined,
+          acme: undefined,
+          certificateTest: undefined,
+        }
+      : {}),
+    ...(!webEnabled ? { webDist: undefined, consoleOrigin: undefined } : {}),
+    ...(!agentEnabled ? { agentInstall: undefined } : {}),
+  };
   const store = new Store(config.dataDir);
   const db = store.db;
   const rate = new RateLimiter();
@@ -175,18 +180,18 @@ export async function buildServer(config: ServerConfig) {
     );
   if (config.certificateTest && !config.testMode)
     throw new Error("Certificate test options require isolated test mode");
-  const managed = sshOnly ? undefined : managedCertificate(config.dataDir);
+  const managed = !tls ? undefined : managedCertificate(config.dataDir);
   const identity = (cert: string | Buffer, key: string | Buffer) => ({
     certificate: new X509Certificate(cert),
     context: createSecureContext({ cert, key, minVersion: "TLSv1.2" }),
   });
-  const bootstrapIdentity = sshOnly
+  const bootstrapIdentity = !tls
     ? undefined
     : identity(readPem(config.tlsCert!), readPem(config.tlsKey!));
   let activeIdentity = managed
     ? identity(managed.cert, managed.key)
     : undefined;
-  const retired = sshOnly
+  const retired = !tls
     ? undefined
     : managedCertificate(config.dataDir, "retired.json");
   let retiredIdentity = retired
@@ -213,31 +218,47 @@ export async function buildServer(config: ServerConfig) {
       : false,
     logController: new LogController({ disableRequestLogging: true }),
   } satisfies FastifyServerOptions;
-  const app: FastifyInstance = sshOnly
+  const app: FastifyInstance = localAdmin
     ? Fastify({
         ...options,
         serverFactory: (handler) => localAdminServer(handler, config.dataDir),
       })
-    : Fastify({
-        ...options,
-        https: {
-          key: managed?.key ?? readPem(config.tlsKey!),
-          cert: managed?.cert ?? readPem(config.tlsCert!),
-          minVersion: "TLSv1.2",
-          SNICallback: (name, callback) => {
-            const selected =
-              activeIdentity &&
-              [activeIdentity, retiredIdentity, bootstrapIdentity].find(
-                (item) => item && certificateMatches(item.certificate, name),
-              );
-            callback(null, selected?.context);
+    : !tls
+      ? Fastify(options)
+      : Fastify({
+          ...options,
+          https: {
+            key: managed?.key ?? readPem(config.tlsKey!),
+            cert: managed?.cert ?? readPem(config.tlsCert!),
+            minVersion: "TLSv1.2",
+            SNICallback: (name, callback) => {
+              const selected =
+                activeIdentity &&
+                [activeIdentity, retiredIdentity, bootstrapIdentity].find(
+                  (item) => item && certificateMatches(item.certificate, name),
+                );
+              callback(null, selected?.context);
+            },
           },
-        },
-      });
+        });
+  // Run after websocket bookkeeping so rejected upgrades also close their sockets.
+  // Block Agent enrollment, authentication and control on the management listener.
+  app.addHook("preValidation", async (req) => {
+    const route = req.routeOptions.url ?? "";
+    if (
+      !agentEnabled &&
+      (/^\/(?:api\/)?agent(?:\/|$)/.test(route) ||
+        /^\/api\/v1\/(?:enrollment-tokens|agent-[^/]+)(?:\/|$)/.test(route) ||
+        route === "/api/v1/commands" ||
+        route.endsWith("/agent-sync") ||
+        (route === "/api/v1/settings" && req.method === "PUT"))
+    )
+      fail(403, "AGENT_ACCESS_DISABLED");
+  });
   let tlsWatcher: ReturnType<typeof watchTlsContext> | undefined;
   app.addHook("onListen", async () => {
     if (
-      !sshOnly &&
+      tls &&
       !config.acme &&
       !managed &&
       typeof config.tlsCert === "string" &&
@@ -311,8 +332,8 @@ export async function buildServer(config: ServerConfig) {
     reply
       .header("cache-control", "no-store")
       .header("x-content-type-options", "nosniff")
-      .header("strict-transport-security", "max-age=31536000")
       .header("referrer-policy", "no-referrer");
+    if (tls) reply.header("strict-transport-security", "max-age=31536000");
     return payload;
   });
   app.addHook("onRequest", async (req) => {
@@ -458,14 +479,14 @@ export async function buildServer(config: ServerConfig) {
       ? { supported: c.trust, send: (type, body) => send(c, type, body) }
       : undefined;
   });
-  const certificates = sshOnly
+  const certificates = !tls
     ? undefined
     : new CertificateManager({
         store,
         config: config.acme,
         privateAvailable: !!config.webDist,
         privateLeafLifetimeMs: config.certificateTest?.privateLeafLifetimeMs,
-        agentsReady: caSync.allReady,
+        agentsReady: agentEnabled ? caSync.allReady : () => true,
         initial: managed,
         retired,
         fallback: () => readPem(config.tlsCert!),
@@ -611,6 +632,7 @@ export async function buildServer(config: ServerConfig) {
     },
     rate,
     consoleOrigin: config.consoleOrigin,
+    consoleProtocol: tls ? "https" : "http",
     agent(id) {
       const c = connections.get(id);
       if (
@@ -839,7 +861,15 @@ export async function buildServer(config: ServerConfig) {
       }),
     };
   });
-  app.get("/api/v1/me", async (req) => ({ v: 1, ...userAuth(req) }));
+  app.get("/api/v1/me", async (req) => ({
+    v: 1,
+    ...userAuth(req),
+    runtime: {
+      device_access: deviceAccess,
+      web_enabled: webEnabled,
+      web_protocol: tls ? "https" : "http",
+    },
+  }));
   app.post("/api/v1/enrollment-tokens", async (req) => {
     const user = admin(req);
     const b = object(req.body);

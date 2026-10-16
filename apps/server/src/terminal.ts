@@ -62,6 +62,7 @@ interface Dependencies {
     | undefined;
   rate: RateLimiter;
   consoleOrigin?: string;
+  consoleProtocol?: "http" | "https";
 }
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_CHUNK = 8192;
@@ -380,7 +381,10 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         const origin = req.headers.origin;
         if (
           !origin ||
-          !["https://" + req.headers.host, d.consoleOrigin].includes(origin)
+          ![
+            `${d.consoleProtocol ?? "https"}://${req.headers.host}`,
+            d.consoleOrigin,
+          ].includes(origin)
         )
           fail(403, "TERMINAL_ORIGIN_DENIED");
       },

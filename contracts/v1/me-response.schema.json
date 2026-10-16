@@ -75,6 +75,22 @@
       },
       "uniqueItems": true,
       "maxItems": 100
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "device_access": {
+          "enum": ["agent-ssh", "ssh-only"]
+        },
+        "web_enabled": {
+          "type": "boolean"
+        },
+        "web_protocol": {
+          "enum": ["http", "https"]
+        }
+      },
+      "required": ["device_access", "web_enabled", "web_protocol"]
     }
   },
   "required": ["v", "id", "username", "role", "device_scope"]
