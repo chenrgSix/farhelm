@@ -774,5 +774,84 @@ bad(
   (x) => (x.detail.payload.secret = "hidden"),
   "Audit payloads also reject undeclared fields",
 );
+fixture("deployment-settings", "deployment-settings", {
+  device_access: "ssh-only",
+  web_enabled: true,
+  web_protocol: "http",
+});
+fixture("deployment-response", "deployment-response", {
+  v: 1,
+  revision: 0,
+  settings: {
+    device_access: "ssh-only",
+    web_enabled: true,
+    web_protocol: "http",
+  },
+  state: "idle",
+  entry_url: null,
+  rollback_url: null,
+  confirm_by: null,
+  last_error: null,
+  active_terminals: 0,
+  https_ready: false,
+  recovery_command:
+    "node apps/server/dist/enable-web.js --data-dir '/srv/farhelm/data'",
+});
+fixture("deployment-update", "deployment-update", {
+  v: 1,
+  revision: 0,
+  settings: {
+    device_access: "ssh-only",
+    web_enabled: true,
+    web_protocol: "http",
+  },
+  entry_origin: "http://farhelm.test:8080",
+  confirm_web_disable: false,
+});
+fixture("deployment-confirm", "deployment-confirm", { v: 1, revision: 1 });
+fixture("audit-deployment.requested", "audit", {
+  id: 1,
+  at: 1735689600100,
+  actor_id: null,
+  device_id: null,
+  task_id: null,
+  action: "deployment.requested",
+  detail: {
+    revision: 1,
+    device_access: "ssh-only",
+    web_enabled: true,
+    web_protocol: "http",
+  },
+});
+fixture("audit-deployment.applied", "audit", {
+  id: 1,
+  at: 1735689600100,
+  actor_id: null,
+  device_id: null,
+  task_id: null,
+  action: "deployment.applied",
+  detail: {
+    revision: 1,
+    device_access: "ssh-only",
+    web_enabled: true,
+    web_protocol: "http",
+  },
+});
+fixture("audit-deployment.rolled_back", "audit", {
+  id: 1,
+  at: 1735689600100,
+  actor_id: null,
+  device_id: null,
+  task_id: null,
+  action: "deployment.rolled_back",
+  detail: { revision: 1, code: "APPLY_FAILED" },
+});
+bad(
+  "deployment-agent-http",
+  "deployment-settings",
+  { device_access: "ssh-only", web_enabled: true, web_protocol: "http" },
+  (x) => (x.device_access = "agent-ssh"),
+  "Agent requires HTTPS",
+);
 save("manifest.json", manifest);
 console.log(`Wrote ${manifest.length} fixtures`);

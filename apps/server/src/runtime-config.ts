@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { ServerConfig } from "./types.js";
+import { managedCertificate } from "./certificate-files.js";
 import { deployment } from "./deployment.js";
 
 export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
@@ -58,7 +59,11 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
       (acmeEnabled && !loopback(env.FLEET_ACME_HTTP_HOST ?? "0.0.0.0")))
   )
     throw new Error("Test mode requires loopback binding");
-  if (tls && (!env.FLEET_TLS_CERT || !env.FLEET_TLS_KEY))
+  const managed =
+    tls && !env.FLEET_TLS_CERT && !env.FLEET_TLS_KEY
+      ? managedCertificate(resolve(env.FLEET_DATA_DIR ?? "./data"))
+      : undefined;
+  if (tls && !managed && (!env.FLEET_TLS_CERT || !env.FLEET_TLS_KEY))
     throw new Error(
       "Explicit FLEET_TLS_CERT and FLEET_TLS_KEY are required for HTTPS; use FLEET_WEB_PROTOCOL=http with SSH-only device access for certificate-free web management",
     );
@@ -86,8 +91,8 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
     consoleOrigin: webEnabled ? env.FLEET_CONSOLE_ORIGIN : undefined,
     ...(tls
       ? {
-          tlsCert: env.FLEET_TLS_CERT,
-          tlsKey: env.FLEET_TLS_KEY,
+          tlsCert: env.FLEET_TLS_CERT ?? managed?.cert,
+          tlsKey: env.FLEET_TLS_KEY ?? managed?.key,
           acme: acmeEnabled
             ? {
                 httpHost: env.FLEET_ACME_HTTP_HOST ?? "0.0.0.0",

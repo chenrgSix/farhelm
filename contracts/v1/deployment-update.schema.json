@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/deployment-update.schema.json",
+  "title": "Farhelm v1 deployment-update",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "settings": {
+      "$ref": "deployment-settings.schema.json"
+    },
+    "entry_origin": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048
+    },
+    "confirm_web_disable": {
+      "type": "boolean"
+    }
+  },
+  "required": ["v", "revision", "settings"]
+}

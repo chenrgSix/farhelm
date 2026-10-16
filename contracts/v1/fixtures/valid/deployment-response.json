@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "revision": 0,
+  "settings": {
+    "device_access": "ssh-only",
+    "web_enabled": true,
+    "web_protocol": "http"
+  },
+  "state": "idle",
+  "entry_url": null,
+  "rollback_url": null,
+  "confirm_by": null,
+  "last_error": null,
+  "active_terminals": 0,
+  "https_ready": false,
+  "recovery_command": "node apps/server/dist/enable-web.js --data-dir '/srv/farhelm/data'"
+}

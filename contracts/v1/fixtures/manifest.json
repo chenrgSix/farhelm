@@ -1378,5 +1378,45 @@
     "schema": "me-response.schema.json",
     "path": "valid/me-ssh-web.json",
     "valid": true
+  },
+  {
+    "schema": "deployment-settings.schema.json",
+    "path": "valid/deployment-settings.json",
+    "valid": true
+  },
+  {
+    "schema": "deployment-response.schema.json",
+    "path": "valid/deployment-response.json",
+    "valid": true
+  },
+  {
+    "schema": "deployment-update.schema.json",
+    "path": "valid/deployment-update.json",
+    "valid": true
+  },
+  {
+    "schema": "deployment-confirm.schema.json",
+    "path": "valid/deployment-confirm.json",
+    "valid": true
+  },
+  {
+    "schema": "audit.schema.json",
+    "path": "valid/audit-deployment.requested.json",
+    "valid": true
+  },
+  {
+    "schema": "audit.schema.json",
+    "path": "valid/audit-deployment.applied.json",
+    "valid": true
+  },
+  {
+    "schema": "audit.schema.json",
+    "path": "valid/audit-deployment.rolled_back.json",
+    "valid": true
+  },
+  {
+    "schema": "deployment-settings.schema.json",
+    "path": "invalid/deployment-agent-http.json",
+    "valid": false
   }
 ]

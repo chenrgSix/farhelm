@@ -753,6 +753,7 @@ onBeforeUnmount(() => {
         <DeploymentPanel
           v-if="view === 'settings' && user.role === 'admin' && user.runtime"
           :runtime="user.runtime"
+          @saved="refresh"
         />
         <SystemSettingsPanel
           v-if="view === 'settings' && user.role === 'admin' && agentEnabled"

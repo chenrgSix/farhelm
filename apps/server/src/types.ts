@@ -32,6 +32,7 @@ export interface TaskEvent {
   payload: Record<string, unknown>;
 }
 export interface ServerConfig {
+  deploymentControl?: import("./deployment-settings.js").DeploymentController;
   dataDir: string;
   mode?: "full" | "ssh-only";
   deviceAccess?: "agent-ssh" | "ssh-only";

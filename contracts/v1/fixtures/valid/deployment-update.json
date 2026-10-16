@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "revision": 0,
+  "settings": {
+    "device_access": "ssh-only",
+    "web_enabled": true,
+    "web_protocol": "http"
+  },
+  "entry_origin": "http://farhelm.test:8080",
+  "confirm_web_disable": false
+}

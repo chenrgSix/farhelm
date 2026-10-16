@@ -97,7 +97,10 @@
         "certificate.failed",
         "certificate.ca_created",
         "certificate.ca_sync_requested",
-        "certificate.agent_ca_synced"
+        "certificate.agent_ca_synced",
+        "deployment.requested",
+        "deployment.applied",
+        "deployment.rolled_back"
       ]
     },
     "detail": {
@@ -859,6 +862,77 @@
             }
           },
           "required": ["fingerprint", "status", "reason"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "device_access": {
+              "enum": ["agent-ssh", "ssh-only"]
+            },
+            "web_enabled": {
+              "type": "boolean"
+            },
+            "web_protocol": {
+              "enum": ["http", "https"]
+            }
+          },
+          "required": [
+            "revision",
+            "device_access",
+            "web_enabled",
+            "web_protocol"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "device_access": {
+              "enum": ["agent-ssh", "ssh-only"]
+            },
+            "web_enabled": {
+              "type": "boolean"
+            },
+            "web_protocol": {
+              "enum": ["http", "https"]
+            }
+          },
+          "required": [
+            "revision",
+            "device_access",
+            "web_enabled",
+            "web_protocol"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "code": {
+              "enum": [
+                "APPLY_FAILED",
+                "APPLY_INTERRUPTED",
+                "CONFIRMATION_TIMEOUT"
+              ]
+            }
+          },
+          "required": ["revision", "code"]
         }
       ]
     }
@@ -2174,6 +2248,116 @@
               }
             },
             "required": ["fingerprint", "status", "reason"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "deployment.requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "device_access": {
+                "enum": ["agent-ssh", "ssh-only"]
+              },
+              "web_enabled": {
+                "type": "boolean"
+              },
+              "web_protocol": {
+                "enum": ["http", "https"]
+              }
+            },
+            "required": [
+              "revision",
+              "device_access",
+              "web_enabled",
+              "web_protocol"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "deployment.applied"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "device_access": {
+                "enum": ["agent-ssh", "ssh-only"]
+              },
+              "web_enabled": {
+                "type": "boolean"
+              },
+              "web_protocol": {
+                "enum": ["http", "https"]
+              }
+            },
+            "required": [
+              "revision",
+              "device_access",
+              "web_enabled",
+              "web_protocol"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "deployment.rolled_back"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "code": {
+                "enum": [
+                  "APPLY_FAILED",
+                  "APPLY_INTERRUPTED",
+                  "CONFIRMATION_TIMEOUT"
+                ]
+              }
+            },
+            "required": ["revision", "code"]
           }
         }
       }

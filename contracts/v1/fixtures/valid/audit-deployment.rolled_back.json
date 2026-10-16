@@ -1,0 +1,12 @@
+{
+  "id": 1,
+  "at": 1735689600100,
+  "actor_id": null,
+  "device_id": null,
+  "task_id": null,
+  "action": "deployment.rolled_back",
+  "detail": {
+    "revision": 1,
+    "code": "APPLY_FAILED"
+  }
+}

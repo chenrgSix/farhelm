@@ -39,7 +39,8 @@
     "test:certificates:private:browser": "node tests/e2e/private-certificates-browser.mjs",
     "test:certificates:ca-sync": "node tests/e2e/agent-ca-sync.mjs",
     "test:ssh:only": "node tests/e2e/ssh-only.mjs",
-    "test:ssh:web": "npm --prefix apps/server run build && npm --prefix apps/web run build && FLEET_TEST_SSH_WEB=1 node tests/e2e/ssh-only.mjs"
+    "test:ssh:web": "npm --prefix apps/server run build && npm --prefix apps/web run build && FLEET_TEST_SSH_WEB=1 node tests/e2e/ssh-only.mjs",
+    "test:deployment:browser": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/deployment-settings.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

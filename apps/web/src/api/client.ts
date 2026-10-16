@@ -130,6 +130,20 @@ export class ApiClient {
         /* Untrusted error body is optional. */
       }
       const upgradeHints: Record<string, string> = {
+        DEPLOYMENT_REVISION_CONFLICT:
+          "运行设置已被其他管理员修改，请刷新后重新编辑。",
+        DEPLOYMENT_ACTIVE_TASKS: "有尚未结束的命令任务，请等待完成后再切换。",
+        DEPLOYMENT_ACTIVE_TERMINALS:
+          "有活跃终端，请先正常退出终端，再刷新并应用设置。",
+        DEPLOYMENT_APPLYING: "运行设置正在切换或等待确认，请稍后重试。",
+        DEPLOYMENT_HTTPS_NOT_READY: "没有可用的 HTTPS 证书，原配置已保留。",
+        DEPLOYMENT_CERTIFICATE_HOST_MISMATCH:
+          "HTTPS 证书不包含当前入口地址，请使用证书对应的域名。",
+        DEPLOYMENT_WEB_NOT_READY: "未找到网页文件，请先部署前端构建产物。",
+        DEPLOYMENT_CONFIG_NOT_READY:
+          "部署条件不满足，请检查监听配置；关闭全部网页与 Agent 通道时必须保留 SSH 入口。",
+        AGENT_HTTPS_REQUIRED: "Agent 接入需要 HTTPS，请调整网页协议。",
+        CONFIRM_WEB_DISABLE_REQUIRED: "请先保存恢复命令并确认关闭网页管理。",
         INVALID_HISTORY_QUERY: "历史筛选条件无效，请核对时间范围和状态。",
         INVALID_HISTORY_CURSOR: "历史分页已失效，请返回首页重新查询。",
         DEVICE_GROUP_SIZE_LIMIT:

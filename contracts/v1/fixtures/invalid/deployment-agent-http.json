@@ -1,0 +1,5 @@
+{
+  "device_access": "agent-ssh",
+  "web_enabled": true,
+  "web_protocol": "http"
+}

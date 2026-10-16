@@ -45,6 +45,7 @@ interface Dependencies {
   inScope(user: User, id: string): boolean;
   availableStorage(): void;
   requireAvailable?(id: string): void;
+  requireConnect?(): void;
   connections: {
     kind(id: string): "agent" | "ssh";
     hasSsh(id: string): boolean;
@@ -199,6 +200,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     rows: number,
     transport: "web" | "ssh",
   ) {
+    d.requireConnect?.();
     integer(cols, 20, 500);
     integer(rows, 5, 200);
     if (!hasPermission(user, "terminal.connect"))

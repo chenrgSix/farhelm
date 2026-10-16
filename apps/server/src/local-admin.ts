@@ -27,12 +27,15 @@ export function localAdminServer(handler: RequestListener, dataDir: string) {
   return server;
 }
 
-export async function prepareLocalAdmin(dataDir: string) {
+export async function prepareLocalAdmin(
+  dataDir: string,
+  filename = "admin.sock",
+) {
   if (process.platform === "win32")
     throw new Error(
       "SSH-only mode requires Unix-domain sockets (Linux or macOS)",
     );
-  const path = localAdminPath(dataDir);
+  const path = join(resolve(dataDir), filename);
   if (Buffer.byteLength(path) > 100)
     throw new Error(
       "SSH-only data directory is too long for its Unix socket path",

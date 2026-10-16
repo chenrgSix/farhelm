@@ -246,6 +246,12 @@ export async function buildServer(config: ServerConfig) {
   app.addHook("preValidation", async (req) => {
     const route = req.routeOptions.url ?? "";
     if (
+      config.deploymentControl?.busy() ||
+      (config.deploymentControl?.terminalsBlocked() &&
+        route === "/api/v1/commands")
+    )
+      fail(503, "DEPLOYMENT_APPLYING");
+    if (
       !agentEnabled &&
       (/^\/(?:api\/)?agent(?:\/|$)/.test(route) ||
         /^\/api\/v1\/(?:enrollment-tokens|agent-[^/]+)(?:\/|$)/.test(route) ||
@@ -333,7 +339,8 @@ export async function buildServer(config: ServerConfig) {
       .header("cache-control", "no-store")
       .header("x-content-type-options", "nosniff")
       .header("referrer-policy", "no-referrer");
-    if (tls) reply.header("strict-transport-security", "max-age=31536000");
+    if (tls && !reply.hasHeader("strict-transport-security"))
+      reply.header("strict-transport-security", "max-age=31536000");
     return payload;
   });
   app.addHook("onRequest", async (req) => {
@@ -395,6 +402,23 @@ export async function buildServer(config: ServerConfig) {
     const user = userAuth(req);
     if (user.role !== "admin") fail(403, "ADMIN_REQUIRED");
     return user;
+  }
+  if (config.deploymentControl) {
+    const control = config.deploymentControl;
+    app.get("/api/v1/settings/deployment", async (req) => {
+      admin(req);
+      return control.snapshot();
+    });
+    app.put("/api/v1/settings/deployment", async (req, reply) => {
+      const result = control.prepare(req.body, admin(req).id);
+      if (tls && result.settings.web_protocol === "http")
+        reply.header("strict-transport-security", "max-age=0");
+      reply.raw.once("finish", () => control.apply());
+      return result;
+    });
+    app.post("/api/v1/settings/deployment/confirm", async (req) =>
+      control.confirm(req.body, admin(req).id),
+    );
   }
   function operator(req: FastifyRequest): User {
     const user = userAuth(req);
@@ -627,6 +651,10 @@ export async function buildServer(config: ServerConfig) {
     requireScope,
     inScope,
     availableStorage,
+    requireConnect: () => {
+      if (config.deploymentControl?.terminalsBlocked())
+        fail(503, "DEPLOYMENT_APPLYING");
+    },
     requireAvailable: (id) => {
       if (upgrades.active(id)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
     },
@@ -755,6 +783,8 @@ export async function buildServer(config: ServerConfig) {
       ? createSshGateway(config.dataDir, config.ssh, {
           terminals,
           authenticate(username, password, target, ip) {
+            if (config.deploymentControl?.terminalsBlocked())
+              fail(503, "DEPLOYMENT_APPLYING");
             const user = passwordUser(username, password, ip);
             if (!hasPermission(user, "terminal.connect")) {
               store.audit("authorization.denied", user.id, null, null, {
