@@ -38,5 +38,6 @@
     "expired": false,
     "expiring": false
   },
-  "activation_ready": true
+  "activation_ready": true,
+  "challenge_type": "http-01"
 }

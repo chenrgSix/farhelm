@@ -1,3 +1,5 @@
+import { AcmeTlsResponder, ACME_ALPN } from "./acme-tls.js";
+import type { TLSSocket } from "node:tls";
 import Fastify, {
   LogController,
   type FastifyRequest,
@@ -180,6 +182,7 @@ export async function buildServer(config: ServerConfig) {
     );
   if (config.certificateTest && !config.testMode)
     throw new Error("Certificate test options require isolated test mode");
+  const acmeTls = tls && config.acme ? new AcmeTlsResponder() : undefined;
   const managed = !tls ? undefined : managedCertificate(config.dataDir);
   const identity = (cert: string | Buffer, key: string | Buffer) => ({
     certificate: new X509Certificate(cert),
@@ -231,16 +234,22 @@ export async function buildServer(config: ServerConfig) {
             key: managed?.key ?? readPem(config.tlsKey!),
             cert: managed?.cert ?? readPem(config.tlsCert!),
             minVersion: "TLSv1.2",
-            SNICallback: (name, callback) => {
+            ...(acmeTls ? { ALPNCallback: acmeTls.callback() } : {}),
+            SNICallback: function (this: TLSSocket, name, callback) {
               const selected =
                 activeIdentity &&
                 [activeIdentity, retiredIdentity, bootstrapIdentity].find(
                   (item) => item && certificateMatches(item.certificate, name),
                 );
-              callback(null, selected?.context);
+              callback(null, acmeTls?.sniContext(this) ?? selected?.context);
             },
           },
         });
+  if (acmeTls)
+    app.server.prependListener("secureConnection", (socket: TLSSocket) => {
+      // ACME proves possession in the handshake; it never serves application data.
+      if (socket.alpnProtocol === ACME_ALPN) socket.end();
+    });
   // Run after websocket bookkeeping so rejected upgrades also close their sockets.
   // Block Agent enrollment, authentication and control on the management listener.
   app.addHook("preValidation", async (req) => {
@@ -508,6 +517,11 @@ export async function buildServer(config: ServerConfig) {
     : new CertificateManager({
         store,
         config: config.acme,
+        tlsAlpn: acmeTls,
+        tlsPort: () => {
+          const address = app.server.address();
+          return address && typeof address !== "string" ? address.port : null;
+        },
         privateAvailable: !!config.webDist,
         privateLeafLifetimeMs: config.certificateTest?.privateLeafLifetimeMs,
         agentsReady: agentEnabled ? caSync.allReady : () => true,

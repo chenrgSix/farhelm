@@ -262,6 +262,9 @@
     },
     "activation_ready": {
       "type": "boolean"
+    },
+    "challenge_type": {
+      "enum": ["http-01", "tls-alpn-01"]
     }
   },
   "required": [
@@ -286,6 +289,7 @@
     "acme_available",
     "private_ca_available",
     "private_ca",
-    "activation_ready"
+    "activation_ready",
+    "challenge_type"
   ]
 }

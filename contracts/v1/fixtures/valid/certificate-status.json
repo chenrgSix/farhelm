@@ -31,5 +31,6 @@
   "acme_available": true,
   "private_ca_available": true,
   "private_ca": null,
-  "activation_ready": false
+  "activation_ready": false,
+  "challenge_type": "http-01"
 }

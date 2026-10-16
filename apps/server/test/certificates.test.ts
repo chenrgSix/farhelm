@@ -14,6 +14,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import { request } from "node:http";
 import { isIP } from "node:net";
 import { challengeHostMatches } from "../src/certificate-host.js";
+import {
+  AcmeTlsResponder,
+  ACME_ALPN,
+  createChallengeCertificate,
+} from "../src/acme-tls.js";
+import { createServer as createTCPServer } from "node:net";
 import { Store } from "../src/store.js";
 import { CertificateManager, certificateDomain } from "../src/certificates.js";
 import { CertificateError, type IssueCertificate } from "../src/acme.js";
@@ -108,6 +114,8 @@ const config = {
 async function fixture(
   issue: IssueCertificate,
   options: {
+    tlsAlpn?: AcmeTlsResponder;
+    httpPort?: number;
     dataDir?: string;
     initial?: ReturnType<typeof sign>;
     now?: () => number;
@@ -127,7 +135,9 @@ async function fixture(
   let activated = 0;
   const manager = new CertificateManager({
     store,
-    config: { httpHost: "127.0.0.1", httpPort: 0 },
+    config: { httpHost: "127.0.0.1", httpPort: options.httpPort ?? 0 },
+    tlsAlpn: options.tlsAlpn,
+    tlsPort: () => 8443,
     issue,
     fallback: () => bootstrap.cert,
     initial: options.initial,
@@ -675,5 +685,126 @@ test("IP certificates use SANs, serve IPv6 challenges and automatically renew sh
     assert.equal(managedCertificate(f.store.dataDir)?.cert, second.cert);
   } finally {
     await f.close();
+  }
+});
+
+test("selected TLS validation persists, releases HTTP and cancels its temporary identity immediately", async () => {
+  const tlsAlpn = new AcmeTlsResponder();
+  const cert = await createChallengeCertificate(
+    config.domain,
+    "tls-token.authorization",
+  );
+  let published = false;
+  const f = await fixture(
+    async ({ challengeType, tlsChallenge, signal }) => {
+      assert.equal(challengeType, "tls-alpn-01");
+      tlsChallenge!("tls-token", cert);
+      published = true;
+      return new Promise((_, reject) =>
+        signal!.addEventListener("abort", () => reject(Error("cancelled")), {
+          once: true,
+        }),
+      );
+    },
+    { tlsAlpn },
+  );
+  const httpPort = f.manager.port()!;
+  const dataDir = f.store.dataDir;
+  const selected = { ...config, challenge_type: "tls-alpn-01" };
+  try {
+    for (const challenge_type of ["tls-8443", null, 443, "dns-01"])
+      assert.throws(
+        () => f.manager.save({ ...config, challenge_type }, f.actor),
+        /INVALID_CERTIFICATE_CHALLENGE/,
+      );
+    f.manager.save(selected, f.actor);
+    await until(() => published);
+    assert.equal(f.manager.snapshot().challenge_port, 8443);
+    assert.equal(f.manager.snapshot().challenge_ready, true);
+    const callback = tlsAlpn.callback();
+    const hello = { servername: config.domain, protocols: [ACME_ALPN] };
+    assert.equal(
+      callback.call({ setKeyCert: () => {} } as any, hello),
+      ACME_ALPN,
+    );
+    f.manager.save({ ...selected, revision: 1, enabled: false }, f.actor);
+    assert.equal(
+      callback.call({ setKeyCert: () => {} } as any, hello),
+      undefined,
+    );
+    await until(() => f.manager.snapshot().status === "disabled");
+    await assert.rejects(http(httpPort, "/"));
+    assert.equal(f.manager.snapshot().certificate.managed, false);
+  } finally {
+    await f.close();
+  }
+  const occupied = createTCPServer((s) => s.destroy());
+  await new Promise<void>((r) => occupied.listen(httpPort, "127.0.0.1", r));
+  const again = await fixture(
+    async () => {
+      throw Error("disabled must not issue");
+    },
+    { dataDir, tlsAlpn, httpPort },
+  );
+  try {
+    assert.equal(again.manager.snapshot().challenge_type, "tls-alpn-01");
+    assert.equal(again.manager.snapshot().challenge_ready, true);
+    // Legacy clients omitting the new field preserve the selected validation method.
+    again.manager.save({ ...config, revision: 2, enabled: false }, again.actor);
+    assert.equal(again.manager.snapshot().challenge_type, "tls-alpn-01");
+    again.manager.save(
+      { ...config, revision: 2, enabled: false, challenge_type: "http-01" },
+      again.actor,
+    );
+    await again.manager.tick();
+    assert.equal(again.manager.snapshot().challenge_ready, false);
+    await new Promise<void>((r) => occupied.close(() => r()));
+    await again.manager.tick();
+    assert.equal(again.manager.snapshot().challenge_ready, true);
+  } finally {
+    await again.close();
+    if (occupied.listening)
+      await new Promise<void>((r) => occupied.close(() => r()));
+  }
+});
+test("TLS validation cannot be enabled without the shared TLS responder", async () => {
+  const f = await fixture(async () => {
+    throw Error("unexpected order");
+  });
+  try {
+    assert.throws(
+      () =>
+        f.manager.save({ ...config, challenge_type: "tls-alpn-01" }, f.actor),
+      /ACME_TLS_UNAVAILABLE/,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("existing certificate settings migrate to HTTP validation without changing revision or identity", async () => {
+  const f = await fixture(async () => {
+    throw Error("disabled");
+  });
+  const dataDir = f.store.dataDir;
+  f.manager.save({ ...config, enabled: false }, f.actor);
+  await f.manager.close();
+  f.store.db.exec(
+    "ALTER TABLE certificate_settings DROP COLUMN challenge_type",
+  );
+  const before = f.store.db
+    .prepare("SELECT * FROM certificate_settings WHERE id=1")
+    .get();
+  f.store.close();
+  const store = new Store(dataDir);
+  try {
+    const after = store.db
+      .prepare("SELECT * FROM certificate_settings WHERE id=1")
+      .get()!;
+    assert.equal(after.challenge_type, "http-01");
+    const { challenge_type, ...rest } = after;
+    assert.deepEqual({ ...before }, rest);
+  } finally {
+    store.close();
   }
 });

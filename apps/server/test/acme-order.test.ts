@@ -136,3 +136,41 @@ test("a failed HTTP challenge is removed and never finalized", async () => {
   assert.deepEqual(f.calls.at(-1), ["remove", "test-token"]);
   assert.ok(!f.calls.includes("finalize"));
 });
+
+test("TLS-ALPN selects the configured challenge and cleans it after failure", async () => {
+  const f = fixture("8.8.8.8");
+  f.authz.challenges.push({
+    ...f.authz.challenges[0]!,
+    type: "tls-alpn-01",
+    token: "tls-token",
+  });
+  f.client.waitForValidStatus = async () => {
+    throw new Error("TLS validation failed");
+  };
+  await assert.rejects(
+    orderCertificate(
+      f.client,
+      "8.8.8.8",
+      Buffer.alloc(0),
+      { shortlived: "" },
+      f.challenge,
+      "tls-alpn-01",
+    ),
+    /TLS validation failed/,
+  );
+  assert.deepEqual(f.calls[1], ["add", "tls-token", "test-token.thumbprint"]);
+  assert.deepEqual(f.calls.at(-1), ["remove", "tls-token"]);
+  assert.ok(!f.calls.includes("finalize"));
+  f.authz.challenges.pop();
+  await assert.rejects(
+    orderCertificate(
+      f.client,
+      "8.8.8.8",
+      Buffer.alloc(0),
+      { shortlived: "" },
+      f.challenge,
+      "tls-alpn-01",
+    ),
+    /Unsupported ACME challenge/,
+  );
+});

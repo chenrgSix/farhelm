@@ -34,6 +34,7 @@ type State = {
   enabled: boolean;
   tos_agreed: boolean;
   available: boolean;
+  challenge_type: "http-01" | "tls-alpn-01";
   challenge_port: number | null;
   challenge_ready: boolean;
   status:
@@ -64,6 +65,7 @@ type State = {
   };
 };
 const state = ref<State>();
+const challengeType = ref<"http-01" | "tls-alpn-01">("http-01");
 const mode = ref<"acme" | "private">("acme");
 const available = computed(() =>
   mode.value === "private"
@@ -101,6 +103,7 @@ const dirty = computed(
   () =>
     !!state.value &&
     (mode.value !== state.value.mode ||
+      challengeType.value !== state.value.challenge_type ||
       domain.value !== state.value.domain ||
       email.value !== state.value.email ||
       enabled.value !== state.value.enabled ||
@@ -120,6 +123,7 @@ function adopt(result: State) {
   state.value = result;
   revision.value = result.revision;
   mode.value = result.mode;
+  challengeType.value = result.challenge_type;
   domain.value = result.domain;
   email.value = result.email;
   enabled.value = result.enabled;
@@ -141,10 +145,12 @@ function explain(e: unknown) {
       "已有 Agent 尚未全部确认信任新 CA。请先在下方完成 CA 同步；旧版 Agent 需先升级。",
     PRIVATE_CA_NOT_PREPARED: "请先创建并下载内网 CA，完成浏览器信任后再启用。",
     PRIVATE_CA_UNAVAILABLE: "内网 CA 文件缺失或损坏，请从备份恢复。",
+    INVALID_CERTIFICATE_CHALLENGE: "请选择 HTTP-01 或 TLS-ALPN-01 验证。",
+    ACME_TLS_UNAVAILABLE: "TLS 验证需要启用平台统一 HTTPS 入口。",
     INVALID_CERTIFICATE_EMAIL: "请输入有效的联系邮箱。",
     CERTIFICATE_TOS_REQUIRED: "启用前请阅读并同意 Let’s Encrypt 服务条款。",
     CERTIFICATE_MANAGEMENT_UNAVAILABLE:
-      "当前部署未启用 Farhelm 证书托管，请按部署说明接通 HTTP 验证和 HTTPS 入口。",
+      "当前部署未启用 Farhelm 证书托管，请按部署说明接通验证入口和 HTTPS 入口。",
     CERTIFICATE_BUSY: "证书申请正在进行，请等待完成；仍可关闭自动申请。",
     PRIVATE_CERTIFICATE_RENEWAL_UNAVAILABLE:
       "立即续签仅适用于当前已托管的内网证书。",
@@ -185,6 +191,7 @@ async function save() {
         v: 1,
         revision: revision.value,
         mode: mode.value,
+        challenge_type: challengeType.value,
         domain: domain.value.trim(),
         email: email.value.trim(),
         enabled: enabled.value,
@@ -398,10 +405,35 @@ onBeforeUnmount(() => {
               >Let’s Encrypt 服务条款</a
             >，允许将域名或 IP 和联系邮箱提交给证书机构</label
           >
+          <label v-if="mode === 'acme'"
+            >验证方式
+            <select v-model="challengeType" name="certificate-challenge">
+              <option value="http-01">HTTP-01（公网 80）</option>
+              <option value="tls-alpn-01">
+                TLS-ALPN-01（公网 443，无需 80）
+              </option>
+            </select>
+          </label>
+          <p
+            v-if="mode === 'acme'"
+            class="field-hint"
+            data-testid="challenge-hint"
+          >
+            <template v-if="challengeType === 'http-01'">
+              公网 80 需持续可达。端口已被其他 Web
+              服务使用时，可将验证路径转发到平台的 HTTP 验证入口。
+            </template>
+            <template v-else>
+              无需开放 80。公网 443 需通过 TCP 转发直达平台 HTTPS 入口，保留
+              acme-tls/1 协议；普通 HTTPS 反向代理不能代替此验证。
+            </template>
+            平台内部可监听其他端口，但公网验证端口由证书机构固定为 80 或
+            443，不能任意修改。
+          </p>
           <p v-if="mode === 'acme'" class="field-hint">
-            支持单个公网域名、IPv4 或 IPv6。域名的 A / AAAA 记录需指向平台； IP
-            无需域名解析。公网 80 端口必须持续可达，用于申请和续签验证； HTTPS
-            入口提供网页和 Agent 接入，推荐使用 443 端口。暂不支持通配符。
+            支持单个公网域名、IPv4 或 IPv6。域名的 A / AAAA 记录需指向平台；IP
+            无需域名解析。 暂不支持通配符和 DNS 验证。只有公网 IP 且 80、443
+            均不可达时，无法自动申请公网证书。
           </p>
           <p
             v-if="mode === 'acme'"
@@ -587,11 +619,17 @@ onBeforeUnmount(() => {
           <dd>{{ formatTime(state.retry_allowed_at) }}</dd>
         </div>
         <div v-if="state.available && state.mode === 'acme'">
-          <dt>HTTP 验证入口</dt>
+          <dt>
+            {{
+              state.challenge_type === "tls-alpn-01"
+                ? "TLS 验证入口"
+                : "HTTP 验证入口"
+            }}
+          </dt>
           <dd>
             {{
               state.challenge_ready
-                ? `已监听内部端口 ${state.challenge_port}，公网须映射到 80`
+                ? `已监听内部端口 ${state.challenge_port}，公网须映射到 ${state.challenge_type === "tls-alpn-01" ? 443 : 80}`
                 : "监听未就绪"
             }}
           </dd>

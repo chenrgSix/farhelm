@@ -4,13 +4,22 @@
 
 管理员在「系统设置 → HTTPS 证书」配置平台域名或公网 IP、联系邮箱，阅读并勾选 Let’s Encrypt 服务条款，然后启用「自动申请和续签证书」并保存。平台异步申请证书；页面每 5 秒刷新申请状态、签发机构、完整到期时间、下次检查 / 重试时间和失败原因，关闭网页不影响续签。
 
-支持单个公网域名（含 IDN 转换）、公网 IPv4 / IPv6、Let’s Encrypt 正式环境和 HTTP-01 验证。域名 A / AAAA 记录都应指向平台；填写 IP 时无需 DNS。公网 **80 端口**必须能持续访问验证服务，HTTPS 入口推荐使用 **443 端口**。只开放 443、内网 / 回环 / 保留 IP、仅内网可解析的域名和通配符不支持此模式。验证要求见 [Let’s Encrypt HTTP-01 文档](https://letsencrypt.org/docs/challenge-types/#http-01-challenge)。请先核对 DNS、防火墙和端口映射，再启用申请；没有可用 IPv6 入口时不要保留 AAAA 记录。
+支持单个公网域名（含 IDN 转换）、公网 IPv4 / IPv6 和 Let’s Encrypt 正式环境。在系统设置选择验证方式：
+
+| 验证方式 | 公网端口 | 部署要求 |
+| --- | --- | --- |
+| HTTP-01 | 80 | 转发到平台 HTTP 验证入口；80 已被 Web 服务使用时，可只代理验证路径 |
+| TLS-ALPN-01 | 443 | TCP 转发直达平台 HTTPS 入口，透传 `acme-tls/1`；无需开放 80 |
+
+平台内部可监听 8443、8080 等任意可用端口，**公网验证端口由 CA 固定为 80 / 443，不能改成 8443 等端口**。证书不绑定业务端口，签发后可以在其他 HTTPS 端口使用。所选验证入口必须持续可达，以便自动续签；切换方式不会重新签发仍有效且未到续签时间的证书。
+
+域名 A / AAAA 记录都应指向平台；填写 IP 时无需 DNS。没有 IPv6 入口时不要保留 AAAA 记录。IP 不支持 DNS-01：只有公网 IP 且 80、443 都无法到达时，不能通过修改验证端口申请公共证书。域名可使用外部 DNS 验证签发器，但平台当前不提供 DNS 凭据管理。内网 / 回环 / 保留 IP、仅内网可解析域名和通配符不支持公网模式。依据 [Let’s Encrypt 验证方式](https://letsencrypt.org/docs/challenge-types/)、[TLS-ALPN-01 RFC 8737](https://www.rfc-editor.org/rfc/rfc8737.html) 和 [IP 验证 RFC 8738](https://www.rfc-editor.org/rfc/rfc8738.html)。
 
 ## 只有公网 IP 时
 
 在「平台域名或公网 IP」填写服务器实际持有的公网 IPv4 或 IPv6，不带协议、端口、路径；IPv6 在证书表单中不带方括号。平台自动选择 ACME `ip` 标识和 `shortlived` 配置，CSR 使用 IP SAN，签发后浏览器使用系统公共根证书，无需手动导入私有 CA。CA 未提供此配置时会明确报错，不会降级到域名证书。示例中使用的保留测试地址不能用于正式申请。
 
-Let’s Encrypt 的 IP 证书有效期为 **160 小时**，平台以返回证书的实际期限安排续签：通常约签发后 106 小时 40 分钟开始，剩余约 53 小时 20 分钟作为重试窗口。系统设置显示完整到期时间、计划续签时间和下次检查 / 重试时间。80 端口只发布当前验证 token，不提供明文管理接口；IPv6 验证请求中的方括号 Host 可正确匹配。机制依据 [官方证书配置说明](https://letsencrypt.org/docs/profiles/#shortlived) 和 [IP 证书说明](https://letsencrypt.org/2025/07/01/issuing-our-first-ip-address-certificate)。
+Let’s Encrypt 的 IP 证书有效期为 **160 小时**，平台以返回证书的实际期限安排续签：通常约签发后 106 小时 40 分钟开始，剩余约 53 小时 20 分钟作为重试窗口。系统设置显示完整到期时间、计划续签时间和下次检查 / 重试时间。HTTP-01 只发布当前验证 token，不提供明文管理接口；IPv6 验证请求中的方括号 Host 可正确匹配。TLS-ALPN-01 使用临时验证证书，IP 请求按标准使用反向地址形式的 SNI，无需配置 PTR 记录。机制依据 [官方证书配置说明](https://letsencrypt.org/docs/profiles/#shortlived) 和 [IP 证书说明](https://letsencrypt.org/2025/07/01/issuing-our-first-ip-address-certificate)。
 
 签发后以 `https://公网IPv4:端口` 或 `https://[公网IPv6]:端口` 访问。证书对应 IP，不绑定端口。正常续签保留同一个 IP：只替换 TLS 上下文，新握手使用新证书，已有 Agent 控制连接、网页终端和 SSH 终端继续运行，录制在同一个会话内持续写入。
 
@@ -18,7 +27,7 @@ Let’s Encrypt 的 IP 证书有效期为 **160 小时**，平台以返回证书
 
 ## 入口部署
 
-Farhelm 必须实际终止公网 TLS，才能让签发的新证书立即用于网页和 Agent。推荐非特权 Farhelm 进程监听内部 8443 / 8080，由 Nginx **TCP 转发**发布 443 / 80。示例文件：
+Farhelm 必须实际终止公网 TLS，才能让签发的新证书立即用于网页和 Agent。推荐非特权 Farhelm 进程监听内部 8443 / 8080，由 Nginx **TCP 转发**发布 443；选择 HTTP-01 时另行发布 80。示例文件：
 
 - [server.env.example](../deploy/server/server.env.example)：服务配置，域名在网页设置，不写死在环境变量里。
 - [farhelm.service](../deploy/server/farhelm.service)：systemd 服务示例，部署方按实际 Node 路径、用户和目录安装。
@@ -28,7 +37,18 @@ Farhelm 必须实际终止公网 TLS，才能让签发的新证书立即用于�
 
 这里 Nginx 不读取证书，也不解密 TLS；签发 / 续签不需要 Nginx reload，HTTPS/WSS 均由 Farhelm 热加载。原 [farhelm.conf](../deploy/nginx/farhelm.conf) 是 Nginx 自行终止 HTTPS 的另一种部署方式，继续由外部签发器管理证书，**不能与自动托管示例同时占用 80 / 443**。在原模式仅更新后端证书不会更新 Nginx 的公网证书；切换架构时需安排一次入口维护。TCP 代理配置依据 [Nginx stream proxy 文档](https://nginx.org/en/docs/stream/ngx_stream_proxy_module.html)。
 
-也可让 Farhelm 直接监听 443，HTTP 验证监听 80；部署方需给服务绑定低端口的权限，并调整监听地址、防火墙及服务限制。不要为了绑定端口把整个平台进程改为 root。
+选择 TLS-ALPN-01 时可删除示例中的 80 端口段。普通 HTTPS 反向代理会终止 TLS，无法转发 ACME 的握手验证；应使用 TCP 透传，或由该反向代理自行管理证书。验证证书仅用于匹配 SNI 且独占 `acme-tls/1` 的握手，普通 HTTPS/WSS 继续使用平台证书。验证结束、失败、取消或超时后清除临时证书。
+
+80 被已有 Nginx HTTP 站点占用且仍选择 HTTP-01 时，在该站点加入以下路径转发（平台内部验证端口设为 8080），其余路径可继续提供原服务：
+
+```nginx
+location ^~ /.well-known/acme-challenge/ {
+    proxy_set_header Host $host;
+    proxy_pass http://127.0.0.1:8080;
+}
+```
+
+也可让 Farhelm 直接监听 443；选择 HTTP-01 时验证监听 80；部署方需给服务绑定低端口的权限，并调整监听地址、防火墙及服务限制。不要为了绑定端口把整个平台进程改为 root。
 
 ## 第一次配置
 
@@ -36,7 +56,7 @@ Farhelm 必须实际终止公网 TLS，才能让签发的新证书立即用于�
 
 新部署可先在服务器上运行 `node scripts/dev-tls.mjs init /var/lib/farhelm/bootstrap-tls`，通过已有可信 SSH 通道取回 `ca.crt` 并核对指纹，在管理电脑信任该受约束的本地 CA，再建立 `ssh -L 8443:127.0.0.1:8443 your-server` 并访问 `https://localhost:8443`。只复制 CA 公共证书，私钥保留服务器，初始化目录交给 Farhelm 服务用户所有。此 CA 只用于初始化管理连接，不签发公网域名证书，也不分发给正式 Agent。公网入口的证书由 Let’s Encrypt 签发。
 
-启用部署参数 `FLEET_ACME_ENABLED=1` 后启动服务，在系统设置填写域名或公网 IP 和邮箱，开启自动申请。此开关是一次性的部署能力配置；后续域名 / IP 和自动申请开关都由网页维护。未启用托管的开发 / 外部入口仍能保存域名 / IP 草稿，页面明确显示「外部管理」，证书信息指服务端证书，不冒充独立 Nginx / Vite 的公网状态。
+启用部署参数 `FLEET_ACME_ENABLED=1` 后启动服务，在系统设置填写域名或公网 IP 和邮箱，开启自动申请。此开关是一次性的部署能力配置；后续域名 / IP、验证方式和自动申请开关都由网页维护。未启用托管的开发 / 外部入口仍能保存域名 / IP 草稿，页面明确显示「外部管理」，证书信息指服务端证书，不冒充独立 Nginx / Vite 的公网状态。
 
 申请成功后，用新的 HTTPS 域名或 IP 访问网页，确认登录和终端连接正常，再在「Agent 接入设置」点击「使用当前网页地址并同步」。证书设置不会提前改写 Agent 地址。初始化 SNI 入口保留；更换已托管域名时，临时保留上一个域名的证书和 SNI 身份（跨重启保留），但只为当前配置域名续签，旧域名证书到期前必须完成迁移。一次只保留一个旧托管域名。
 
@@ -50,7 +70,7 @@ Farhelm 必须实际终止公网 TLS，才能让签发的新证书立即用于�
 
 失败保留现用证书，按 1 / 2 / 4 / 8 / 16 / 24 小时退避重试，遵守证书机构的 Retry-After；人工重试至少间隔 5 分钟，改配置或重启不能绕过机构冷却时间。失败原因和下次重试时间会显示在页面并写入审计。关闭自动申请可取消进行中的任务，并继续使用当前证书，但此后不会自动续签。冲突配置要求重新加载；只有管理员可读写此设置，任何 API 都不返回私钥。
 
-数据目录需持久化并按敏感数据备份，单个数据目录只运行一个 Farhelm 实例；多副本共享证书的部署暂不支持。停机期间不续签，恢复后检查并补申请；已有证书即使过期也不会阻止 HTTP-01 恢复，但恢复前新 HTTPS 连接会被客户端拒绝。端口长期不可达或 CA 长期失败时，原证书仍可能到期，应关注页面失败状态。
+数据目录需持久化并按敏感数据备份，单个数据目录只运行一个 Farhelm 实例；多副本共享证书的部署暂不支持。停机期间不续签，恢复后检查并补申请；已有证书即使过期也不会阻止 HTTP-01 / TLS-ALPN-01 恢复，但恢复前新 HTTPS 连接会被客户端拒绝。端口长期不可达或 CA 长期失败时，原证书仍可能到期，应关注页面失败状态。
 
 ## 本地验证
 
@@ -63,3 +83,5 @@ Farhelm 必须实际终止公网 TLS，才能让签发的新证书立即用于�
 本地测试不能代替正式域名 DNS、公网端口及正式 CA 签发验收；首次正式申请应在实际部署后从设置页面执行。
 
 依赖审计说明：当前固定的 `acme-client@5.4.0` 间接安装 `node-forge`，npm 官方审计对它的旧 RSA 签名验证实现报告 [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv)（连带上层依赖共 2 个 high 条目）。本实现只加载客户端的原生 crypto 子模块，不加载或调用 legacy forge 模块；证书链及密钥检查使用 Node/OpenSSL。上游尚未提供该依赖的修复版本，审计告警仍保留，不使用降级或隐藏告警处理。
+
+`FLEET_TEST_ACME_CHALLENGE=tls-alpn-01 npm run test:acme`（或 `test:acme:ip` / `test:acme:ipv6`）使用相同隔离链路测试 TLS-ALPN-01。HTTP 验证端口被刻意占用，IP 测试只映射公网形态的 443；检查真实验证、自动续签、现存 Agent 控制连接、网页与 SSH 终端连续录制、无 SNI 的正常 IP 握手及重启后恢复。

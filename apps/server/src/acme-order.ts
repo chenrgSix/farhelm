@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import type { Client } from "acme-client";
+import type { AcmeChallengeType } from "./acme-tls.js";
 import { normalizeIP } from "./certificate-host.js";
 
 type OrderClient = Pick<
@@ -25,6 +26,7 @@ export async function orderCertificate(
     token: string,
     authorization?: string,
   ) => Promise<void>,
+  challengeType: AcmeChallengeType = "http-01",
 ) {
   const ip = !!isIP(host);
   if (
@@ -51,13 +53,13 @@ export async function orderCertificate(
   )
     throw new Error("Unsupported ACME challenge");
   if (authz.status !== "valid") {
-    const item = authz.challenges.find((c) => c.type === "http-01");
+    const item = authz.challenges.find((c) => c.type === challengeType);
     if (!item || !/^[A-Za-z0-9_-]{1,128}$/.test(item.token ?? ""))
       throw new Error("Unsupported ACME challenge");
     const authorization = await client.getChallengeKeyAuthorization(item);
     try {
       await challenge("add", item.token!, authorization);
-      // The CA performs real HTTP-01 verification. A local probe would require
+      // The CA performs real verification using the selected challenge. A local probe would require
       // hairpin NAT and could incorrectly fail on an internal route.
       await client.completeChallenge(item);
       await client.waitForValidStatus(item);

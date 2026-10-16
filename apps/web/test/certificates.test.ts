@@ -10,6 +10,7 @@ const initial = {
   v: 1,
   revision: 0,
   mode: "acme",
+  challenge_type: "http-01",
   acme_available: true,
   private_ca_available: true,
   private_ca: null,
@@ -69,6 +70,7 @@ it("shows expiry, obtains consent and saves domain configuration exactly once", 
     v: 1,
     revision: 0,
     mode: "acme",
+    challenge_type: "http-01",
     domain: "fleet.example.com",
     email: "ops@example.com",
     enabled: true,
@@ -344,6 +346,7 @@ it.each(["8.8.8.8", "2606:4700:4700::1111"])(
     expect(request.mock.calls[1]![1]?.body).toMatchObject({
       domain,
       mode: "acme",
+      challenge_type: "http-01",
       enabled: true,
     });
     expect(w.get('[data-testid="ip-certificate-hint"]').text()).toContain(
@@ -370,5 +373,44 @@ it("explains private IP rejection and preserves the submitted draft", async () =
   expect(
     w.get<HTMLInputElement>('[name="certificate-domain"]').element.value,
   ).toBe("192.168.1.1");
+  w.unmount();
+});
+
+it("saves the selected TLS verification method, shows 443 forwarding and preserves a draft during polling", async () => {
+  vi.useFakeTimers();
+  const saved = {
+    ...initial,
+    revision: 1,
+    domain: "8.8.8.8",
+    email: "ops@example.com",
+  };
+  const request = vi.spyOn(api, "request").mockResolvedValue(saved);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
+  await flushPromises();
+  await w.get('[name="certificate-challenge"]').setValue("tls-alpn-01");
+  expect(w.get('[data-testid="challenge-hint"]').text()).toContain("公网 443");
+  expect(w.get('[data-testid="challenge-hint"]').text()).toContain("TCP 转发");
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(
+    w.get<HTMLSelectElement>('[name="certificate-challenge"]').element.value,
+  ).toBe("tls-alpn-01");
+  request.mockResolvedValue({
+    ...saved,
+    revision: 2,
+    challenge_type: "tls-alpn-01",
+    challenge_port: 8443,
+  });
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls.at(-1)?.[1]?.body).toMatchObject({
+    challenge_type: "tls-alpn-01",
+    revision: 1,
+  });
+  expect(w.text()).toContain("TLS 验证入口");
+  expect(w.text()).toContain("已监听内部端口 8443，公网须映射到 443");
+  await w.get('[name="certificate-mode"]').setValue("private");
+  expect(w.find('[name="certificate-challenge"]').exists()).toBe(false);
   w.unmount();
 });

@@ -30,6 +30,9 @@
     },
     "mode": {
       "enum": ["acme", "private"]
+    },
+    "challenge_type": {
+      "enum": ["http-01", "tls-alpn-01"]
     }
   },
   "required": ["v", "revision", "domain", "email", "enabled", "tos_agreed"]

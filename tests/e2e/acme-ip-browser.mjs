@@ -39,6 +39,13 @@ try {
     name: "平台域名或公网 IP",
     exact: true,
   });
+  await page
+    .getByRole("combobox", { name: "验证方式", exact: true })
+    .selectOption("tls-alpn-01");
+  await page
+    .getByTestId("challenge-hint")
+    .filter({ hasText: "公网 443" })
+    .waitFor();
   await host.fill("8.8.8.8");
   await page
     .getByRole("textbox", { name: "联系邮箱", exact: true })
@@ -86,6 +93,16 @@ try {
     .locator('[aria-labelledby="certificate-title"]')
     .getByRole("alert")
     .waitFor({ state: "hidden" });
+  assert.equal(
+    await page.locator('[name="certificate-challenge"]').inputValue(),
+    "tls-alpn-01",
+  );
+  assert.equal(
+    server.store.db
+      .prepare("SELECT challenge_type FROM certificate_settings WHERE id=1")
+      .get().challenge_type,
+    "tls-alpn-01",
+  );
   const out = join(root, ".test-output");
   mkdirSync(out, { recursive: true });
   await page
@@ -106,6 +123,7 @@ try {
     passed: true,
     trusted_bootstrap: true,
     ipv4_saved: true,
+    tls_challenge_persisted: true,
     ipv6_normalized: true,
     private_ip_rejected: true,
     mobile_no_overflow: true,

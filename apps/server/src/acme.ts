@@ -2,6 +2,7 @@ import { Worker } from "node:worker_threads";
 import { generateKeyPairSync } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AcmeChallengeType, ChallengeCertificate } from "./acme-tls.js";
 import { privateFile } from "./certificate-files.js";
 
 export class CertificateError extends Error {
@@ -13,6 +14,11 @@ export class CertificateError extends Error {
   }
 }
 export type IssueCertificate = (input: {
+  challengeType?: AcmeChallengeType;
+  tlsChallenge?: (
+    token: string,
+    certificate: ChallengeCertificate | null,
+  ) => void;
   domain: string;
   email: string;
   directory: string;
@@ -21,7 +27,15 @@ export type IssueCertificate = (input: {
 }) => Promise<{ cert: string; key: string }>;
 
 export function acmeIssuer(directoryUrl?: string): IssueCertificate {
-  return async ({ domain, email, directory, signal, challenge }) => {
+  return async ({
+    domain,
+    email,
+    directory,
+    signal,
+    challenge,
+    challengeType = "http-01",
+    tlsChallenge,
+  }) => {
     signal.throwIfAborted();
     const path = join(directory, "account.key");
     if (!existsSync(path)) {
@@ -42,6 +56,7 @@ export function acmeIssuer(directoryUrl?: string): IssueCertificate {
       {
         workerData: {
           domain,
+          challengeType,
           email,
           accountKey: readFileSync(path, "utf8"),
           directoryUrl,
@@ -72,10 +87,17 @@ export function acmeIssuer(directoryUrl?: string): IssueCertificate {
       worker.on("message", (message) => {
         if (message.type === "challenge") {
           try {
-            challenge(
-              message.token,
-              message.action === "add" ? message.authorization : null,
-            );
+            if (challengeType === "tls-alpn-01") {
+              if (!tlsChallenge) throw new Error("TLS challenge unavailable");
+              tlsChallenge(
+                message.token,
+                message.action === "add" ? message.tls : null,
+              );
+            } else
+              challenge(
+                message.token,
+                message.action === "add" ? message.authorization : null,
+              );
             worker.postMessage({ id: message.id });
           } catch {
             finish(new CertificateError("ACME_CHALLENGE_FAILED"));

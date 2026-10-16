@@ -751,6 +751,9 @@
             },
             "mode": {
               "enum": ["acme", "private"]
+            },
+            "challenge_type": {
+              "enum": ["http-01", "tls-alpn-01"]
             }
           },
           "required": ["revision", "domain", "enabled"]
@@ -2059,6 +2062,9 @@
               },
               "mode": {
                 "enum": ["acme", "private"]
+              },
+              "challenge_type": {
+                "enum": ["http-01", "tls-alpn-01"]
               }
             },
             "required": ["revision", "domain", "enabled"]

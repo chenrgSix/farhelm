@@ -1,4 +1,4 @@
-// Real ACME HTTP-01, renewal and Linux Agent PTY, using an isolated Pebble CA.
+// Real ACME HTTP-01 / TLS-ALPN-01, renewal and Linux Agent PTY, using an isolated Pebble CA.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
@@ -37,6 +37,10 @@ if (!process.env.FLEET_ACME_TEST_CHILD) {
 }
 const temp = process.env.FLEET_ACME_TEST_CHILD;
 const ca = readFileSync(join(temp, "tls/ca.crt"));
+const challengeType = process.env.FLEET_TEST_ACME_CHALLENGE ?? "http-01";
+const tlsChallenge = challengeType === "tls-alpn-01";
+assert.ok(["http-01", "tls-alpn-01"].includes(challengeType));
+let occupiedHTTP;
 const ipv6 = process.env.FLEET_TEST_ACME_IP === "6";
 const ipMode = ipv6 || process.env.FLEET_TEST_ACME_IP === "1";
 // Routed only within a disposable Docker network, never to this real public IP.
@@ -114,7 +118,7 @@ try {
       join(temp, "relay.cjs"),
       `
       const net = require('node:net');
-      for (const [port, target] of [[80, ${challengePort}], [${apiPort}, ${apiPort}]]) {
+      for (const [port, target] of [${tlsChallenge ? `[443, ${apiPort}]` : `[80, ${challengePort}]`}, [${apiPort}, ${apiPort}]]) {
         net.createServer(client => {
           const upstream = net.connect(target, 'host.docker.internal');
           client.on('error', () => upstream.destroy());
@@ -158,7 +162,7 @@ try {
         certificate: "/fixture/tls/server.crt",
         privateKey: "/fixture/tls/server.key",
         httpPort: ipMode ? 80 : challengePort,
-        tlsPort: 5001,
+        tlsPort: ipMode ? 443 : apiPort,
         externalAccountBindingRequired: false,
         retryAfter: { authz: 1, order: 1 },
         profiles: {
@@ -225,6 +229,12 @@ try {
       testDirectoryUrl: `https://localhost:${caPort}/dir`,
     },
   };
+  if (tlsChallenge) {
+    occupiedHTTP = tcpServer((socket) => socket.destroy());
+    await new Promise((r) =>
+      occupiedHTTP.listen(challengePort, "127.0.0.1", r),
+    );
+  }
   server = await buildServer(serverConfig);
   await server.app.listen({ host: "127.0.0.1", port: apiPort });
   let token;
@@ -247,17 +257,21 @@ try {
     email: "ops@example.com",
     enabled: true,
     tos_agreed: true,
+    challenge_type: challengeType,
   });
   let first;
   await until(async () => {
     const s = await api("GET", "/settings/certificate");
     if (s.status === "error") throw Error(JSON.stringify(s.last_error));
     if (s.status === "valid") {
+      assert.equal(s.challenge_type, challengeType);
+      assert.equal(s.challenge_ready, true);
+      assert.equal(s.challenge_port, tlsChallenge ? apiPort : challengePort);
       first = s.certificate;
       return true;
     }
-  }, "HTTP-01 issuance");
-  console.log("PASS: real ACME HTTP-01 issuance and hot activation");
+  }, `${challengeType} issuance`);
+  console.log(`PASS: real ACME ${challengeType} issuance and hot activation`);
   assert.ok(
     first.expires_at - first.valid_from <= 90_000,
     "shortlived profile was selected",
@@ -520,15 +534,17 @@ try {
     join(
       root,
       ipv6
-        ? ".test-output/acme-ipv6.json"
+        ? `.test-output/acme${tlsChallenge ? "-tls" : ""}-ipv6.json`
         : ipMode
-          ? ".test-output/acme-ip.json"
-          : ".test-output/acme.json",
+          ? `.test-output/acme${tlsChallenge ? "-tls" : ""}-ip.json`
+          : `.test-output/acme${tlsChallenge ? "-tls" : ""}.json`,
     ),
     JSON.stringify(
       {
         passed: true,
-        http01: true,
+        http01: !tlsChallenge,
+        tls_alpn01: tlsChallenge,
+        http_port_occupied: tlsChallenge,
         ip_identifier: ipMode,
         ipv6,
         shortlived_profile: ipMode,
@@ -556,6 +572,7 @@ try {
   console.error((await docker(["logs", agent]).catch(() => "")).slice(-1500));
   process.exitCode = 1;
 } finally {
+  if (occupiedHTTP) await new Promise((r) => occupiedHTTP.close(r));
   terminal?.ws.terminate();
   sshClient?.destroy();
   await docker(["rm", "-f", agent]).catch(() => {});

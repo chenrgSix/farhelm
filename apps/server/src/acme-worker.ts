@@ -1,6 +1,10 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { isIP } from "node:net";
+import {
+  createChallengeCertificate,
+  type AcmeChallengeType,
+} from "./acme-tls.js";
 import { orderCertificate } from "./acme-order.js";
 // Import only the pinned client's native-crypto implementation. Its legacy
 // forge entry point is not loaded or used for certificate verification.
@@ -10,7 +14,14 @@ const crypto: typeof import("acme-client").crypto = require("acme-client/src/cry
 const axios: typeof import("acme-client").axios = require("acme-client/src/axios");
 
 const port = parentPort!;
-const { domain, email, accountKey, directoryUrl } = workerData as {
+const {
+  domain,
+  email,
+  accountKey,
+  directoryUrl,
+  challengeType = "http-01",
+} = workerData as {
+  challengeType?: AcmeChallengeType;
   domain: string;
   email: string;
   accountKey: string;
@@ -59,10 +70,21 @@ async function challenge(
   token: string,
   authorization?: string,
 ) {
+  const tls =
+    action === "add" && challengeType === "tls-alpn-01"
+      ? await createChallengeCertificate(domain, authorization!)
+      : undefined;
   const id = ++sequence;
   await new Promise<void>((resolve) => {
     acknowledgements.set(id, resolve);
-    port.postMessage({ type: "challenge", id, action, token, authorization });
+    port.postMessage({
+      type: "challenge",
+      id,
+      action,
+      token,
+      authorization,
+      tls,
+    });
   });
 }
 try {
@@ -88,7 +110,14 @@ try {
     { ...(isIP(domain) ? {} : { commonName: domain }), altNames: [domain] },
     key,
   );
-  const cert = await orderCertificate(client, domain, csr, profiles, challenge);
+  const cert = await orderCertificate(
+    client,
+    domain,
+    csr,
+    profiles,
+    challenge,
+    challengeType,
+  );
   port.postMessage({ type: "issued", cert, key: key.toString() });
 } catch (error) {
   const raw = error instanceof Error ? error.message : "";

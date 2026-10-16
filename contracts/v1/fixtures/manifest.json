@@ -1428,5 +1428,15 @@
     "path": "valid/certificate-ipv6-update.json",
     "schema": "certificate-settings-update.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/certificate-settings-tls.json",
+    "schema": "certificate-settings-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/certificate-challenge.json",
+    "schema": "certificate-settings-update.schema.json",
+    "valid": false
   }
 ]

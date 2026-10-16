@@ -1,3 +1,4 @@
+import type { AcmeChallengeType, AcmeTlsResponder } from "./acme-tls.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createServer, type Server } from "node:http";
 import {
@@ -37,6 +38,7 @@ export type AcmeConfig = {
   testDirectoryUrl?: string;
 };
 type Row = {
+  challenge_type: AcmeChallengeType;
   mode: "acme" | "private";
   revision: number;
   domain: string;
@@ -52,6 +54,7 @@ type Row = {
   failures: number;
 };
 const empty: Row = {
+  challenge_type: "http-01",
   mode: "acme",
   revision: 0,
   domain: "",
@@ -82,13 +85,16 @@ export const certificateErrors: Record<string, string> = {
   ACME_DNS_FAILED:
     "域名解析验证失败，请检查域名的 A / AAAA 记录是否指向此平台。",
   ACME_CHALLENGE_FAILED:
-    "域名或 IP 验证失败，请检查公网 80 端口和 HTTP 验证入口是否可达。",
+    "域名或 IP 验证失败，请检查所选验证方式的公网入口（HTTP 80 或 TLS 443）是否可达。",
   ACME_CONFIG_REJECTED:
     "证书机构拒绝了申请配置，请检查域名或公网 IP 和联系邮箱。",
   ACME_REQUEST_FAILED: "无法完成证书申请，请检查平台到证书机构的网络连接。",
-  ACME_TIMEOUT: "证书申请超时，请检查网络和公网 80 端口。",
+  ACME_TIMEOUT:
+    "证书申请超时，请检查网络和所选验证入口（HTTP 80 或 TLS 443）。",
   ACME_INVALID_CERTIFICATE: "新证书校验失败，已保留当前证书。",
   ACME_STORAGE_FAILED: "证书保存或加载失败，请检查平台数据目录的空间和权限。",
+  ACME_TLS_UNAVAILABLE:
+    "TLS 验证入口未就绪，请确认 Farhelm 提供 HTTPS，并将公网 443 以 TCP 转发到该入口。",
   ACME_HTTP_UNAVAILABLE: "HTTP 验证端口监听失败，请检查端口占用和监听权限。",
 };
 export function certificateDomain(value: unknown) {
@@ -135,6 +141,8 @@ export class CertificateManager {
     private d: {
       store: Store;
       config?: AcmeConfig;
+      tlsAlpn?: AcmeTlsResponder;
+      tlsPort?: () => number | null;
       privateAvailable?: boolean;
       privateLeafLifetimeMs?: number;
       initial?: CertificateBundle;
@@ -169,6 +177,9 @@ export class CertificateManager {
       (this.active.mode ?? "acme") === row.mode
     );
   }
+  private challengeReady(row = this.current()) {
+    return row.challenge_type === "tls-alpn-01" ? !!this.d.tlsAlpn : this.ready;
+  }
   snapshot() {
     const row = this.current();
     const cert = certificateInfo(this.active?.cert ?? this.d.fallback());
@@ -182,8 +193,13 @@ export class CertificateManager {
       caError = "PRIVATE_CA_UNAVAILABLE";
     }
     const error =
-      available && row.mode === "acme" && row.enabled && !this.ready
-        ? "ACME_HTTP_UNAVAILABLE"
+      available &&
+      row.mode === "acme" &&
+      row.enabled &&
+      !this.challengeReady(row)
+        ? row.challenge_type === "tls-alpn-01"
+          ? "ACME_TLS_UNAVAILABLE"
+          : "ACME_HTTP_UNAVAILABLE"
         : (this.schedulerError ??
           (row.mode === "private" ? caError : null) ??
           row.last_error);
@@ -205,6 +221,7 @@ export class CertificateManager {
     return {
       v: 1,
       mode: row.mode,
+      challenge_type: row.challenge_type,
       acme_available: !!this.d.config,
       private_ca_available: !!this.d.privateAvailable,
       private_ca: ca,
@@ -217,7 +234,7 @@ export class CertificateManager {
       updated_at: row.updated_at,
       available,
       challenge_port: this.port(),
-      challenge_ready: this.ready,
+      challenge_ready: this.challengeReady(row),
       status,
       last_error: error
         ? {
@@ -252,7 +269,14 @@ export class CertificateManager {
       "enabled",
       "tos_agreed",
       "mode",
+      "challenge_type",
     ]);
+    const challengeType =
+      b.challenge_type === undefined
+        ? this.current().challenge_type
+        : b.challenge_type;
+    if (challengeType !== "http-01" && challengeType !== "tls-alpn-01")
+      fail(400, "INVALID_CERTIFICATE_CHALLENGE");
     const mode = b.mode ?? "acme";
     if (mode !== "acme" && mode !== "private")
       fail(400, "INVALID_CERTIFICATE_MODE");
@@ -275,6 +299,13 @@ export class CertificateManager {
       fail(400, "CERTIFICATE_TOS_REQUIRED");
     if (b.enabled && !this.available(mode))
       fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
+    if (
+      b.enabled &&
+      mode === "acme" &&
+      challengeType === "tls-alpn-01" &&
+      !this.d.tlsAlpn
+    )
+      fail(409, "ACME_TLS_UNAVAILABLE");
     if (b.enabled && mode === "private" && !this.authority.info())
       fail(409, "PRIVATE_CA_NOT_PREPARED");
     if (b.enabled && mode === "private" && !this.safeToActivate(domain))
@@ -284,6 +315,7 @@ export class CertificateManager {
       if (revision !== row.revision) fail(409, "CERTIFICATE_REVISION_CONFLICT");
       if (this.job && b.enabled) fail(409, "CERTIFICATE_BUSY");
       if (
+        row.challenge_type === challengeType &&
         row.mode === mode &&
         row.domain === domain &&
         row.email === email &&
@@ -301,10 +333,10 @@ export class CertificateManager {
       this.d.store.db
         .prepare(
           `INSERT INTO certificate_settings
-        (id,revision,domain,email,enabled,tos_agreed,updated_at,next_attempt_at,mode)
-        VALUES(1,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
+        (id,revision,domain,email,enabled,tos_agreed,updated_at,next_attempt_at,mode,challenge_type)
+        VALUES(1,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
         domain=excluded.domain,email=excluded.email,enabled=excluded.enabled,tos_agreed=excluded.tos_agreed,
-        updated_at=excluded.updated_at,next_attempt_at=excluded.next_attempt_at,mode=excluded.mode,last_error=NULL,failures=0`,
+        updated_at=excluded.updated_at,next_attempt_at=excluded.next_attempt_at,mode=excluded.mode,challenge_type=excluded.challenge_type,last_error=NULL,failures=0`,
         )
         .run(
           revision + 1,
@@ -315,17 +347,23 @@ export class CertificateManager {
           this.now(),
           next,
           mode,
+          challengeType,
         );
       this.d.store.audit("certificate.configured", actor, null, null, {
         revision: revision + 1,
         domain,
         mode,
+        challenge_type: challengeType,
         enabled: b.enabled,
       });
       return true;
     });
     if (saved) this.renewalRevision = undefined;
-    if (saved && !b.enabled) this.controller?.abort();
+    if (saved && !b.enabled) {
+      this.controller?.abort();
+      this.challenges.clear();
+      this.d.tlsAlpn?.clear();
+    }
     this.schedule();
     return this.snapshot();
   }
@@ -456,14 +494,35 @@ export class CertificateManager {
     });
   }
   port() {
+    if (this.current().challenge_type === "tls-alpn-01")
+      return this.d.tlsPort?.() ?? null;
     const address = this.listener?.address();
     return address && typeof address !== "string"
       ? address.port
       : (this.d.config?.httpPort ?? null);
   }
-  private async listen() {
-    if (this.closed || this.ready || !this.d.config) return;
-    if (this.starting) return this.starting;
+  private async listen(): Promise<void> {
+    // Serialize listener transitions, then re-read settings after any wait.
+    if (this.starting) {
+      await this.starting;
+      return this.listen();
+    }
+    if (this.closed || !this.d.config) return;
+    const row = this.current();
+    if (row.mode !== "acme" || row.challenge_type !== "http-01") {
+      this.ready = false;
+      if (this.listener?.listening) {
+        this.starting = new Promise<void>((resolve) => {
+          this.listener!.close(() => resolve());
+          this.listener!.closeAllConnections();
+        }).finally(() => {
+          this.starting = undefined;
+        });
+        return this.starting;
+      }
+      return;
+    }
+    if (this.ready) return;
     const config = this.d.config;
     if (!this.listener)
       this.listener = createServer(
@@ -515,12 +574,13 @@ export class CertificateManager {
     if (this.closed || this.job) return;
     const before = this.current();
     if (!this.available(before.mode)) return;
-    if (before.mode === "acme") await this.listen();
-    if (this.closed || (before.mode === "acme" && !this.ready) || this.job)
-      return;
+    await this.listen();
+    if (this.closed || this.job) return;
     const row = this.current(),
       now = this.now();
     if (
+      !this.available(row.mode) ||
+      (row.mode === "acme" && !this.challengeReady(row)) ||
       !row.enabled ||
       (row.mode === "acme" && !row.tos_agreed) ||
       (row.next_attempt_at ?? 0) > now ||
@@ -546,6 +606,7 @@ export class CertificateManager {
     this.controller = new AbortController();
     this.job = this.run(row, this.controller.signal).finally(() => {
       this.challenges.clear();
+      this.d.tlsAlpn?.clear();
       this.job = undefined;
       this.controller = undefined;
     });
@@ -570,6 +631,17 @@ export class CertificateManager {
           ? await this.authority.issue(row.domain, this.d.privateLeafLifetimeMs)
           : await this.issue({
               domain: row.domain,
+              challengeType: row.challenge_type,
+              tlsChallenge: (token, certificate) => {
+                if (
+                  !current() ||
+                  !this.d.tlsAlpn ||
+                  row.challenge_type !== "tls-alpn-01" ||
+                  !/^[A-Za-z0-9_-]{1,128}$/.test(token)
+                )
+                  throw new Error("Invalid TLS challenge");
+                this.d.tlsAlpn.publish(row.domain, token, certificate);
+              },
               email: row.email,
               directory,
               signal,
@@ -672,6 +744,7 @@ export class CertificateManager {
     await this.authority.close();
     await this.starting;
     this.challenges.clear();
+    this.d.tlsAlpn?.clear();
     if (this.listener?.listening) {
       this.listener.closeAllConnections();
       await new Promise<void>((resolve) =>
