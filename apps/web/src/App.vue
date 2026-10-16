@@ -38,6 +38,7 @@ import CertificateSettingsPanel from "./components/CertificateSettingsPanel.vue"
 import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
 import DeviceGroupTools from "./components/DeviceGroupTools.vue";
 import DeviceActions from "./components/DeviceActions.vue";
+import ChangePasswordPanel from "./components/ChangePasswordPanel.vue";
 import AccessManagementPanel from "./components/AccessManagementPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
@@ -54,6 +55,8 @@ const username = ref("");
 const password = ref("");
 const loginBusy = ref(false);
 const loginError = ref("");
+const loginNotice = ref("");
+const passwordOpen = ref(false);
 type View =
   | "devices"
   | "tasks"
@@ -266,6 +269,8 @@ function logout(message = "") {
   taskGeneration++;
   api.setToken(null);
   user.value = null;
+  passwordOpen.value = false;
+  loginNotice.value = "";
   view.value = "devices";
   password.value = "";
   for (const list of Object.values(lists)) list.reset();
@@ -298,10 +303,20 @@ function logout(message = "") {
 }
 api.onUnauthorized = () =>
   logout("登录已失效，请重新登录。若此前命令提交结果不明，请先核对任务中心");
+function passwordChanged() {
+  logout();
+  loginNotice.value = "密码修改成功，请使用新密码重新登录。";
+}
+function passwordUnconfirmed() {
+  logout(
+    "未能确认密码是否已修改，请先尝试用新密码登录；若失败，再使用原密码。请勿重复提交修改请求。",
+  );
+}
 async function login() {
   if (loginBusy.value) return;
   loginBusy.value = true;
   loginError.value = "";
+  loginNotice.value = "";
   try {
     const response = await api.request<{ access_token: string; user: User }>(
       "/login",
@@ -565,6 +580,9 @@ onBeforeUnmount(() => {
               maxlength="1024"
               placeholder="输入密码"
           /></label>
+          <div v-if="loginNotice" class="notice" role="status">
+            {{ loginNotice }}
+          </div>
           <div v-if="loginError" class="notice danger" role="alert">
             {{ loginError }}
           </div>
@@ -582,6 +600,13 @@ onBeforeUnmount(() => {
     </main>
   </div>
   <div v-else class="app-shell">
+    <ChangePasswordPanel
+      v-if="passwordOpen"
+      :username="user.username"
+      @close="passwordOpen = false"
+      @changed="passwordChanged"
+      @unconfirmed="passwordUnconfirmed"
+    />
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark">f<span>•</span></span
@@ -610,6 +635,9 @@ onBeforeUnmount(() => {
         <strong>连接设备，直接操作</strong>
         <p>终端会话与命令任务均保留操作记录</p>
       </div>
+      <button class="text-button account-password" @click="passwordOpen = true">
+        修改密码
+      </button>
       <div class="account">
         <span class="avatar">{{
           user.username.slice(0, 1).toUpperCase()

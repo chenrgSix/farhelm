@@ -211,6 +211,8 @@ export async function buildServer(config: ServerConfig) {
           redact: [
             "req.headers.authorization",
             "req.body.password",
+            "req.body.current_password",
+            "req.body.new_password",
             "req.body.private_key",
             "req.body.passphrase",
             "req.body.sudo_password",
@@ -736,6 +738,7 @@ export async function buildServer(config: ServerConfig) {
   registerAccessControl(app, {
     store,
     admin,
+    userAuth,
     availableStorage,
     rate,
     changed: () => terminals.tick(),

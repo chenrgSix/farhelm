@@ -435,8 +435,8 @@ test("startup reclassifies historical intentional closes without changing record
   }
 });
 
-test("management immediately revokes active web terminals on account disable and explicit scope removal", async () => {
-  for (const change of ["disable", "scope"] as const) {
+test("management and personal password changes immediately revoke affected active terminals", async () => {
+  for (const change of ["disable", "scope", "password"] as const) {
     const f = await fixture();
     try {
       const created = await f.api(
@@ -463,35 +463,46 @@ test("management immediately revokes active web terminals on account disable and
       f.agent.send("terminal.opened", { session_id: request.session_id });
       await browser.wait("terminal.ready");
       const r =
-        change === "disable"
+        change === "password"
           ? await f.api(
-              "PUT",
-              "/api/v1/users/" + user.id,
+              "POST",
+              "/api/v1/me/password",
               {
                 v: 1,
-                revision: user.revision,
-                username: user.username,
-                enabled: false,
-                role_ids: user.role_ids,
-                group_ids: [],
-                device_scope: [],
+                current_password: "terminal-test-password",
+                new_password: "changed-terminal-password",
               },
-              f.admin,
+              auth,
             )
-          : await f.api(
-              "PUT",
-              "/api/v1/users/" + user.id,
-              {
-                v: 1,
-                revision: user.revision,
-                username: user.username,
-                enabled: true,
-                role_ids: user.role_ids,
-                group_ids: [],
-                device_scope: [],
-              },
-              f.admin,
-            );
+          : change === "disable"
+            ? await f.api(
+                "PUT",
+                "/api/v1/users/" + user.id,
+                {
+                  v: 1,
+                  revision: user.revision,
+                  username: user.username,
+                  enabled: false,
+                  role_ids: user.role_ids,
+                  group_ids: [],
+                  device_scope: [],
+                },
+                f.admin,
+              )
+            : await f.api(
+                "PUT",
+                "/api/v1/users/" + user.id,
+                {
+                  v: 1,
+                  revision: user.revision,
+                  username: user.username,
+                  enabled: true,
+                  role_ids: user.role_ids,
+                  group_ids: [],
+                  device_scope: [],
+                },
+                f.admin,
+              );
       assert.equal(r.status, 200);
       assert.equal(
         (await f.agent.wait("terminal.close")).session_id,

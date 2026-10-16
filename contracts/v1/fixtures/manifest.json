@@ -1438,5 +1438,30 @@
     "path": "invalid/certificate-challenge.json",
     "schema": "certificate-settings-update.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/password-change.json",
+    "schema": "password-change.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/password-change-target.json",
+    "schema": "password-change.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/password-change-short.json",
+    "schema": "password-change.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/audit-password-changed.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-password-change-failed.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

@@ -797,3 +797,154 @@ test("batch group size limits leave no partial tag changes", async () => {
     await f.close();
   }
 });
+
+test("users without device permissions change only their own password, revoke all own tokens and preserve grants", async () => {
+  const f = await fixture();
+  try {
+    const u = await f.user("self-service");
+    const first = (await f.login(u.username)).body.access_token;
+    const second = (await f.login(u.username)).body.access_token;
+    const body = {
+      v: 1,
+      current_password: password,
+      new_password: "updated-personal-password",
+    };
+    assertValid("password-change", body);
+    assert.equal((await f.api("POST", "/me/password", body, "")).status, 401);
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/me/password",
+          { ...body, user_id: "admin" },
+          first,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/me/password",
+          { ...body, new_password: "short" },
+          first,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          `/users/${u.id}/password`,
+          { v: 1, revision: 0, password: body.new_password },
+          first,
+        )
+      ).status,
+      403,
+    );
+    const bad = await f.api(
+      "POST",
+      "/me/password",
+      { ...body, current_password: "wrong" },
+      first,
+    );
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body.error, "CURRENT_PASSWORD_INCORRECT");
+    assert.equal((await f.api("GET", "/me", undefined, first)).status, 200);
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/me/password",
+          { ...body, new_password: password },
+          first,
+        )
+      ).body.error,
+      "PASSWORD_UNCHANGED",
+    );
+    const changed = await f.api("POST", "/me/password", body, first);
+    assert.equal(changed.status, 200);
+    assert.deepEqual(changed.body, { v: 1, ok: true });
+    for (const auth of [first, second])
+      assert.equal((await f.api("GET", "/me", undefined, auth)).status, 401);
+    assert.equal((await f.login(u.username)).status, 401);
+    assert.equal((await f.login(u.username, body.new_password)).status, 200);
+    assert.equal((await f.api("GET", "/me")).status, 200);
+    const updated = (await f.all()).users.find((x: any) => x.id === u.id);
+    assert.deepEqual(updated, { ...u, revision: u.revision + 1 });
+    const stale = await f.api("POST", `/users/${u.id}/password`, {
+      v: 1,
+      revision: u.revision,
+      password: "stale-admin-password",
+    });
+    assert.equal(stale.status, 409);
+    const events = (await f.api("GET", "/audit")).body.audit;
+    for (const event of events) assertValid("audit", event);
+    const self = events.find(
+      (x: any) => x.action === "access.password_changed",
+    );
+    assert.equal(self.actor_id, u.id);
+    assert.equal(self.detail.target_id, u.id);
+    assert.ok(
+      events.some((x: any) => x.action === "user.password_change_failed"),
+    );
+    const output = JSON.stringify(events);
+    for (const secret of [password, body.new_password, "password_hash"])
+      assert.ok(!output.includes(secret));
+  } finally {
+    await f.close();
+  }
+});
+test("personal password attempts are limited by account across login sessions", async () => {
+  const f = await fixture();
+  try {
+    const u = await f.user("limited");
+    const tokens = [
+      (await f.login(u.username)).body.access_token,
+      (await f.login(u.username)).body.access_token,
+    ];
+    for (let i = 0; i < 6; i++) {
+      const r = await f.api(
+        "POST",
+        "/me/password",
+        {
+          v: 1,
+          current_password: "wrong",
+          new_password: "new-personal-password",
+        },
+        tokens[i % 2],
+      );
+      assert.equal(r.status, i < 5 ? 400 : 429);
+    }
+    assert.equal((await f.login(u.username)).status, 200);
+  } finally {
+    await f.close();
+  }
+});
+test("administrators can change their own password; audit failure rolls back password and revocation", async () => {
+  const f = await fixture();
+  try {
+    const body = {
+      v: 1,
+      current_password: password,
+      new_password: "updated-admin-password",
+    };
+    f.store.db.exec(
+      "CREATE TRIGGER fail_password_audit BEFORE INSERT ON audit WHEN NEW.action='access.password_changed' BEGIN SELECT RAISE(ABORT,'test audit failure'); END",
+    );
+    assert.equal((await f.api("POST", "/me/password", body)).status, 500);
+    assert.equal((await f.api("GET", "/me")).status, 200);
+    assert.equal((await f.login("admin")).status, 200);
+    assert.equal((await f.login("admin", body.new_password)).status, 401);
+    f.store.db.exec("DROP TRIGGER fail_password_audit");
+    assert.equal((await f.api("POST", "/me/password", body)).status, 200);
+    assert.equal((await f.api("GET", "/me")).status, 401);
+    const updated = await f.login("admin", body.new_password);
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.user.role, "admin");
+  } finally {
+    await f.close();
+  }
+});

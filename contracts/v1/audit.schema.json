@@ -100,7 +100,9 @@
         "certificate.agent_ca_synced",
         "deployment.requested",
         "deployment.applied",
-        "deployment.rolled_back"
+        "deployment.rolled_back",
+        "access.password_changed",
+        "user.password_change_failed"
       ]
     },
     "detail": {
@@ -1893,7 +1895,8 @@
               "access.device_group_created",
               "access.device_group_updated",
               "access.device_group_deleted",
-              "access.device_tags_updated"
+              "access.device_tags_updated",
+              "access.password_changed"
             ]
           }
         }
@@ -2364,6 +2367,22 @@
               }
             },
             "required": ["revision", "code"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "user.password_change_failed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "$ref": "common.schema.json#/$defs/empty"
           }
         }
       }

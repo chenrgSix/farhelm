@@ -43,7 +43,8 @@
     "test:deployment:browser": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/deployment-settings.mjs",
     "test:acme:ip": "FLEET_TEST_ACME_IP=1 node tests/e2e/acme.mjs",
     "test:acme:ipv6": "FLEET_TEST_ACME_IP=6 node tests/e2e/acme.mjs",
-    "test:acme:tls": "FLEET_TEST_ACME_CHALLENGE=tls-alpn-01 node tests/e2e/acme.mjs"
+    "test:acme:tls": "FLEET_TEST_ACME_CHALLENGE=tls-alpn-01 node tests/e2e/acme.mjs",
+    "test:password:browser": "node tests/e2e/password-change.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

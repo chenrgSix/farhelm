@@ -504,6 +504,11 @@ fieldset {
   line-height: 1.8;
   color: #6f899d;
 }
+.account-password {
+  align-self: flex-start;
+  color: #bfd2dc;
+  margin-bottom: 12px;
+}
 .account {
   display: flex;
   align-items: center;

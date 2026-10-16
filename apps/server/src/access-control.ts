@@ -10,6 +10,7 @@ import {
   keys,
   object,
   passwordHash,
+  passwordVerify,
   str,
   version,
   type RateLimiter,
@@ -63,6 +64,7 @@ export function registerAccessControl(
   d: {
     store: Store;
     admin(req: FastifyRequest): User;
+    userAuth(req: FastifyRequest): User;
     availableStorage(): void;
     rate: RateLimiter;
     changed(): void;
@@ -420,6 +422,39 @@ export function registerAccessControl(
       };
     }),
   );
+  app.post("/api/v1/me/password", async (req) => {
+    const actor = d.userAuth(req);
+    const b = object(req.body);
+    keys(b, ["v", "current_password", "new_password"]);
+    version(b);
+    const currentPassword = str(b.current_password, 1, 1024);
+    const newPassword = str(b.new_password, 12, 1024);
+    d.rate.check("password-change-global", 100);
+    d.rate.check("password-change-user:" + actor.id, 5);
+    d.availableStorage();
+    const current = row("users", actor.id);
+    if (!passwordVerify(currentPassword, current.password_hash)) {
+      d.store.audit("user.password_change_failed", actor.id, null, null);
+      // An incorrect current password does not invalidate the authenticated session.
+      fail(400, "CURRENT_PASSWORD_INCORRECT");
+    }
+    if (currentPassword === newPassword) fail(400, "PASSWORD_UNCHANGED");
+    const encoded = passwordHash(newPassword);
+    d.store.transaction(() => {
+      db.prepare("UPDATE users SET password_hash=? WHERE id=?").run(
+        encoded,
+        actor.id,
+      );
+      invalidate([actor.id]);
+      d.store.audit("access.password_changed", actor.id, null, null, {
+        target_id: actor.id,
+        revision: current.revision + 1,
+        changes: {},
+      });
+    });
+    d.changed();
+    return { v: 1, ok: true };
+  });
   app.post("/api/v1/users/:id/password", async (req) =>
     mutate(req, "access.password_reset", () => {
       const b = object(req.body);
