@@ -41,12 +41,16 @@ Vite 会提供 HTTPS 网页并转发 API、Agent WebSocket 和健康接口；必
 
 `127.0.0.1` / `localhost` 只指访问者自身。Docker Desktop / OrbStack 中的目标 Agent 可用证书覆盖的 `https://host.docker.internal:5173` 访问本机 HTTPS 前端。宿主机浏览器也应打开这一地址，才可直接使用「使用当前网页地址并同步」。如果宿主机不能解析该名称，可在宿主机 `/etc/hosts` 添加 `127.0.0.1 host.docker.internal`；容器仍使用 Docker 自带的宿主机解析，不修改容器 hosts。
 
-macOS 浏览器需要信任开发 CA。可在当前用户钥匙串中限定仅信任该主机的 SSL 证书：
+macOS 浏览器需要显式信任开发证书。为兼容 Chromium，可在当前用户钥匙串中仅将当前服务端证书设为 SSL 信任：
 
 ```sh
-security add-trusted-cert -r trustRoot -p ssl -s host.docker.internal \
-  -k "$HOME/Library/Keychains/login.keychain-db" .dev/tls/ca.crt
+security add-trusted-cert -r trustAsRoot -p ssl \
+  -k "$HOME/Library/Keychains/login.keychain-db" .dev/tls/server.crt
 ```
+
+这只信任当前非 CA 服务器证书，仍校验有效期和证书覆盖的主机名；换证后需重新添加信任。不要使用 `-s host.docker.internal` 设置按域名限定的 CA 信任来替代：Chromium 会忽略这种信任条目，见 [Chromium 的 macOS 信任处理](https://chromium.googlesource.com/chromium/src/+/main/net/cert/internal/trust_store_mac.cc)。Agent 继续使用原有 CA 验证服务端。
+
+如果启用了系统代理，在当前网络的代理例外中追加 `host.docker.internal`，保留已有代理和例外。否则浏览器可能把该本地域名交给外部代理，表现为连接被关闭；代理软件重新设置系统配置后也需核对该例外。命令行测试可对单次请求使用 `curl --noproxy host.docker.internal --cacert .dev/tls/ca.crt https://host.docker.internal:5173/healthz`。
 
 hosts 和钥匙串修改可能要求系统授权；开发启动脚本不会自动执行这些操作。开发证书仅有效 7 天，过期后需续签并更新相应信任配置。真正远程的机器需要可达域名或 IP，不能照抄开发回环地址。
 
