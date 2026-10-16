@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "revision": 0,
+  "settings": {
+    "enabled": true,
+    "mode": "private_only",
+    "agent": {
+      "vpn_url": "https://10.144.144.1",
+      "public_url": null
+    }
+  }
+}

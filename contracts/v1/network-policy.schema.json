@@ -50,12 +50,12 @@
           "additionalProperties": false,
           "properties": {
             "vpn_host": {
-              "type": "string",
+              "type": ["string", "null"],
               "minLength": 1,
               "maxLength": 45
             },
             "vpn_port": {
-              "type": "integer",
+              "type": ["integer", "null"],
               "minimum": 1,
               "maximum": 65535
             },
@@ -138,12 +138,12 @@
                 "additionalProperties": false,
                 "properties": {
                   "vpn_host": {
-                    "type": "string",
+                    "type": ["string", "null"],
                     "minLength": 1,
                     "maxLength": 45
                   },
                   "vpn_port": {
-                    "type": "integer",
+                    "type": ["integer", "null"],
                     "minimum": 1,
                     "maximum": 65535
                   },

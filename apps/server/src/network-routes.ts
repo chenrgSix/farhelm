@@ -10,11 +10,32 @@ export interface NetworkPolicy {
   mode: "vpn_preferred" | "private_only";
   agent: { vpn_url: string; vpn_ip?: string; public_url: string | null } | null;
   ssh: {
-    vpn_host: string;
-    vpn_port: number;
+    vpn_host: string | null;
+    vpn_port: number | null;
     public_host: string | null;
     public_port: number | null;
   } | null;
+}
+export interface PlatformNetworkSettings {
+  enabled: boolean;
+  mode: NetworkPolicy["mode"];
+  agent: NetworkPolicy["agent"];
+}
+export function validatePlatformNetwork(
+  value: unknown,
+): PlatformNetworkSettings {
+  const b = object(value);
+  keys(b, ["enabled", "mode", "agent"]);
+  if (
+    typeof b.enabled !== "boolean" ||
+    !["vpn_preferred", "private_only"].includes(b.mode)
+  )
+    fail(400, "INVALID_NETWORK_MODE");
+  const agent =
+    b.agent === null
+      ? null
+      : validatePolicy({ mode: b.mode, agent: b.agent, ssh: null })!.agent;
+  return { enabled: b.enabled, mode: b.mode, agent };
 }
 export interface RouteObservation {
   channel: RouteChannel;
@@ -135,6 +156,8 @@ export function registerNetworkRoutes(
     reader(req: FastifyRequest): User;
     requireScope(user: User, id: string): void;
     requireDevice(id: string): any;
+    agentEnabled?: boolean;
+    platformUrl?(): string;
     agent(id: string):
       | {
           supported: boolean;
@@ -150,6 +173,39 @@ export function registerNetworkRoutes(
     { revision: number; connectionId: string; observation: RouteObservation }
   >();
   const sshStates = new Map<string, RouteObservation>();
+  function platform() {
+    const row = db
+      .prepare("SELECT * FROM platform_network_settings WHERE id=1")
+      .get() as any;
+    return {
+      revision: row?.revision ?? 0,
+      updated_at: row?.updated_at ?? null,
+      settings: row
+        ? (JSON.parse(row.settings_json) as PlatformNetworkSettings)
+        : ({
+            enabled: false,
+            mode: "vpn_preferred",
+            agent: null,
+          } as PlatformNetworkSettings),
+    };
+  }
+  function addresses(id: string) {
+    const row = db
+      .prepare(
+        "SELECT revision,vpn_ip,ssh_port FROM device_network_addresses WHERE device_id=?",
+      )
+      .get(id) as any;
+    return row ?? { revision: 0, vpn_ip: null, ssh_port: null };
+  }
+  function sshConfig(id: string) {
+    const row = db
+      .prepare("SELECT config_json FROM device_connections WHERE device_id=?")
+      .get(id) as any;
+    const config = row ? JSON.parse(row.config_json) : null;
+    return config?.host
+      ? { host: config.host as string, port: config.port as number }
+      : null;
+  }
   function current(id: string): {
     revision: number;
     policy: NetworkPolicy | null;
@@ -159,9 +215,115 @@ export function registerNetworkRoutes(
         "SELECT revision,config_json FROM device_network_routes WHERE device_id=?",
       )
       .get(id) as any;
-    return row
-      ? { revision: row.revision, policy: JSON.parse(row.config_json) }
+    const saved = row
+      ? {
+          revision: row.revision,
+          policy: JSON.parse(row.config_json) as NetworkPolicy | null,
+        }
       : { revision: 0, policy: null };
+    const global = platform();
+    if (!global.revision) return saved;
+    const device = d.requireDevice(id),
+      a = addresses(id),
+      ssh = sshConfig(id);
+    const vpnHost = a.vpn_ip ?? (ssh && privateIP(ssh.host) ? ssh.host : null);
+    const vpnPort = vpnHost ? (a.ssh_port ?? ssh?.port ?? 22) : null;
+    const fallback =
+      global.settings.mode === "vpn_preferred" &&
+      ssh &&
+      !(ssh.host === vpnHost && ssh.port === vpnPort)
+        ? ssh
+        : null;
+    const policy: NetworkPolicy | null = global.settings.enabled
+      ? {
+          mode: global.settings.mode,
+          agent:
+            device.connection_kind === "agent" ? global.settings.agent : null,
+          ssh: ssh
+            ? {
+                vpn_host: vpnHost,
+                vpn_port: vpnPort,
+                public_host: fallback?.host ?? null,
+                public_port: fallback?.port ?? null,
+              }
+            : null,
+        }
+      : null;
+    if (JSON.stringify(policy) === JSON.stringify(saved.policy)) return saved;
+    if (saved.revision >= Number.MAX_SAFE_INTEGER)
+      fail(409, "NETWORK_REVISION_EXHAUSTED");
+    const revision = saved.revision + 1;
+    db.prepare(
+      "INSERT INTO device_network_routes VALUES(?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET revision=excluded.revision,config_json=excluded.config_json,updated_at=excluded.updated_at",
+    ).run(id, revision, JSON.stringify(policy), Date.now());
+    sshStates.delete(id);
+    // Materialize new devices and changed SSH endpoints without requiring per-device policy setup.
+    queueMicrotask(() => {
+      if (!closed) deliver(id);
+    });
+    return { revision, policy };
+  }
+  let closed = false;
+  app.addHook("onClose", async () => {
+    closed = true;
+  });
+  function allDevices() {
+    return db
+      .prepare(
+        "SELECT id,connection_kind FROM devices WHERE revoked_at IS NULL ORDER BY id",
+      )
+      .all() as { id: string; connection_kind: string }[];
+  }
+  function platformSnapshot() {
+    const global = platform(),
+      devices = allDevices();
+    const legacy = !global.revision
+      ? devices
+          .map((d) => current(d.id).policy)
+          .filter((p): p is NetworkPolicy => p !== null)
+      : [];
+    const agents = legacy.map((p) => p.agent).filter(Boolean);
+    const suggestion =
+      agents.length &&
+      agents.every((a) => JSON.stringify(a) === JSON.stringify(agents[0]))
+        ? agents[0]
+        : null;
+    return {
+      v: 1,
+      ...global,
+      agent_enabled: d.agentEnabled !== false,
+      platform_server_url: d.platformUrl?.() ?? "",
+      legacy_devices: legacy.length,
+      suggested_agent: suggestion,
+      device_count: devices.length,
+      pending_agents: devices.filter(
+        (x) =>
+          d.agentEnabled !== false &&
+          x.connection_kind === "agent" &&
+          !!current(x.id).policy &&
+          !allowed(x.id),
+      ).length,
+    };
+  }
+  function requireIdle(id?: string) {
+    const params = id ? [id] : [];
+    if (
+      db
+        .prepare(
+          "SELECT 1 FROM terminal_sessions WHERE ended_at IS NULL" +
+            (id ? " AND device_id=?" : "") +
+            " LIMIT 1",
+        )
+        .get(...params) ||
+      db
+        .prepare(
+          "SELECT 1 FROM tasks WHERE status IN ('SENT','ACCEPTED','RUNNING')" +
+            (id ? " AND device_id=?" : "") +
+            " LIMIT 1",
+        )
+        .get(...params)
+    )
+      fail(409, "NETWORK_ROUTE_BUSY");
   }
   function allowed(id: string) {
     const config = current(id);
@@ -192,8 +354,32 @@ export function registerNetworkRoutes(
             Date.now() - s.observation.checked_at < 75000,
         }
       : null;
+    const global = platform(),
+      address = addresses(id),
+      sshConfigValue = sshConfig(id);
     return {
       ...config,
+      source: global.revision
+        ? "platform"
+        : config.policy
+          ? "legacy"
+          : "configured",
+      platform_revision: global.revision,
+      address_revision: address.revision,
+      addresses: { vpn_ip: address.vpn_ip, ssh_port: address.ssh_port },
+      ssh_fallback:
+        config.policy?.mode === "private_only" ? null : sshConfigValue,
+      blocked_reason:
+        config.policy &&
+        d.agentEnabled !== false &&
+        d.requireDevice(id).connection_kind === "agent" &&
+        !config.policy.agent
+          ? "AGENT_PLATFORM_ENDPOINT_REQUIRED"
+          : config.policy?.mode === "private_only" &&
+              sshConfigValue &&
+              !config.policy.ssh?.vpn_host
+            ? "SSH_VPN_IP_REQUIRED"
+            : null,
       ssh_active: !!db
         .prepare(
           "SELECT 1 FROM terminal_sessions WHERE device_id=? AND backend='ssh' AND ended_at IS NULL",
@@ -207,7 +393,9 @@ export function registerNetworkRoutes(
   }
   function deliver(id: string) {
     const a = d.agent(id);
-    if (a?.supported) a.send("agent.route.config", current(id));
+    const config = current(id);
+    if (a?.supported && (!config.policy || config.policy.agent))
+      a.send("agent.route.config", config);
   }
   function receive(id: string, value: unknown) {
     const a = d.agent(id);
@@ -289,43 +477,87 @@ export function registerNetworkRoutes(
     if (device.revoked_at) fail(409, "DEVICE_REVOKED");
     const b = object(req.body);
     version(b);
-    keys(b, ["v", "revision", "policy"]);
-    const revision = integer(b.revision, 0, Number.MAX_SAFE_INTEGER - 1),
-      policy = validatePolicy(b.policy);
-    if (current(id).revision !== revision)
+    if ("policy" in b) fail(400, "NETWORK_POLICY_MOVED_TO_SETTINGS");
+    keys(b, ["v", "revision", "vpn_ip", "ssh_port"]);
+    const revision = integer(b.revision, 0, Number.MAX_SAFE_INTEGER - 1);
+    const vpn_ip = b.vpn_ip === null ? null : str(b.vpn_ip, 1, 45);
+    if (vpn_ip && !privateIP(vpn_ip))
+      fail(400, "VPN_LITERAL_PRIVATE_IP_REQUIRED");
+    const ssh_port = b.ssh_port === null ? null : integer(b.ssh_port, 1, 65535);
+    if (addresses(id).revision !== revision)
       fail(409, "NETWORK_ROUTE_CHANGED_RELOAD");
-    if (
-      db
-        .prepare(
-          "SELECT 1 FROM terminal_sessions WHERE device_id=? AND ended_at IS NULL",
-        )
-        .get(id) ||
-      db
-        .prepare(
-          "SELECT 1 FROM tasks WHERE device_id=? AND status IN ('SENT','ACCEPTED','RUNNING')",
-        )
-        .get(id)
-    )
-      fail(409, "NETWORK_ROUTE_BUSY");
-    if (policy && device.connection_kind === "agent" && !policy.agent)
-      fail(400, "AGENT_NETWORK_ENDPOINT_REQUIRED");
-    if (policy && device.connection_kind === "ssh" && !policy.ssh)
-      fail(400, "SSH_NETWORK_ENDPOINT_REQUIRED");
+    requireIdle(id);
     d.store.transaction(() => {
       db.prepare(
-        "INSERT INTO device_network_routes VALUES(?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET revision=excluded.revision,config_json=excluded.config_json,updated_at=excluded.updated_at",
-      ).run(id, revision + 1, JSON.stringify(policy), Date.now());
-      d.store.audit("network.route_configured", user.id, id, null, {
+        "INSERT INTO device_network_addresses VALUES(?,?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET revision=excluded.revision,vpn_ip=excluded.vpn_ip,ssh_port=excluded.ssh_port,updated_at=excluded.updated_at",
+      ).run(id, revision + 1, vpn_ip, ssh_port, Date.now());
+      d.store.audit("network.device_address_updated", user.id, id, null, {
         revision: revision + 1,
-        policy,
+        vpn_ip,
+        ssh_port,
       });
+      if (platform().revision) current(id);
+      else {
+        // Editing an address before global adoption must retain the old network mode/platform endpoints.
+        const old = current(id);
+        if (old.policy?.ssh) {
+          const ssh = sshConfig(id);
+          const host = vpn_ip ?? (ssh && privateIP(ssh.host) ? ssh.host : null);
+          const policy = {
+            ...old.policy,
+            ssh: {
+              ...old.policy.ssh,
+              vpn_host: host,
+              vpn_port: host ? (ssh_port ?? ssh?.port ?? 22) : null,
+            },
+          };
+          db.prepare(
+            "UPDATE device_network_routes SET revision=revision+1,config_json=?,updated_at=? WHERE device_id=?",
+          ).run(JSON.stringify(policy), Date.now(), id);
+        }
+      }
     });
-    sshStates.delete(id);
     deliver(id);
     return { v: 1, device_id: id, ...snapshot(id) };
   });
+  app.get("/api/v1/settings/network", async (req) => {
+    d.admin(req);
+    return platformSnapshot();
+  });
+  app.put("/api/v1/settings/network", async (req) => {
+    const user = d.admin(req),
+      b = object(req.body);
+    version(b);
+    keys(b, ["v", "revision", "settings"]);
+    const revision = integer(b.revision, 0, Number.MAX_SAFE_INTEGER - 1),
+      settings = validatePlatformNetwork(b.settings);
+    const previous = platform();
+    if (previous.revision !== revision)
+      fail(409, "NETWORK_ROUTE_CHANGED_RELOAD");
+    if (settings.enabled && d.agentEnabled !== false && !settings.agent)
+      fail(400, "AGENT_NETWORK_ENDPOINT_REQUIRED");
+    if (
+      revision > 0 &&
+      JSON.stringify(settings) === JSON.stringify(previous.settings)
+    )
+      return platformSnapshot();
+    requireIdle();
+    d.store.transaction(() => {
+      db.prepare(
+        "INSERT INTO platform_network_settings VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,settings_json=excluded.settings_json,updated_at=excluded.updated_at",
+      ).run(revision + 1, JSON.stringify(settings), Date.now());
+      for (const { id } of allDevices()) current(id);
+      d.store.audit("network.platform_settings_updated", user.id, null, null, {
+        revision: revision + 1,
+        settings,
+      });
+    });
+    for (const { id } of allDevices()) deliver(id);
+    return platformSnapshot();
+  });
   return {
     current,
+    platformSnapshot,
     snapshot,
     allowed,
     deliver,

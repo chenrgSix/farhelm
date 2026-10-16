@@ -69,21 +69,33 @@ export function registerDeviceConnections(
     if (!policy)
       return {
         revision,
-        targets: [{ config, channel: "configured" as RouteChannel }],
+        targets: [
+          {
+            config,
+            channel: "configured" as RouteChannel,
+            reason: null as string | null,
+          },
+        ],
       };
     if (!policy.ssh) fail(409, "SSH_NETWORK_ENDPOINT_REQUIRED");
     const p = policy.ssh;
-    const list = [
-      {
-        config: { ...config, host: p.vpn_host, port: p.vpn_port },
-        channel: "vpn" as RouteChannel,
-      },
-    ];
+    const list =
+      p.vpn_host && p.vpn_port
+        ? [
+            {
+              config: { ...config, host: p.vpn_host, port: p.vpn_port },
+              channel: "vpn" as RouteChannel,
+              reason: null as string | null,
+            },
+          ]
+        : [];
     if (policy.mode === "vpn_preferred" && p.public_host && p.public_port)
       list.push({
         config: { ...config, host: p.public_host, port: p.public_port },
         channel: "public",
+        reason: p.vpn_host ? "VPN_UNREACHABLE" : "VPN_ADDRESS_NOT_CONFIGURED",
       });
+    if (!list.length) fail(409, "SSH_NETWORK_ENDPOINT_REQUIRED");
     return { revision, targets: list };
   }
   function canFallback(reason: string) {
@@ -331,7 +343,7 @@ export function registerDeviceConnections(
             candidate.channel,
             candidate.config.host,
             candidate.config.port,
-            candidate.channel === "public" ? "VPN_UNREACHABLE" : null,
+            candidate.reason,
           );
           break;
         }
@@ -349,9 +361,15 @@ export function registerDeviceConnections(
   return {
     kind,
     hasSsh,
-    canSsh: (id: string) =>
-      hasSsh(id) &&
-      (!d.routes.current(id).policy || !!d.routes.current(id).policy?.ssh),
+    canSsh: (id: string) => {
+      if (!hasSsh(id)) return false;
+      const p = d.routes.current(id).policy;
+      return (
+        !p ||
+        !!p.ssh?.vpn_host ||
+        (p.mode === "vpn_preferred" && !!p.ssh?.public_host)
+      );
+    },
     status(id: string) {
       const row = saved(id);
       return {
@@ -405,7 +423,7 @@ export function registerDeviceConnections(
                 backend: "ssh",
                 channel: candidate.channel,
                 endpoint: `${candidate.config.host}:${candidate.config.port}`,
-                reason: index ? "VPN_UNREACHABLE" : null,
+                reason: candidate.reason,
               });
               void d.routes
                 .sshObserved(
@@ -414,7 +432,7 @@ export function registerDeviceConnections(
                   candidate.channel,
                   candidate.config.host,
                   candidate.config.port,
-                  index ? "VPN_UNREACHABLE" : null,
+                  candidate.reason,
                 )
                 .catch(() => {});
             } else if (

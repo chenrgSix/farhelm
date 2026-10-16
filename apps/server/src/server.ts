@@ -613,6 +613,8 @@ export async function buildServer(config: ServerConfig) {
     },
   });
   const networkRoutes = registerNetworkRoutes(app, {
+    agentEnabled,
+    platformUrl: () => settings.current().platform_server_url,
     store,
     admin,
     reader: (req) => permitted(req, "devices.read"),
@@ -724,12 +726,11 @@ export async function buildServer(config: ServerConfig) {
       if (
         !c?.ready ||
         !live(c) ||
-        !networkRoutes.allowed(id) ||
         Date.now() - c.lastHeartbeat > heartbeatTimeout
       )
         return undefined;
       return {
-        terminal: c.terminal,
+        terminal: c.terminal && networkRoutes.allowed(id),
         send: (type, body) => send(c, type, body),
       };
     },

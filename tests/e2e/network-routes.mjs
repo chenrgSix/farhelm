@@ -356,7 +356,13 @@ try {
     },
     ssh: null,
   };
-  await api("PUT", routePath, { v: 1, revision: 0, policy });
+  const platformPath = "/settings/network";
+  await api("PUT", platformPath, {
+    v: 1,
+    revision: 0,
+    settings: { enabled: true, mode: policy.mode, agent: policy.agent },
+  });
+  assert.equal((await snapshot()).source, "platform");
   await until(
     async () => {
       const s = await snapshot();
@@ -476,13 +482,21 @@ try {
   await page.getByLabel("密码", { exact: true }).fill(password);
   await page.getByRole("button", { name: "登录 →", exact: true }).click();
   await page
-    .getByRole("button", { name: "网络策略", exact: true })
+    .getByRole("button", { name: "内网地址", exact: true })
     .first()
     .click();
   await expect(page.locator(".route-panel")).toContainText("EasyTier · 中继");
-  await page.locator(".route-panel select").selectOption("private_only");
-  await page.getByRole("button", { name: "保存网络策略", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("策略已保存");
+  assert.equal(await page.locator(".route-panel select").count(), 0);
+  await page
+    .getByRole("button", { name: "前往平台网络设置", exact: true })
+    .click();
+  const panel = page.locator('[aria-labelledby="network-settings-title"]');
+  await panel.locator("select").selectOption("private_only");
+  await panel
+    .getByRole("button", { name: "保存平台网络策略", exact: true })
+    .click();
+  await expect(panel.getByRole("status")).toContainText("已保存统一网络策略");
+  await panel.scrollIntoViewIfNeeded();
   mkdirSync(join(root, ".test-output"), { recursive: true });
   await page.screenshot({
     path: join(root, ".test-output/network-routes-desktop.png"),
@@ -498,7 +512,7 @@ try {
     true,
   );
   record(
-    "Desktop/mobile frontend shows real path and saves private-only policy",
+    "Device form has only machine addresses; desktop/mobile system settings save one private-only policy for all devices",
   );
   await until(async () => {
     const s = await snapshot();
@@ -594,17 +608,18 @@ try {
   });
   const sid = sshDevice.device_id,
     spath = `/devices/${sid}/network-route`;
-  const spolicy = {
-    mode: "vpn_preferred",
-    agent: null,
-    ssh: {
-      vpn_host: "10.144.77.2",
-      vpn_port: 22,
-      public_host: targetIP,
-      public_port: 22,
-    },
-  };
-  await api("PUT", spath, { v: 1, revision: 0, policy: spolicy });
+  await api("PUT", platformPath, {
+    v: 1,
+    revision: 2,
+    settings: { enabled: true, mode: policy.mode, agent: policy.agent },
+  });
+  await api("PUT", spath, {
+    v: 1,
+    revision: 0,
+    vpn_ip: "10.144.77.2",
+    ssh_port: 22,
+  });
+  assert.equal((await api("GET", spath)).source, "platform");
   const st = await web(sid);
   await marker(st, "SSH_VPN_RECORDED");
   await until(
@@ -652,13 +667,13 @@ try {
   stream.write("exit\n");
   await once(stream, "close");
   client.end();
-  await api("PUT", spath, {
+  await api("PUT", platformPath, {
     v: 1,
-    revision: 1,
-    policy: {
-      ...spolicy,
+    revision: 3,
+    settings: {
+      enabled: true,
       mode: "private_only",
-      ssh: { ...spolicy.ssh, public_host: null, public_port: null },
+      agent: { ...policy.agent, public_url: null },
     },
   });
   const tested = await api("POST", `/devices/${sid}/connection/test`, {

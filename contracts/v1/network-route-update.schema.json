@@ -12,16 +12,16 @@
       "minimum": 0,
       "maximum": 9007199254740991
     },
-    "policy": {
-      "anyOf": [
-        {
-          "$ref": "network-policy.schema.json"
-        },
-        {
-          "type": "null"
-        }
-      ]
+    "vpn_ip": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 45
+    },
+    "ssh_port": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 65535
     }
   },
-  "required": ["v", "revision", "policy"]
+  "required": ["v", "revision", "vpn_ip", "ssh_port"]
 }

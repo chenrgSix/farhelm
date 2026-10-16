@@ -24,11 +24,27 @@ export interface NetworkPolicy {
   mode: "vpn_preferred" | "private_only";
   agent: { vpn_url: string; vpn_ip?: string; public_url: string | null } | null;
   ssh: {
-    vpn_host: string;
-    vpn_port: number;
+    vpn_host: string | null;
+    vpn_port: number | null;
     public_host: string | null;
     public_port: number | null;
   } | null;
+}
+export interface PlatformNetworkSettings {
+  enabled: boolean;
+  mode: NetworkPolicy["mode"];
+  agent: NetworkPolicy["agent"];
+}
+export interface PlatformNetworkResponse {
+  revision: number;
+  updated_at: number | null;
+  settings: PlatformNetworkSettings;
+  agent_enabled: boolean;
+  platform_server_url: string;
+  legacy_devices: number;
+  suggested_agent: NetworkPolicy["agent"];
+  device_count: number;
+  pending_agents: number;
 }
 export interface NetworkRouteObservation {
   channel: "vpn" | "public" | "configured";
@@ -44,6 +60,13 @@ export interface NetworkRouteObservation {
 export interface DeviceNetworkRoute {
   revision: number;
   policy: NetworkPolicy | null;
+  source: "platform" | "legacy" | "configured";
+  platform_revision: number;
+  address_revision: number;
+  addresses: { vpn_ip: string | null; ssh_port: number | null };
+  ssh_fallback: { host: string; port: number } | null;
+  blocked_reason:
+    "AGENT_PLATFORM_ENDPOINT_REQUIRED" | "SSH_VPN_IP_REQUIRED" | null;
   agent_supported: boolean | null;
   agent_applied: boolean;
   ssh_active: boolean;

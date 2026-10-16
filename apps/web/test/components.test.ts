@@ -221,6 +221,18 @@ describe("login and real-data-only console", () => {
       if (path === "/devices") return { devices: [] };
       if (path === "/tasks") return { tasks: [] };
       if (path === "/terminal-sessions") return { sessions: [] };
+      if (path === "/settings/network")
+        return {
+          revision: 0,
+          updated_at: null,
+          settings: { enabled: false, mode: "vpn_preferred", agent: null },
+          agent_enabled: false,
+          platform_server_url: "",
+          legacy_devices: 0,
+          suggested_agent: null,
+          device_count: 0,
+          pending_agents: 0,
+        };
       return { audit: [] };
     });
     const wrapper = mount(App);
@@ -244,6 +256,18 @@ describe("login and real-data-only console", () => {
       if (path === "/devices") return { devices: [] };
       if (path === "/tasks") return { tasks: [] };
       if (path === "/terminal-sessions") return { sessions: [] };
+      if (path === "/settings/network")
+        return {
+          revision: 0,
+          updated_at: null,
+          settings: { enabled: false, mode: "vpn_preferred", agent: null },
+          agent_enabled: false,
+          platform_server_url: "",
+          legacy_devices: 0,
+          suggested_agent: null,
+          device_count: 0,
+          pending_agents: 0,
+        };
       if (path === "/settings/agent-sync") return { revision: 1, devices: [] };
       if (path === "/settings/certificate")
         return {

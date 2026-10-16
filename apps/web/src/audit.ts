@@ -2,6 +2,8 @@ import type { AuditEntry } from "./api/types";
 import { formatTime, statusLabels } from "./model";
 
 export const auditActionLabels: Record<string, string> = {
+  "network.platform_settings_updated": "修改平台网络策略",
+  "network.device_address_updated": "修改设备内网地址",
   "network.route_configured": "修改设备网络策略",
   "network.route_changed": "网络通道状态变化",
   "network.route_selected": "选择终端网络通道",
@@ -66,6 +68,8 @@ export const auditActionLabels: Record<string, string> = {
 };
 const labels: Record<string, string> = {
   channel: "网络通道",
+  vpn_ip: "内网 / VPN IP",
+  ssh_port: "SSH 内网端口",
   endpoint: "连接地址",
   policy: "网络策略",
   network_route: "实际连接路径",

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/platform-network-settings.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": ["vpn_preferred", "private_only"]
+    },
+    "agent": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "vpn_url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "public_url": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "vpn_ip": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 45
+            }
+          },
+          "required": ["vpn_url", "public_url"]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": ["enabled", "mode", "agent"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "private_only"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "vpn_url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "public_url": {
+                    "type": "null"
+                  },
+                  "vpn_ip": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 45
+                  }
+                },
+                "required": ["vpn_url", "public_url"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

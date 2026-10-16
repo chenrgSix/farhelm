@@ -1,8 +1,13 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import NetworkRoutePanel from "../src/components/NetworkRoutePanel.vue";
+import NetworkSettingsPanel from "../src/components/NetworkSettingsPanel.vue";
 import { api } from "../src/api/client";
-import type { Device, DeviceNetworkRoute } from "../src/api/types";
+import type {
+  Device,
+  DeviceNetworkRoute,
+  PlatformNetworkResponse,
+} from "../src/api/types";
 const device: Device = {
   id: "device",
   name: "Linux",
@@ -15,10 +20,20 @@ const device: Device = {
   agent_version: "0.2.5",
 };
 const state: DeviceNetworkRoute = {
-  revision: 1,
+  revision: 3,
+  source: "platform",
+  platform_revision: 2,
+  address_revision: 1,
+  addresses: { vpn_ip: "10.1.1.2", ssh_port: null },
+  ssh_fallback: null,
+  blocked_reason: null,
   policy: {
     mode: "vpn_preferred",
-    agent: { vpn_url: "https://10.1.1.1", public_url: "https://example.com" },
+    agent: {
+      vpn_url: "https://fleet.example.com",
+      vpn_ip: "10.1.1.1",
+      public_url: "https://fleet.example.com",
+    },
     ssh: null,
   },
   agent_supported: true,
@@ -27,39 +42,48 @@ const state: DeviceNetworkRoute = {
   ssh: null,
   agent: {
     channel: "public",
-    endpoint: "https://example.com",
+    endpoint: "https://fleet.example.com",
     reason: "VPN_UNREACHABLE",
     checked_at: 1,
     connected: true,
     easytier: { state: "unknown", latency_ms: null },
   },
 };
+const global: PlatformNetworkResponse = {
+  revision: 2,
+  updated_at: 1,
+  settings: {
+    enabled: true,
+    mode: "vpn_preferred",
+    agent: state.policy!.agent,
+  },
+  agent_enabled: true,
+  platform_server_url: "https://fleet.example.com",
+  legacy_devices: 0,
+  suggested_agent: null,
+  device_count: 3,
+  pending_agents: 1,
+};
 afterEach(() => vi.restoreAllMocks());
-it("private-only clears public fallback from submitted Agent policy", async () => {
+it("device form saves only the machine IP, never the platform URL or mode", async () => {
   const request = vi
     .spyOn(api, "request")
     .mockResolvedValue(structuredClone(state));
   const w = mount(NetworkRoutePanel, { props: { device, admin: true } });
   await flushPromises();
-  expect(w.text()).toContain("内网连接失败，使用公网备用");
-  await w.get("select").setValue("private_only");
+  expect(w.find("select").exists()).toBe(false);
+  expect(w.findAll('input[type="checkbox"]')).toHaveLength(0);
+  expect(w.text()).not.toContain("平台内网 HTTPS 地址");
+  await w.get('input[placeholder="10.144.144.2"]').setValue("10.1.1.9");
   await w.get("form").trigger("submit");
   await flushPromises();
   expect(request).toHaveBeenLastCalledWith("/devices/device/network-route", {
     method: "PUT",
-    body: {
-      v: 1,
-      revision: 1,
-      policy: {
-        mode: "private_only",
-        agent: { vpn_url: "https://10.1.1.1", public_url: null },
-        ssh: null,
-      },
-    },
+    body: { v: 1, revision: 1, vpn_ip: "10.1.1.9", ssh_port: null },
   });
   w.unmount();
 });
-it("scoped readers see observations without editable policy or SSH credentials requests", async () => {
+it("scoped readers have no editable fields or credentials requests", async () => {
   const request = vi
     .spyOn(api, "request")
     .mockResolvedValue(structuredClone(state));
@@ -70,9 +94,58 @@ it("scoped readers see observations without editable policy or SSH credentials r
   expect(request).toHaveBeenCalledTimes(1);
   w.unmount();
 });
-it("unknown or unsupported Agent is not presented as VPN connected", async () => {
+it("global private-only removes public fallback and saves once for all devices", async () => {
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValue(structuredClone(global));
+  const w = mount(NetworkSettingsPanel);
+  await flushPromises();
+  expect(w.text()).toContain("覆盖 3 台设备");
+  await w.get("select").setValue("private_only");
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/settings/network", {
+    method: "PUT",
+    body: {
+      v: 1,
+      revision: 2,
+      settings: {
+        enabled: true,
+        mode: "private_only",
+        agent: { ...global.settings.agent, public_url: null },
+      },
+    },
+  });
+  w.unmount();
+});
+it("SSH-only platform settings require no HTTPS fields or Agent URL", async () => {
+  const request = vi.spyOn(api, "request").mockResolvedValue({
+    ...global,
+    agent_enabled: false,
+    settings: { ...global.settings, agent: null },
+  });
+  const w = mount(NetworkSettingsPanel);
+  await flushPromises();
+  expect(w.text()).toContain("无需填写 Agent 平台地址");
+  expect(
+    w.find('input[placeholder="https://farhelm.example.com"]').exists(),
+  ).toBe(false);
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith(
+    "/settings/network",
+    expect.objectContaining({
+      body: expect.objectContaining({
+        settings: { enabled: true, mode: "vpn_preferred", agent: null },
+      }),
+    }),
+  );
+  w.unmount();
+});
+it("unsupported Agent and legacy settings remain visible without pretending P2P", async () => {
   vi.spyOn(api, "request").mockResolvedValue({
     ...state,
+    source: "legacy",
     agent: null,
     agent_applied: false,
     agent_supported: false,
@@ -80,77 +153,25 @@ it("unknown or unsupported Agent is not presented as VPN connected", async () =>
   const w = mount(NetworkRoutePanel, { props: { device, admin: true } });
   await flushPromises();
   expect(w.text()).toContain("Agent 不支持网络策略");
-  expect(w.text()).toContain("尚未检测");
+  expect(w.text()).toContain("旧配置暂时保留");
   expect(w.text()).not.toContain("P2P 直连");
+  await w
+    .findAll("button")
+    .find((b) => b.text() === "前往平台网络设置")!
+    .trigger("click");
+  expect(w.emitted("settings")).toHaveLength(1);
   w.unmount();
 });
-it("changing SSH mode retains shared identity while sending only route endpoints", async () => {
-  const sshDevice = { ...device, connection_kind: "ssh" as const };
-  const policy = {
-    mode: "vpn_preferred",
-    agent: null,
-    ssh: {
-      vpn_host: "10.1.1.2",
-      vpn_port: 22,
-      public_host: "example.com",
-      public_port: 2222,
-    },
-  };
+it("device address conflicts never overwrite platform settings", async () => {
   const request = vi
     .spyOn(api, "request")
-    .mockResolvedValue({ ...state, policy });
-  const w = mount(NetworkRoutePanel, {
-    props: { device: sshDevice, admin: true },
-  });
-  await flushPromises();
-  await w.get("select").setValue("private_only");
-  await w.get("form").trigger("submit");
-  await flushPromises();
-  expect(request).toHaveBeenLastCalledWith("/devices/device/network-route", {
-    method: "PUT",
-    body: {
-      v: 1,
-      revision: 1,
-      policy: {
-        mode: "private_only",
-        agent: null,
-        ssh: {
-          vpn_host: "10.1.1.2",
-          vpn_port: 22,
-          public_host: null,
-          public_port: null,
-        },
-      },
-    },
-  });
-  w.unmount();
-});
-
-it("keeps TLS hostname and sends a private connection IP independently", async () => {
-  const request = vi
-    .spyOn(api, "request")
-    .mockResolvedValue(structuredClone(state));
+    .mockResolvedValueOnce(structuredClone(state))
+    .mockRejectedValueOnce(Error("NETWORK_ROUTE_CHANGED_RELOAD"));
   const w = mount(NetworkRoutePanel, { props: { device, admin: true } });
   await flushPromises();
-  await w
-    .get('input[placeholder="https://10.144.144.1:8443"]')
-    .setValue("https://fleet.example.com");
-  await w.get('input[placeholder="10.144.144.1"]').setValue("10.144.144.1");
   await w.get("form").trigger("submit");
   await flushPromises();
-  expect(request).toHaveBeenLastCalledWith(
-    "/devices/device/network-route",
-    expect.objectContaining({
-      body: expect.objectContaining({
-        policy: expect.objectContaining({
-          agent: {
-            vpn_url: "https://fleet.example.com",
-            vpn_ip: "10.144.144.1",
-            public_url: "https://example.com",
-          },
-        }),
-      }),
-    }),
-  );
+  expect(w.get('[role="alert"]').text()).toContain("地址已被其他管理员修改");
+  expect(request).toHaveBeenCalledTimes(2);
   w.unmount();
 });

@@ -200,7 +200,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     return { row, user };
   }
   function backend(deviceId: string): "agent" | "ssh" | null {
-    if (d.connections.kind(deviceId) === "ssh") return "ssh";
+    if (d.connections.kind(deviceId) === "ssh")
+      return d.connections.canSsh?.(deviceId) === false ? null : "ssh";
     if (d.agent(deviceId)?.terminal) return "agent";
     return (d.connections.canSsh?.(deviceId) ?? d.connections.hasSsh(deviceId))
       ? "ssh"

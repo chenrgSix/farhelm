@@ -24,5 +24,14 @@
     },
     "connected": true
   },
-  "ssh": null
+  "ssh": null,
+  "source": "platform",
+  "platform_revision": 1,
+  "address_revision": 1,
+  "addresses": {
+    "vpn_ip": "10.144.144.2",
+    "ssh_port": null
+  },
+  "ssh_fallback": null,
+  "blocked_reason": null
 }

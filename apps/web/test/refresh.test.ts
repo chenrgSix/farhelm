@@ -51,6 +51,18 @@ function mockApi(extra: (path: string) => unknown = () => undefined) {
     if (path === "/tasks") return { tasks: [] };
     if (path === "/audit") return { audit: [] };
     if (path === "/terminal-sessions") return { sessions: [] };
+    if (path === "/settings/network")
+      return {
+        revision: 0,
+        updated_at: null,
+        settings: { enabled: false, mode: "vpn_preferred", agent: null },
+        agent_enabled: false,
+        platform_server_url: "",
+        legacy_devices: 0,
+        suggested_agent: null,
+        device_count: 0,
+        pending_agents: 0,
+      };
     return { device_groups: [] };
   });
 }

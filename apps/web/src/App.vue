@@ -29,6 +29,7 @@ import ActorIdentity from "./components/ActorIdentity.vue";
 import AuditDetails from "./components/AuditDetails.vue";
 import { auditActionLabels, auditOutcome, auditSource } from "./audit";
 import NetworkRoutePanel from "./components/NetworkRoutePanel.vue";
+import NetworkSettingsPanel from "./components/NetworkSettingsPanel.vue";
 import { routeDescription, routeReasons } from "./network-route";
 import DeviceNetworkPanel from "./components/DeviceNetworkPanel.vue";
 import HealthChecksPanel from "./components/HealthChecksPanel.vue";
@@ -794,6 +795,10 @@ onBeforeUnmount(() => {
           v-if="view === 'settings' && user.role === 'admin' && agentEnabled"
           @saved="refresh"
         />
+        <NetworkSettingsPanel
+          v-if="view === 'settings' && user.role === 'admin'"
+          @saved="refresh"
+        />
         <CertificateSettingsPanel
           v-if="view === 'settings' && user.role === 'admin' && httpsEnabled"
           :agent-enabled="agentEnabled"
@@ -1128,7 +1133,7 @@ onBeforeUnmount(() => {
                             @click="networkRouteTarget = device"
                           >
                             {{
-                              user.role === "admin" ? "网络策略" : "网络详情"
+                              user.role === "admin" ? "内网地址" : "网络详情"
                             }}
                           </button>
                         </td>
@@ -1567,6 +1572,10 @@ onBeforeUnmount(() => {
         :device="networkRouteTarget"
         :admin="user.role === 'admin'"
         @close="networkRouteTarget = null"
+        @settings="
+          networkRouteTarget = null;
+          view = 'settings';
+        "
         @changed="refresh()"
       />
       <DeviceNetworkPanel

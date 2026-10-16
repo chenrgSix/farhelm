@@ -992,10 +992,11 @@ test("unsupported or expired Agent falls back to SSH and pin mismatch is rejecte
   }
 });
 
-test("network policy prefers private SSH, falls back only on transport failure, forbids public in private-only and retains recording", async () => {
+test("global network policy uses each machine IP, retains SSH fallback and recordings, and forbids public in private-only", async () => {
   const f = await fixture();
   try {
-    const routePath = `/devices/${f.id}/network-route`;
+    const routePath = `/devices/${f.id}/network-route`,
+      settingsPath = "/settings/network";
     f.store.seedUser({
       username: "route-user",
       password: "connection-test-password1",
@@ -1010,33 +1011,57 @@ test("network policy prefers private SSH, falls back only on transport failure, 
     });
     const user = await f.login("route-user"),
       denied = await f.login("route-denied");
+    const common = {
+      enabled: true,
+      mode: "vpn_preferred",
+      agent: { vpn_url: "https://10.1.1.1", public_url: null },
+    };
     assert.equal(
       (await f.api("GET", routePath, undefined, denied)).status,
       403,
     );
-    const policy = {
-      mode: "vpn_preferred",
-      agent: null,
-      ssh: {
-        vpn_host: "127.0.0.1",
-        vpn_port: f.ssh.port,
-        public_host: "127.0.0.2",
-        public_port: f.ssh.port,
-      },
-    };
     assert.equal(
-      (await f.api("PUT", routePath, { v: 1, revision: 0, policy }, user))
-        .status,
+      (
+        await f.api(
+          "PUT",
+          settingsPath,
+          { v: 1, revision: 0, settings: common },
+          user,
+        )
+      ).status,
       403,
     );
     assert.equal(
-      (await f.api("PUT", routePath, { v: 1, revision: 0, policy })).status,
+      (
+        await f.api(
+          "PUT",
+          routePath,
+          { v: 1, revision: 0, vpn_ip: "127.0.0.1", ssh_port: f.ssh.port },
+          user,
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await f.api("PUT", settingsPath, {
+          v: 1,
+          revision: 0,
+          settings: common,
+        })
+      ).status,
       200,
     );
     const primary = await f.web(user);
     await primary.wait("terminal.ready");
     assert.equal(
-      (await f.api("PUT", routePath, { v: 1, revision: 1, policy })).status,
+      (
+        await f.api("PUT", settingsPath, {
+          v: 1,
+          revision: 1,
+          settings: { ...common, mode: "private_only" },
+        })
+      ).status,
       409,
     );
     primary.send("terminal.input", {
@@ -1051,31 +1076,21 @@ test("network policy prefers private SSH, falls back only on transport failure, 
     );
     const unused = createTcpServer();
     await new Promise<void>((r) => unused.listen(0, "127.0.0.1", r));
-    const unusedPort = (unused.address() as any).port;
+    const port = (unused.address() as any).port;
     await new Promise<void>((r) => unused.close(() => r()));
-    const reversed = {
-      ...policy,
-      ssh: {
-        ...policy.ssh,
-        vpn_host: "127.0.0.1",
-        vpn_port: unusedPort,
-        public_host: "127.0.0.1",
-      },
-    };
     assert.equal(
-      (await f.api("PUT", routePath, { v: 1, revision: 1, policy: reversed }))
-        .status,
+      (
+        await f.api("PUT", routePath, {
+          v: 1,
+          revision: 0,
+          vpn_ip: "127.0.0.1",
+          ssh_port: port,
+        })
+      ).status,
       200,
     );
     const fallback = await f.web(user);
     await fallback.wait("terminal.ready");
-    await until(() =>
-      f.store.db
-        .prepare(
-          "SELECT 1 FROM audit WHERE device_id=? AND action='network.route_selected' AND detail_json LIKE '%public%'",
-        )
-        .get(f.id),
-    );
     fallback.send("terminal.input", {
       data: Buffer.from("output\n").toString("base64"),
     });
@@ -1086,7 +1101,7 @@ test("network policy prefers private SSH, falls back only on transport failure, 
       { v: 1 },
       user,
     );
-    const recording = (
+    const rec = (
       await f.api(
         "GET",
         `/terminal-sessions/${fallback.id}/recording`,
@@ -1095,7 +1110,7 @@ test("network policy prefers private SSH, falls back only on transport failure, 
       )
     ).body;
     assert.ok(
-      recording.events.some(
+      rec.events.some(
         (e: any) =>
           e.kind === "output" &&
           Buffer.from(e.data.data, "base64")
@@ -1103,30 +1118,30 @@ test("network policy prefers private SSH, falls back only on transport failure, 
             .includes("TARGET_OUTPUT"),
       ),
     );
+    assert.equal((await f.api("GET", routePath)).body.ssh.channel, "public");
     const before = f.authentications();
     assert.equal(
       (
-        await f.api("PUT", routePath, {
+        await f.api("PUT", settingsPath, {
           v: 1,
-          revision: 2,
-          policy: {
-            ...reversed,
-            mode: "private_only",
-            ssh: { ...reversed.ssh, public_host: null, public_port: null },
-          },
+          revision: 1,
+          settings: { ...common, mode: "private_only" },
         })
       ).status,
       200,
     );
     const blocked = await f.web(user);
     await blocked.wait("terminal.closed");
+    assert.equal(f.authentications(), before);
     assert.equal(
-      f.authentications(),
-      before,
-      "private-only must not contact the public SSH endpoint",
-    );
-    assert.equal(
-      (await f.api("PUT", routePath, { v: 1, revision: 3, policy })).status,
+      (
+        await f.api("PUT", routePath, {
+          v: 1,
+          revision: 1,
+          vpn_ip: "127.0.0.1",
+          ssh_port: f.ssh.port,
+        })
+      ).status,
       200,
     );
     const gateway = await f.gateway(`admin:${f.id}`);
@@ -1139,9 +1154,14 @@ test("network policy prefers private SSH, falls back only on transport failure, 
         )
         .get(f.id),
     );
-    const mismatch = { ...f.ssh, fingerprint: "SHA256:" + "B".repeat(43) };
     assert.equal(
-      (await f.api("PUT", f.path, { v: 1, revision: 1, ssh: mismatch })).status,
+      (
+        await f.api("PUT", f.path, {
+          v: 1,
+          revision: 1,
+          ssh: { ...f.ssh, fingerprint: "SHA256:" + "B".repeat(43) },
+        })
+      ).status,
       200,
     );
     const bad = await f.web(user);

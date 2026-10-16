@@ -139,7 +139,12 @@
                   "maxLength": 2048
                 },
                 "reason": {
-                  "enum": [null, "VPN_UNREACHABLE", "VPN_RECOVERY_WAITING_IDLE"]
+                  "enum": [
+                    null,
+                    "VPN_UNREACHABLE",
+                    "VPN_RECOVERY_WAITING_IDLE",
+                    "VPN_ADDRESS_NOT_CONFIGURED"
+                  ]
                 },
                 "checked_at": {
                   "type": "integer",
@@ -193,7 +198,12 @@
                   "maxLength": 2048
                 },
                 "reason": {
-                  "enum": [null, "VPN_UNREACHABLE", "VPN_RECOVERY_WAITING_IDLE"]
+                  "enum": [
+                    null,
+                    "VPN_UNREACHABLE",
+                    "VPN_RECOVERY_WAITING_IDLE",
+                    "VPN_ADDRESS_NOT_CONFIGURED"
+                  ]
                 },
                 "checked_at": {
                   "type": "integer",
@@ -231,6 +241,66 @@
               "type": "null"
             }
           ]
+        },
+        "source": {
+          "enum": ["platform", "legacy", "configured"]
+        },
+        "platform_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "address_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "addresses": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "vpn_ip": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "maxLength": 45
+            },
+            "ssh_port": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "required": ["vpn_ip", "ssh_port"]
+        },
+        "ssh_fallback": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "host": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                }
+              },
+              "required": ["host", "port"]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "blocked_reason": {
+          "enum": [
+            null,
+            "AGENT_PLATFORM_ENDPOINT_REQUIRED",
+            "SSH_VPN_IP_REQUIRED"
+          ]
         }
       },
       "required": [
@@ -240,7 +310,13 @@
         "agent_applied",
         "ssh_active",
         "agent",
-        "ssh"
+        "ssh",
+        "source",
+        "platform_revision",
+        "address_revision",
+        "addresses",
+        "ssh_fallback",
+        "blocked_reason"
       ]
     }
   },

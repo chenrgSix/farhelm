@@ -1558,5 +1558,30 @@
     "path": "valid/audit-route.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "schema": "platform-network-update.schema.json",
+    "valid": true,
+    "path": "valid/platform-network-settings.json"
+  },
+  {
+    "schema": "platform-network-update.schema.json",
+    "valid": false,
+    "path": "invalid/platform-network-public-private.json"
+  },
+  {
+    "schema": "platform-network-update.schema.json",
+    "valid": true,
+    "path": "valid/platform-network-ssh-only.json"
+  },
+  {
+    "path": "valid/platform-network-value.json",
+    "schema": "platform-network-settings.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/platform-network-response.json",
+    "schema": "platform-network-response.schema.json",
+    "valid": true
   }
 ]

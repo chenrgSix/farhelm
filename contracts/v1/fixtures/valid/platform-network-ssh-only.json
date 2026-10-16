@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "revision": 0,
+  "settings": {
+    "enabled": true,
+    "mode": "private_only",
+    "agent": null
+  }
+}
