@@ -130,7 +130,8 @@ try {
     path: path.join(root, "docs/screenshots/devices.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "命令任务", exact: true }).click();
+  await page.getByRole("button", { name: /^更多操作：/ }).click();
+  await page.getByRole("menuitem", { name: "命令任务", exact: true }).click();
   await page
     .getByLabel("程序与参数 · JSON 数组", { exact: true })
     .fill('["/bin/echo","browser verified Rust execution"]');

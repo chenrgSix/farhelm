@@ -119,7 +119,8 @@ export async function installOnSshDevice(c) {
   await page.getByRole("button", { name: "关闭终端", exact: true }).click();
   await page.getByRole("button", { name: "设备总览", exact: false }).click();
   const row = page.locator("tbody tr").filter({ hasText: device.name });
-  await row.getByRole("button", { name: "安装 Agent", exact: true }).click();
+  await row.getByRole("button", { name: /^更多操作：/ }).click();
+  await page.getByRole("menuitem", { name: "安装 Agent", exact: true }).click();
   const panel = page.getByRole("dialog");
   assert.equal(
     await panel.getByLabel("设备名称", { exact: true }).inputValue(),

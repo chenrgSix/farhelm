@@ -61,7 +61,8 @@ try {
     .locator("tbody tr")
     .filter({ has: page.getByText(device.name, { exact: true }) })
     .first();
-  await row.getByRole("button", { name: "SSH 连接", exact: true }).click();
+  await row.getByRole("button", { name: /^更多操作：/ }).click();
+  await page.getByRole("menuitem", { name: "SSH 连接", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByText(gateway.fingerprint, { exact: true }).waitFor();
   const command = await dialog.locator("pre").innerText();

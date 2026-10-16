@@ -89,7 +89,8 @@ try {
     .locator("tbody tr")
     .filter({ hasText: process.env.FLEET_HEALTH_DEVICE || "local-linux" })
     .first();
-  await row.getByRole("button", { name: "健康检查", exact: true }).click();
+  await row.getByRole("button", { name: /^更多操作：/ }).click();
+  await page.getByRole("menuitem", { name: "健康检查", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: /^健康检查：/ });
   await dialog.getByRole("button", { name: "添加检查", exact: true }).waitFor();
   const originalCount = await dialog.locator(".check-card").count();
@@ -130,7 +131,8 @@ try {
     .click();
   if (originalCount === 0)
     await expect(row.locator("td").nth(3)).toContainText("健康");
-  await row.getByRole("button", { name: "健康检查", exact: true }).click();
+  await row.getByRole("button", { name: /^更多操作：/ }).click();
+  await page.getByRole("menuitem", { name: "健康检查", exact: true }).click();
   await expect(card.getByLabel("检查名称", { exact: true })).toHaveValue(
     marker,
   );

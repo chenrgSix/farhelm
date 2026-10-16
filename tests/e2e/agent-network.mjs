@@ -194,7 +194,8 @@ try {
   await page.getByLabel("账号", { exact: true }).fill("admin");
   await page.getByLabel("密码", { exact: true }).fill(password);
   await page.getByRole("button", { name: "登录 →", exact: true }).click();
-  await page.getByRole("button", { name: "网络记录", exact: true }).click();
+  await page.getByRole("button", { name: /^更多操作：/ }).click();
+  await page.getByRole("menuitem", { name: "网络记录", exact: true }).click();
   const dialog = page.getByRole("dialog");
   for (let i = 0; i < 2; i++) {
     const target =

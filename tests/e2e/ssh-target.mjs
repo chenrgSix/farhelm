@@ -215,8 +215,9 @@ try {
     await page
       .locator("tbody tr")
       .filter({ hasText: deviceName })
-      .getByRole("button", { name: "接入配置", exact: true })
+      .getByRole("button", { name: /^更多操作：/ })
       .click();
+    await page.getByRole("menuitem", { name: "接入配置", exact: true }).click();
     await page.getByLabel("启用备用 SSH", { exact: true }).check();
   } else {
     await page

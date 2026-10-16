@@ -31,6 +31,7 @@ import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import CertificateSettingsPanel from "./components/CertificateSettingsPanel.vue";
 import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
 import DeviceGroupTools from "./components/DeviceGroupTools.vue";
+import DeviceActions from "./components/DeviceActions.vue";
 import AccessManagementPanel from "./components/AccessManagementPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
@@ -443,6 +444,36 @@ async function revoke(device: Device) {
     revokeBusy.value = null;
   }
 }
+function handleDeviceAction(kind: string, device: Device) {
+  switch (kind) {
+    case "terminal":
+      terminalTarget.value = { id: device.id, name: device.name };
+      break;
+    case "connection":
+      connectionTarget.value = device;
+      connectionOpen.value = true;
+      break;
+    case "install":
+      installTarget.value = device;
+      enrollOpen.value = true;
+      break;
+    case "network":
+      networkTarget.value = device;
+      break;
+    case "health":
+      healthTarget.value = device;
+      break;
+    case "ssh":
+      sshTarget.value = device;
+      break;
+    case "exec":
+      openExec(device.id);
+      break;
+    case "revoke":
+      void revoke(device);
+      break;
+  }
+}
 function deviceName(id: string) {
   return devices.value.find((d) => d.id === id)?.name ?? id;
 }
@@ -780,7 +811,27 @@ onBeforeUnmount(() => {
                   </p>
                 </div>
                 <div v-else class="table-scroll">
-                  <table>
+                  <label
+                    v-if="user.role === 'admin'"
+                    class="mobile-device-selection"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="allVisibleSelected"
+                      :indeterminate="
+                        someVisibleSelected && !allVisibleSelected
+                      "
+                      @change="
+                        toggleVisibleDevices(
+                          ($event.target as HTMLInputElement).checked,
+                        )
+                      "
+                    />选择当前筛选的全部设备
+                  </label>
+                  <table
+                    class="device-table"
+                    :class="{ 'has-selection': user.role === 'admin' }"
+                  >
                     <thead>
                       <tr>
                         <th
@@ -822,7 +873,7 @@ onBeforeUnmount(() => {
                             :aria-label="`选择设备 ${device.name}`"
                           />
                         </td>
-                        <td>
+                        <td class="device-primary">
                           <div class="device-name">
                             <span class="device-icon" aria-hidden="true"
                               >▤</span
@@ -863,7 +914,7 @@ onBeforeUnmount(() => {
                             >访问已撤销</span
                           >
                         </td>
-                        <td>
+                        <td data-label="连接状态">
                           <div
                             v-if="device.connection_kind === 'ssh'"
                             class="small"
@@ -900,7 +951,7 @@ onBeforeUnmount(() => {
                             }}
                           </small>
                         </td>
-                        <td>
+                        <td data-label="私网数据">
                           <HealthBadge
                             :value="
                               apiReady ? device.private_data_reachable : null
@@ -908,14 +959,17 @@ onBeforeUnmount(() => {
                             good="可达"
                           />
                         </td>
-                        <td>
+                        <td data-label="业务健康">
                           <HealthBadge
                             :value="apiReady ? device.business_healthy : null"
                             good="健康"
                             bad="异常"
                           />
                         </td>
-                        <td class="small muted">
+                        <td
+                          class="small muted device-heartbeat"
+                          data-label="最近心跳 / 检查"
+                        >
                           {{
                             formatTime(
                               device.connection_kind === "ssh"
@@ -924,128 +978,29 @@ onBeforeUnmount(() => {
                             )
                           }}
                         </td>
-                        <td>
-                          <div class="row-actions">
-                            <button
-                              v-if="user.role === 'admin' && !device.revoked_at"
-                              class="text-button"
-                              :disabled="!apiReady || connectionOpen"
-                              @click="
-                                connectionTarget = device;
-                                connectionOpen = true;
-                              "
-                            >
-                              接入配置
-                            </button>
-                            <button
-                              v-if="
-                                user.role === 'admin' &&
-                                device.connection_kind === 'ssh' &&
-                                !device.revoked_at
-                              "
-                              class="text-button"
-                              :disabled="!apiReady || enrollOpen"
-                              @click="
-                                installTarget = device;
-                                enrollOpen = true;
-                              "
-                            >
-                              安装 Agent
-                            </button>
-                            <button
-                              v-if="device.connection_kind !== 'ssh'"
-                              class="text-button"
-                              :disabled="!apiReady || !!networkTarget"
-                              @click="networkTarget = device"
-                            >
-                              网络记录
-                            </button>
-                            <button
-                              v-if="device.connection_kind !== 'ssh'"
-                              class="text-button"
-                              :disabled="!apiReady || !!healthTarget"
-                              @click="healthTarget = device"
-                            >
-                              健康检查
-                            </button>
-                            <button
-                              v-if="
-                                hasPermission(
-                                  user,
-                                  'terminal.connect',
-                                  device.id,
-                                ) && !device.revoked_at
-                              "
-                              class="button primary small"
-                              :disabled="
-                                !apiReady ||
-                                !(
-                                  device.terminal_available ??
-                                  device.control_online
-                                ) ||
-                                !!terminalTarget
-                              "
-                              @click="
-                                terminalTarget = {
-                                  id: device.id,
-                                  name: device.name,
-                                }
-                              "
-                            >
-                              连接终端
-                            </button>
-                            <button
-                              v-if="
-                                hasPermission(
-                                  user,
-                                  'terminal.connect',
-                                  device.id,
-                                ) && !device.revoked_at
-                              "
-                              class="text-button"
-                              :disabled="!apiReady || !!sshTarget"
-                              @click="sshTarget = device"
-                            >
-                              SSH 连接
-                            </button>
-                            <button
-                              v-if="
-                                canExecute(user, device.id) &&
-                                !device.revoked_at
-                              "
-                              class="text-button"
-                              :disabled="execOpen"
-                              @click="openExec(device.id)"
-                              v-show="device.connection_kind !== 'ssh'"
-                            >
-                              命令任务</button
-                            ><button
-                              v-if="user.role === 'admin' && !device.revoked_at"
-                              class="text-button muted"
-                              :disabled="!!revokeBusy"
-                              @click="revoke(device)"
-                            >
-                              {{
-                                revokeBusy === device.id ? "撤销中" : "撤销"
-                              }}</button
-                            ><span
-                              v-if="
-                                (!canExecute(user) &&
-                                  !hasPermission(user, 'terminal.connect') &&
-                                  !hasPermission(user, 'health.manage') &&
-                                  !hasPermission(user, 'network.manage')) ||
-                                device.revoked_at
-                              "
-                              class="muted small"
-                              >只读</span
-                            >
-                          </div>
+                        <td class="device-actions-cell">
+                          <DeviceActions
+                            :device="device"
+                            :user="user"
+                            :ready="apiReady"
+                            :revoking="revokeBusy === device.id"
+                            :busy="{
+                              terminal: !!terminalTarget,
+                              connection: connectionOpen,
+                              install: enrollOpen,
+                              network: !!networkTarget,
+                              health: !!healthTarget,
+                              ssh: !!sshTarget,
+                              exec: execOpen,
+                              revoke: !!revokeBusy,
+                            }"
+                            @action="handleDeviceAction($event, device)"
+                          />
                         </td>
                       </tr>
                     </tbody>
-                  </table>
-                </div></template
-              >
+                  </table></div
+              ></template>
               <template v-else-if="view === 'tasks'"
                 ><div v-if="!filteredTasks.length" class="empty-state">
                   <span class="empty-icon">≡</span>
@@ -1405,5 +1360,87 @@ onBeforeUnmount(() => {
   min-width: 16px;
   margin: 0;
   cursor: pointer;
+}
+.device-table .device-name small {
+  font-size: 11px;
+}
+.mobile-device-selection {
+  display: none;
+}
+@media (max-width: 800px) {
+  .mobile-device-selection {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 14px 12px;
+  }
+  .mobile-device-selection input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+  .device-table,
+  .device-table tbody {
+    display: block;
+  }
+  .device-table thead {
+    display: none;
+  }
+  .device-table tbody {
+    padding: 0 12px;
+  }
+  .device-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    position: relative;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .device-table td {
+    display: block;
+    min-width: 0;
+    border: 0;
+    padding: 10px 14px;
+    white-space: normal;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .device-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: #72808e;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .device-table .device-primary,
+  .device-table .device-heartbeat,
+  .device-table .device-actions-cell {
+    grid-column: 1 / -1;
+  }
+  .device-table.has-selection .device-primary {
+    padding-left: 44px;
+  }
+  .device-table .device-selection {
+    position: absolute;
+    top: 16px;
+    left: 14px;
+    padding: 0;
+    width: 16px;
+    min-width: 16px;
+  }
+  .device-table .device-name {
+    align-items: flex-start;
+  }
+  .device-table .device-name > div {
+    min-width: 0;
+  }
+  .device-table .device-actions-cell {
+    border-top: 1px solid var(--border);
+  }
+  .device-table :deep(.health) {
+    font-size: 12px;
+  }
 }
 </style>
