@@ -132,7 +132,9 @@ function explain(e: unknown) {
     CERTIFICATE_REVISION_CONFLICT:
       "配置已被其他管理员修改，请重新加载后再编辑。",
     INVALID_CERTIFICATE_DOMAIN:
-      "请输入公网域名，例如 fleet.example.com，不包含 https://、端口或路径；暂不支持通配符和 IP。",
+      "请输入域名或公网 IP，不包含 https://、端口、路径或通配符；IPv6 不带方括号。",
+    INVALID_CERTIFICATE_PUBLIC_IP:
+      "请输入可从公网访问的 IP；内网、回环及保留地址请使用平台私有 CA。",
     INVALID_PRIVATE_CERTIFICATE_HOST:
       "请输入内网域名或 IP，不包含 https://、端口、路径或通配符。IPv6 不带方括号。",
     AGENT_CA_SYNC_INCOMPLETE:
@@ -333,8 +335,8 @@ onBeforeUnmount(() => {
     </p>
     <template v-if="state">
       <div v-if="!available" class="notice">
-        当前部署使用外部管理的 HTTPS 入口。可先保存域名；部署时启用 Farhelm
-        证书托管后再打开自动申请。 下方显示服务端证书，独立 Nginx / Vite
+        当前部署使用外部管理的 HTTPS 入口。可先保存域名或公网 IP；部署时启用
+        Farhelm 证书托管后再打开自动申请。 下方显示服务端证书，独立 Nginx / Vite
         入口的证书由该入口管理。
       </div>
       <form @submit.prevent="save">
@@ -347,7 +349,7 @@ onBeforeUnmount(() => {
             </select>
           </label>
           <label
-            >{{ mode === "private" ? "统一入口域名或 IP" : "平台域名"
+            >{{ mode === "private" ? "统一入口域名或 IP" : "平台域名或公网 IP"
             }}<input
               v-model="domain"
               name="certificate-domain"
@@ -356,7 +358,7 @@ onBeforeUnmount(() => {
               :placeholder="
                 mode === 'private'
                   ? 'farhelm.internal 或 192.168.1.10'
-                  : 'fleet.example.com'
+                  : 'fleet.example.com 或公网 IP'
               "
               autocomplete="off"
               spellcheck="false"
@@ -394,11 +396,20 @@ onBeforeUnmount(() => {
               target="_blank"
               rel="noopener noreferrer"
               >Let’s Encrypt 服务条款</a
-            >，允许将域名和联系邮箱提交给证书机构</label
+            >，允许将域名或 IP 和联系邮箱提交给证书机构</label
           >
           <p v-if="mode === 'acme'" class="field-hint">
-            域名的 A / AAAA 记录需指向平台，公网 80 端口用于域名验证，443
-            端口提供网页和 Agent 接入。当前支持单个公网域名，暂不支持通配符。
+            支持单个公网域名、IPv4 或 IPv6。域名的 A / AAAA 记录需指向平台； IP
+            无需域名解析。公网 80 端口必须持续可达，用于申请和续签验证； HTTPS
+            入口提供网页和 Agent 接入，推荐使用 443 端口。暂不支持通配符。
+          </p>
+          <p
+            v-if="mode === 'acme'"
+            class="field-hint"
+            data-testid="ip-certificate-hint"
+          >
+            公网 IP 证书由 Let’s Encrypt 签发，浏览器无需手动信任 CA。有效期约 6
+            天（160 小时），平台按实际有效期提前自动续签；无需手动选择证书类型。
           </p>
           <p v-if="mode === 'private'" class="field-hint">
             无需公网和互联网连接。先保存配置、创建并下载
@@ -407,8 +418,9 @@ onBeforeUnmount(() => {
             CA，已有 Agent 请先在下方一键同步 CA，全部就绪后再切换证书。
           </p>
           <p class="field-hint">
-            证书签发后自动热加载，已有终端连接继续运行。更换域名前，请保留原入口直到
-            Agent 完成迁移；平台访问地址仍在上方单独保存并同步。
+            证书签发后自动热加载，已有终端连接继续运行。更换域名或 IP
+            需要迁移入口； IP
+            地址变更前请安排迁移。平台访问地址仍在上方单独保存并同步。
           </p>
           <div class="certificate-actions">
             <button
@@ -542,6 +554,12 @@ onBeforeUnmount(() => {
           <dt>有效期至</dt>
           <dd data-testid="certificate-expiry">
             {{ formatTime(state.certificate.expires_at) }}
+          </dd>
+        </div>
+        <div v-if="state.certificate.managed">
+          <dt>计划续签时间</dt>
+          <dd data-testid="certificate-renewal">
+            {{ formatTime(state.certificate.renew_at) }}
           </dd>
         </div>
         <div>

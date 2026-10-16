@@ -14,6 +14,7 @@
       "maximum": 9007199254740991
     },
     "domain": {
+      "description": "Certificate hostname: public DNS name or globally routable IPv4/IPv6 in acme mode; private names/IPs also allowed in private mode. No URL, port or IPv6 brackets.",
       "type": "string",
       "maxLength": 253
     },

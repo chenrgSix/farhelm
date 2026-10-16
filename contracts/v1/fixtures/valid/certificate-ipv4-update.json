@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "revision": 1,
+  "domain": "8.8.8.8",
+  "email": "ops@example.com",
+  "enabled": true,
+  "tos_agreed": true
+}

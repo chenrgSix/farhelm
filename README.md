@@ -124,7 +124,7 @@ FLEET_ADMIN_USER=admin FLEET_ADMIN_PASSWORD='你的本地密码' npm run test:te
 
 未经用户另行授权，不部署真实设备、不重启生产服务、不改系统账号/权限。正式域名、SSO/MFA、权限配置管理、保留策略、加密/外部防篡改审计、强进程隔离、规模压测与依赖许可证审查仍是上线前工作。项目发布许可证由用户决定；当前源码不包含对外发布授权。
 
-正式环境可在「系统设置 → HTTPS 证书」配置域名和邮箱，启用 Let’s Encrypt 自动申请及续签，并查看状态、到期时间和失败重试计划。支持 Farhelm 直接提供 HTTPS 或 Nginx TCP 转发入口，详见[正式证书部署](docs/production-certificates.md)。
+正式环境可在「系统设置 → HTTPS 证书」配置域名或公网 IPv4 / IPv6 和邮箱，启用 Let’s Encrypt 自动申请及续签，并查看状态、到期时间、计划续签时间和失败重试计划。公网 IP 自动使用短期证书，续签热加载保留 Agent 和终端连接。支持 Farhelm 直接提供 HTTPS 或 Nginx TCP 转发入口，详见[正式证书部署](docs/production-certificates.md)。
 
 纯内网部署支持 [私有 CA 自动签发与续签](docs/private-certificates.md)：在系统设置配置域名或 IP，网页和 Agent 共用 HTTPS 入口。新安装的 Agent 自动携带 CA；浏览器首次信任后，日常服务端证书续签无需再次授权。
 

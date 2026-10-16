@@ -10,6 +10,11 @@ import {
 import { join } from "node:path";
 import { isIP } from "node:net";
 import { domainToASCII } from "node:url";
+import {
+  isPublicIP,
+  normalizeIP,
+  challengeHostMatches,
+} from "./certificate-host.js";
 import { X509Certificate } from "node:crypto";
 import { PrivateAuthority, privateCertificateHost } from "./private-ca.js";
 import type { Store } from "./store.js";
@@ -71,12 +76,15 @@ export const certificateErrors: Record<string, string> = {
     "内网 CA 已过期、尚未生效或即将到期，请安排 CA 信任迁移。",
   PRIVATE_CERTIFICATE_FAILED:
     "内网证书签发失败，已保留当前证书，请检查平台存储和系统时间。",
+  ACME_PROFILE_UNSUPPORTED:
+    "证书机构未提供公网 IP 所需的短期证书配置，请稍后重试。",
   ACME_RATE_LIMITED: "证书机构限制了申请频率，请等待下次重试时间。",
   ACME_DNS_FAILED:
     "域名解析验证失败，请检查域名的 A / AAAA 记录是否指向此平台。",
   ACME_CHALLENGE_FAILED:
-    "域名验证失败，请检查公网 80 端口和 HTTP 验证入口是否可达。",
-  ACME_CONFIG_REJECTED: "证书机构拒绝了申请配置，请检查域名和联系邮箱。",
+    "域名或 IP 验证失败，请检查公网 80 端口和 HTTP 验证入口是否可达。",
+  ACME_CONFIG_REJECTED:
+    "证书机构拒绝了申请配置，请检查域名或公网 IP 和联系邮箱。",
   ACME_REQUEST_FAILED: "无法完成证书申请，请检查平台到证书机构的网络连接。",
   ACME_TIMEOUT: "证书申请超时，请检查网络和公网 80 端口。",
   ACME_INVALID_CERTIFICATE: "新证书校验失败，已保留当前证书。",
@@ -85,6 +93,10 @@ export const certificateErrors: Record<string, string> = {
 };
 export function certificateDomain(value: unknown) {
   const input = str(value, 1, 253).trim().toLowerCase();
+  if (isIP(input)) {
+    if (!isPublicIP(input)) fail(400, "INVALID_CERTIFICATE_PUBLIC_IP");
+    return normalizeIP(input);
+  }
   const domain = domainToASCII(input);
   if (
     !/^[\p{L}\p{N}\p{M}.-]+$/u.test(input) ||
@@ -463,8 +475,7 @@ export class CertificateManager {
             )?.[1];
           const value =
             req.method === "GET" &&
-            req.headers.host?.toLowerCase().split(":")[0] ===
-              this.current().domain &&
+            challengeHostMatches(req.headers.host, this.current().domain) &&
             token
               ? this.challenges.get(token)
               : undefined;

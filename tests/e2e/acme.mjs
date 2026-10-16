@@ -1,5 +1,6 @@
 // Real ACME HTTP-01, renewal and Linux Agent PTY, using an isolated Pebble CA.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -7,9 +8,11 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { createServer as tcpServer } from "node:net";
 import { request } from "node:https";
+import { connect as tlsConnect, checkServerIdentity } from "node:tls";
 import { createRequire } from "node:module";
 import { buildServer } from "../../apps/server/dist/server.js";
 const require = createRequire(import.meta.url);
+const { Client: SSHClient } = require("../../apps/server/node_modules/ssh2");
 const { WebSocket } = require("../../apps/server/node_modules/ws");
 const root = resolve(import.meta.dirname, "../..");
 if (!process.env.FLEET_ACME_TEST_CHILD) {
@@ -34,11 +37,20 @@ if (!process.env.FLEET_ACME_TEST_CHILD) {
 }
 const temp = process.env.FLEET_ACME_TEST_CHILD;
 const ca = readFileSync(join(temp, "tls/ca.crt"));
-const domain = "fleet.example.com",
+const ipv6 = process.env.FLEET_TEST_ACME_IP === "6";
+const ipMode = ipv6 || process.env.FLEET_TEST_ACME_IP === "1";
+// Routed only within a disposable Docker network, never to this real public IP.
+const domain = ipv6
+    ? "2600:ffff:fa::14"
+    : ipMode
+      ? "11.222.33.14"
+      : "fleet.example.com",
   password = "isolated-acme-test-password";
 const pebble = `farhelm-acme-ca-${process.pid}`,
   agent = `farhelm-acme-agent-${process.pid}`;
-let server, terminal;
+const network = `farhelm-acme-ip-${process.pid}`,
+  relay = `${network}-relay`;
+let server, terminal, sshClient;
 async function docker(args) {
   return new Promise((resolve, reject) => {
     const p = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -88,6 +100,55 @@ try {
     managementPort = await freePort(),
     apiPort = await freePort(),
     challengePort = await freePort();
+  if (ipMode) {
+    await docker([
+      "network",
+      "create",
+      "--internal",
+      "--subnet",
+      "11.222.33.0/24",
+      ...(ipv6 ? ["--ipv6", "--subnet", "2600:ffff:fa::/64"] : []),
+      network,
+    ]);
+    writeFileSync(
+      join(temp, "relay.cjs"),
+      `
+      const net = require('node:net');
+      for (const [port, target] of [[80, ${challengePort}], [${apiPort}, ${apiPort}]]) {
+        net.createServer(client => {
+          const upstream = net.connect(target, 'host.docker.internal');
+          client.on('error', () => upstream.destroy());
+          upstream.on('error', () => client.destroy());
+          client.on('close', () => upstream.destroy());
+          upstream.on('close', () => client.destroy());
+          client.pipe(upstream).pipe(client);
+        }).listen(port, '::');
+      }
+    `,
+    );
+    await docker([
+      "run",
+      "--rm",
+      "-d",
+      "--name",
+      relay,
+      "--add-host",
+      "host.docker.internal:host-gateway",
+      "--mount",
+      `type=bind,source=${temp},target=/fixture,readonly`,
+      "node:24-bookworm",
+      "node",
+      "/fixture/relay.cjs",
+    ]);
+    await docker([
+      "network",
+      "connect",
+      ipv6 ? "--ip6" : "--ip",
+      domain,
+      network,
+      relay,
+    ]);
+  }
   writeFileSync(
     join(temp, "pebble.json"),
     JSON.stringify({
@@ -96,12 +157,19 @@ try {
         managementListenAddress: "0.0.0.0:15000",
         certificate: "/fixture/tls/server.crt",
         privateKey: "/fixture/tls/server.key",
-        httpPort: challengePort,
+        httpPort: ipMode ? 80 : challengePort,
         tlsPort: 5001,
         externalAccountBindingRequired: false,
         retryAfter: { authz: 1, order: 1 },
         profiles: {
-          default: { description: "Short renewal fixture", validityPeriod: 80 },
+          default: {
+            description: "Default fixture",
+            validityPeriod: ipMode ? 3600 : 80,
+          },
+          shortlived: {
+            description: "IP shortlived fixture",
+            validityPeriod: 80,
+          },
         },
       },
     }),
@@ -112,8 +180,7 @@ try {
     "-d",
     "--name",
     pebble,
-    "--add-host",
-    `${domain}:host-gateway`,
+    ...(!ipMode ? ["--add-host", `${domain}:host-gateway`] : []),
     "-p",
     `127.0.0.1:${caPort}:14000`,
     "-p",
@@ -130,6 +197,7 @@ try {
     "-config",
     "/fixture/pebble.json",
   ]);
+  if (ipMode) await docker(["network", "connect", network, pebble]);
   await until(async () => {
     try {
       await https(`https://localhost:${caPort}/dir`);
@@ -150,6 +218,7 @@ try {
     adminUsername: "admin",
     adminPassword: password,
     testMode: true,
+    ssh: { host: "127.0.0.1", port: 0 },
     acme: {
       httpHost: "127.0.0.1",
       httpPort: challengePort,
@@ -189,13 +258,33 @@ try {
     }
   }, "HTTP-01 issuance");
   console.log("PASS: real ACME HTTP-01 issuance and hot activation");
-  const origin = `https://${domain}:${apiPort}`;
+  assert.ok(
+    first.expires_at - first.valid_from <= 90_000,
+    "shortlived profile was selected",
+  );
+  const origin = `https://${ipv6 ? `[${domain}]` : domain}:${apiPort}`;
+  const transport = ipMode
+    ? {
+        // Route locally while keeping normal CA and IP SAN verification; no SNI.
+        createConnection: (options) =>
+          tlsConnect({
+            ...options,
+            host: "127.0.0.1",
+            servername: "",
+            checkServerIdentity: (_name, cert) =>
+              checkServerIdentity(domain, cert),
+          }),
+      }
+    : {};
   const lookup = (_name, _options, callback) =>
     callback(null, [{ address: "127.0.0.1", family: 4 }]);
-  const health = () => https(origin + "/healthz", { ca: issuerRoot, lookup });
+  const health = () =>
+    https(origin + "/healthz", { ca: issuerRoot, lookup, ...transport });
   assert.equal((await health()).fingerprint, first.fingerprint);
   assert.ok(
-    (await https(origin, { ca: issuerRoot, lookup })).body.includes('id="app"'),
+    (
+      await https(origin, { ca: issuerRoot, lookup, ...transport })
+    ).body.includes('id="app"'),
   );
   // Initialization SNI stays reachable while the administrator switches to the public domain.
   await https(`https://localhost:${apiPort}/healthz`);
@@ -226,10 +315,12 @@ try {
     agent,
     "--platform",
     "linux/arm64",
+    ...(ipMode ? ["--network", network] : []),
+    "--entrypoint",
+    "/agent",
     "--user",
     `${process.getuid()}:${process.getgid()}`,
-    "--add-host",
-    `${domain}:host-gateway`,
+    ...(!ipMode ? ["--add-host", `${domain}:host-gateway`] : []),
     "--env-file",
     join(temp, "agent.env"),
     "--mount",
@@ -238,8 +329,7 @@ try {
     `type=bind,source=${join(temp, "issuer.crt")},target=/issuer.crt,readonly`,
     "--mount",
     `type=bind,source=${join(root, ".dev/agent-dist/farhelm-agent-linux-aarch64")},target=/agent,readonly`,
-    "farhelm-agent-build:arm64",
-    "/agent",
+    process.env.FLEET_TEST_AGENT_IMAGE ?? "farhelm-agent-build:arm64",
   ]);
   let device;
   await until(async () => {
@@ -255,7 +345,7 @@ try {
     });
     const ws = new WebSocket(
       origin.replace("https:", "wss:") + "/api/v1/terminal/ws",
-      { ca: issuerRoot, lookup, headers: { origin } },
+      { ca: issuerRoot, lookup, ...transport, headers: { origin } },
     );
     let output = "",
       ready = false,
@@ -291,6 +381,38 @@ try {
         ),
     };
   };
+  sshClient = new SSHClient();
+  const sshReady = once(sshClient, "ready");
+  sshClient.connect({
+    host: "127.0.0.1",
+    port: server.ssh.info().port,
+    username: `admin:${device.id}`,
+    password,
+    hostVerifier: (raw) =>
+      `SHA256:${createHash("sha256").update(raw).digest("base64").replace(/=+$/, "")}` ===
+      server.ssh.info().fingerprint,
+  });
+  await sshReady;
+  const sshChannel = await new Promise((resolve, reject) =>
+    sshClient.shell({ cols: 80, rows: 24 }, (error, channel) =>
+      error ? reject(error) : resolve(channel),
+    ),
+  );
+  let sshOutput = "",
+    sshClosed = false;
+  sshChannel.on("data", (data) => {
+    sshOutput += data.toString();
+  });
+  sshChannel.on("close", () => {
+    sshClosed = true;
+  });
+  sshChannel.write("printf '__SSH_BEFORE_%s__\\n' ACME\r");
+  await until(() => sshOutput.includes("__SSH_BEFORE_ACME__"), "SSH PTY ready");
+  const sshSessionId = server.store.db
+    .prepare(
+      "SELECT id FROM terminal_sessions WHERE transport='ssh' ORDER BY created_at DESC LIMIT 1",
+    )
+    .get().id;
   terminal = await open();
   terminal.input("printf '__BEFORE_%s__\\n' ACME\r");
   await until(
@@ -299,6 +421,10 @@ try {
   );
   console.log(
     "PASS: real Linux PTY active; waiting for automatic renewal timer",
+  );
+  // Continuous PTY output straddles the actual timer-driven certificate swap.
+  terminal.input(
+    "for i in $(seq 1 75); do printf '__TICK_%s__\\n' \"$i\"; sleep 1; done\r",
   );
   let renewed;
   await until(
@@ -315,6 +441,36 @@ try {
   );
   assert.equal((await health()).fingerprint, renewed.fingerprint);
   assert.ok(renewed.expires_at > first.expires_at);
+  assert.equal(sshClosed, false);
+  sshChannel.write("printf '__SSH_AFTER_%s__\\n' ACME; exit\r");
+  await until(() => sshClosed, "SSH normal exit after renewal");
+  assert.ok(sshOutput.includes("__SSH_AFTER_ACME__"));
+  await until(
+    () =>
+      server.store.db
+        .prepare("SELECT audit_complete FROM terminal_sessions WHERE id=?")
+        .get(sshSessionId).audit_complete === 1,
+    "SSH recording flushed",
+  );
+  const sshRecording = await api(
+    "GET",
+    `/terminal-sessions/${sshSessionId}/recording`,
+  );
+  assert.equal(sshRecording.session.status, "CLOSED");
+  assert.equal(sshRecording.session.audit_complete, 1);
+  const sshRecorded = sshRecording.events
+    .filter((e) => e.kind === "output")
+    .map((e) => Buffer.from(e.data.data, "base64").toString())
+    .join("");
+  assert.ok(
+    sshRecorded.includes("__SSH_BEFORE_ACME__") &&
+      sshRecorded.includes("__SSH_AFTER_ACME__"),
+  );
+  sshClient.end();
+  sshClient = undefined;
+  assert.equal(terminal.ws.readyState, WebSocket.OPEN);
+  assert.equal(terminal.ended(), undefined);
+  terminal.input("\x03");
   terminal.input("printf '__AFTER_%s__\\n' ACME; exit\r");
   await until(() => terminal.ended(), "PTY exit");
   assert.ok(terminal.output().includes("__AFTER_ACME__"));
@@ -332,6 +488,14 @@ try {
     .join("");
   assert.ok(
     recorded.includes("__BEFORE_ACME__") && recorded.includes("__AFTER_ACME__"),
+  );
+  const ticks = [...recorded.matchAll(/__TICK_(\d+)__/g)].map((m) =>
+    Number(m[1]),
+  );
+  assert.ok(ticks.length >= 2);
+  assert.deepEqual(
+    ticks,
+    Array.from({ length: ticks.length }, (_, i) => i + 1),
   );
   terminal.ws.close();
   terminal = undefined;
@@ -353,14 +517,27 @@ try {
   assert.equal((await health()).fingerprint, renewed.fingerprint);
   mkdirSync(join(root, ".test-output"), { recursive: true });
   writeFileSync(
-    join(root, ".test-output/acme.json"),
+    join(
+      root,
+      ipv6
+        ? ".test-output/acme-ipv6.json"
+        : ipMode
+          ? ".test-output/acme-ip.json"
+          : ".test-output/acme.json",
+    ),
     JSON.stringify(
       {
         passed: true,
         http01: true,
+        ip_identifier: ipMode,
+        ipv6,
+        shortlived_profile: ipMode,
+        continuous_output_ticks: ticks.length,
         automatic_renewal: true,
         agent_session_preserved: true,
         recording_complete: true,
+        ssh_session_preserved: true,
+        ssh_recording_complete: true,
         new_tls_reconnect: true,
         restart_persistence: true,
         first: first.fingerprint,
@@ -380,7 +557,12 @@ try {
   process.exitCode = 1;
 } finally {
   terminal?.ws.terminate();
+  sshClient?.destroy();
   await docker(["rm", "-f", agent]).catch(() => {});
   await server?.close();
   await docker(["rm", "-f", pebble]).catch(() => {});
+  if (ipMode) {
+    await docker(["rm", "-f", relay]).catch(() => {});
+    await docker(["network", "rm", network]).catch(() => {});
+  }
 }

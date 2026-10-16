@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { request } from "node:http";
+import { isIP } from "node:net";
+import { challengeHostMatches } from "../src/certificate-host.js";
 import { Store } from "../src/store.js";
 import { CertificateManager, certificateDomain } from "../src/certificates.js";
 import { CertificateError, type IssueCertificate } from "../src/acme.js";
@@ -66,7 +68,7 @@ function sign(domain = "fleet.example.com", days = 90) {
   );
   writeFileSync(
     join(root, `${n}.ext`),
-    `subjectAltName=DNS:${domain}\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n`,
+    `subjectAltName=${isIP(domain) ? "IP" : "DNS"}:${domain}\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n`,
   );
   openssl(
     "x509",
@@ -168,12 +170,39 @@ function http(port: number, path: string, host = "fleet.example.com") {
     req.end();
   });
 }
-test("public domain validation rejects URLs, internal names, wildcards and IP addresses", () => {
+test("public certificate validation accepts domains and public IPs but rejects private and special addresses", () => {
   for (const input of [
     "https://fleet.example.com",
     "a.example.com:443",
     "*.example.com",
     "127.0.0.1",
+    "0.0.0.0",
+    "10.0.0.1",
+    "172.16.1.1",
+    "192.168.1.1",
+    "100.64.0.1",
+    "169.254.1.1",
+    "192.0.2.1",
+    "198.51.100.1",
+    "203.0.113.1",
+    "198.18.0.1",
+    "224.0.0.1",
+    "255.255.255.255",
+    "::",
+    "::1",
+    "fc00::1",
+    "fe80::1",
+    "fe80::1%en0",
+    "ff02::1",
+    "::ffff:8.8.8.8",
+    "2001:db8::1",
+    "3fff::1",
+    "2002:0808:0808::1",
+    "[2606:4700:4700::1111]",
+    "8.8.8.8:443",
+    "008.008.008.008",
+    "134744072",
+    "0x08080808",
     "localhost",
     "host.docker.internal",
     "a.local",
@@ -186,6 +215,11 @@ test("public domain validation rejects URLs, internal names, wildcards and IP ad
     "123.456",
   ])
     assert.throws(() => certificateDomain(input), undefined, input);
+  assert.equal(certificateDomain(" 8.8.8.8 "), "8.8.8.8");
+  assert.equal(
+    certificateDomain("2606:4700:4700:0:0:0:0:1111"),
+    "2606:4700:4700::1111",
+  );
   assert.equal(certificateDomain(" FLEET.Example.com "), "fleet.example.com");
   assert.equal(certificateDomain("例子.公司"), "xn--fsqu00a.xn--55qx5d");
 });
@@ -281,6 +315,7 @@ test("renewal checks due date, retains certificates on failure, backs off and lo
     calls = 0;
   const first = sign(),
     second = sign("fleet.example.com", 180);
+  now = Date.now();
   const f = await fixture(
     async () => {
       calls++;
@@ -326,6 +361,7 @@ test("invalid replacements and activation errors preserve the last usable certif
   for (const mode of ["identity", "key", "activation"] as const) {
     let now = Date.now();
     const first = sign();
+    now = Date.now(); // OpenSSL may cross a second while generating notBefore.
     let calls = 0;
     const f = await fixture(
       async () => {
@@ -556,5 +592,88 @@ test("previous-domain SNI and bootstrap access survive a managed certificate res
     }
   } finally {
     await server.close();
+  }
+});
+
+test("HTTP-01 Host validation handles IPv6 and rejects malformed authorities", () => {
+  for (const host of [
+    "[2606:4700:4700::1111]",
+    "[2606:4700:4700:0:0:0:0:1111]:80",
+  ])
+    assert.ok(challengeHostMatches(host, "2606:4700:4700::1111"));
+  assert.ok(challengeHostMatches("8.8.8.8:80", "8.8.8.8"));
+  for (const host of [
+    "[2606:4700:4700::1112]",
+    "2606:4700:4700::1111",
+    "[2606:4700:4700::1111]:99999",
+    "user@[2606:4700:4700::1111]",
+    "[2606:4700:4700::1111]/",
+    undefined,
+  ])
+    assert.equal(challengeHostMatches(host, "2606:4700:4700::1111"), false);
+  assert.equal(challengeHostMatches("008.008.008.008", "8.8.8.8"), false);
+});
+
+test("IP certificates use SANs, serve IPv6 challenges and automatically renew short lifetimes without replacing on failure", async () => {
+  const domain = "2606:4700:4700::1111";
+  let now = Date.now(),
+    calls = 0;
+  const first = sign(domain, 6),
+    second = sign(domain, 12);
+  now = Date.now();
+  const f = await fixture(
+    async ({ domain: host, challenge }) => {
+      assert.equal(host, domain);
+      calls++;
+      if (calls === 2) throw new CertificateError("ACME_CHALLENGE_FAILED");
+      challenge("ip-token", "ip-token.authorization");
+      assert.equal(
+        (
+          await http(
+            f.manager.port()!,
+            "/.well-known/acme-challenge/ip-token",
+            "[2606:4700:4700:0:0:0:0:1111]:80",
+          )
+        ).code,
+        200,
+      );
+      assert.equal(
+        (
+          await http(
+            f.manager.port()!,
+            "/.well-known/acme-challenge/ip-token",
+            "[2606:4700:4700::1112]",
+          )
+        ).code,
+        404,
+      );
+      return calls === 1 ? first : second;
+    },
+    { now: () => now },
+  );
+  try {
+    f.manager.save({ ...config, domain }, f.actor);
+    await until(() => f.manager.snapshot().status === "valid");
+    const info = f.manager.snapshot().certificate;
+    assert.equal(info.renew_at - info.valid_from, 4 * 86400000);
+    assertValid("certificate-status", f.manager.snapshot());
+    now = info.renew_at - 1;
+    await f.manager.tick();
+    assert.equal(calls, 1);
+    now++;
+    await f.manager.tick();
+    assert.equal(
+      f.manager.snapshot().last_error?.code,
+      "ACME_CHALLENGE_FAILED",
+    );
+    assert.equal(f.activated(), 1);
+    assert.equal(managedCertificate(f.store.dataDir)?.cert, first.cert);
+    now = f.manager.snapshot().next_attempt_at!;
+    await f.manager.tick();
+    assert.equal(f.activated(), 2);
+    assert.equal(f.manager.snapshot().status, "valid");
+    assert.equal(managedCertificate(f.store.dataDir)?.cert, second.cert);
+  } finally {
+    await f.close();
   }
 });

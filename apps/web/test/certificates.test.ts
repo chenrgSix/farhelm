@@ -313,3 +313,62 @@ it("manual private renewal uses its own action, blocks duplicate clicks and resp
   expect(w.get('[role="status"]').text()).toContain("同一 CA");
   w.unmount();
 });
+
+it.each(["8.8.8.8", "2606:4700:4700::1111"])(
+  "saves public IP %s and displays scheduled renewal without CA import",
+  async (domain) => {
+    const state = {
+      ...initial,
+      domain,
+      revision: 1,
+      enabled: true,
+      tos_agreed: true,
+      status: "valid",
+      certificate: { ...initial.certificate, managed: true, domain },
+    };
+    const request = vi
+      .spyOn(api, "request")
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(state);
+    const w = mount(CertificateSettingsPanel, {
+      global: { stubs: { AgentCASyncPanel: true } },
+    });
+    await flushPromises();
+    expect(w.text()).toContain("平台域名或公网 IP");
+    await w.get('[name="certificate-domain"]').setValue(domain);
+    await w.get('[name="certificate-email"]').setValue("ops@example.com");
+    await w.get('[name="certificate-enabled"]').setValue(true);
+    await w.get('[name="certificate-terms"]').setValue(true);
+    await w.get("form").trigger("submit");
+    await flushPromises();
+    expect(request.mock.calls[1]![1]?.body).toMatchObject({
+      domain,
+      mode: "acme",
+      enabled: true,
+    });
+    expect(w.get('[data-testid="ip-certificate-hint"]').text()).toContain(
+      "160 小时",
+    );
+    expect(w.get('[data-testid="certificate-renewal"]').text()).not.toBe("");
+    expect(w.text()).not.toContain("下载 CA 证书");
+    w.unmount();
+  },
+);
+it("explains private IP rejection and preserves the submitted draft", async () => {
+  vi.spyOn(api, "request")
+    .mockResolvedValueOnce(initial)
+    .mockRejectedValueOnce(new ApiError("INVALID_CERTIFICATE_PUBLIC_IP", 400));
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
+  await flushPromises();
+  await w.get('[name="certificate-domain"]').setValue("192.168.1.1");
+  await w.get('[name="certificate-email"]').setValue("ops@example.com");
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  expect(w.get('[role="alert"]').text()).toContain("平台私有 CA");
+  expect(
+    w.get<HTMLInputElement>('[name="certificate-domain"]').element.value,
+  ).toBe("192.168.1.1");
+  w.unmount();
+});
