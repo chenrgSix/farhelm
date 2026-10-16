@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
 import { api } from "./api/client";
+import { useListResource } from "./composables/useListResource";
 import type {
   AuditEntry,
   Device,
@@ -50,28 +51,70 @@ type View =
   | "access";
 const view = ref<View>("devices");
 const closingSession = ref<string | null>(null);
-const terminalSessions = ref<TerminalSession[]>([]);
+const deviceList = useListResource<Device>("/devices", "devices");
+const taskList = useListResource<Task>("/tasks", "tasks");
+const auditList = useListResource<AuditEntry>("/audit", "audit");
+const sessionList = useListResource<TerminalSession>(
+  "/terminal-sessions",
+  "sessions",
+);
+const devices = deviceList.items;
+const tasks = taskList.items;
+const audit = auditList.items;
+const terminalSessions = sessionList.items;
+const lists = {
+  devices: deviceList,
+  tasks: taskList,
+  audit: auditList,
+  terminals: sessionList,
+};
+const currentList = computed(() =>
+  view.value in lists ? lists[view.value as keyof typeof lists] : null,
+);
+const sessionLoading = ref(false);
+const sessionError = ref("");
+const sessionUpdatedAt = ref<number | null>(null);
+const refreshing = computed(
+  () =>
+    sessionLoading.value || refreshTargets().some((list) => list.loading.value),
+);
+const apiReady = computed(
+  () =>
+    !sessionError.value &&
+    !!deviceList.updatedAt.value &&
+    !deviceList.error.value,
+);
+const currentReady = computed(
+  () =>
+    !sessionError.value &&
+    (currentList.value
+      ? !!currentList.value.updatedAt.value && !currentList.value.error.value
+      : !!sessionUpdatedAt.value),
+);
+const lastUpdated = computed(
+  () =>
+    currentList.value?.updatedAt.value ??
+    (currentList.value ? null : sessionUpdatedAt.value),
+);
+const listError = computed(() => currentList.value?.error.value ?? "");
+const taskError = taskList.error;
+const tasksReady = computed(
+  () => !sessionError.value && !!taskList.updatedAt.value && !taskError.value,
+);
 const terminalTarget = ref<{
   id: string;
   name: string;
   recording?: TerminalSession;
 } | null>(null);
-const devices = ref<Device[]>([]);
 const deviceGroupFilter = ref("");
 const selectedDeviceIds = ref<string[]>([]);
-let tagRefreshPending = false;
 const sshTarget = ref<Device | null>(null);
 const networkTarget = ref<Device | null>(null);
 const healthTarget = ref<Device | null>(null);
 const connectionTarget = ref<Device | undefined>();
 const connectionOpen = ref(false);
 const addDeviceOpen = ref(false);
-const tasks = ref<Task[]>([]);
-const audit = ref<AuditEntry[]>([]);
-const refreshing = ref(false);
-const apiReady = ref(false);
 const error = ref("");
-const lastUpdated = ref<number | null>(null);
 const search = ref("");
 const selectedTask = ref<Task | null>(null);
 const loadingTask = ref(false);
@@ -148,8 +191,7 @@ function toggleVisibleDevices(selected: boolean) {
       );
 }
 function refreshDeviceTags() {
-  if (refreshing.value) tagRefreshPending = true;
-  else void refresh();
+  void deviceList.load();
 }
 const filteredTasks = computed(() =>
   tasks.value.filter((t) =>
@@ -190,12 +232,9 @@ function logout(message = "") {
   user.value = null;
   view.value = "devices";
   password.value = "";
-  devices.value = [];
+  for (const list of Object.values(lists)) list.reset();
   selectedDeviceIds.value = [];
   deviceGroupFilter.value = "";
-  tagRefreshPending = false;
-  tasks.value = [];
-  audit.value = [];
   selectedTask.value = null;
   terminalTarget.value = null;
   healthTarget.value = null;
@@ -204,15 +243,15 @@ function logout(message = "") {
   connectionOpen.value = false;
   addDeviceOpen.value = false;
   sshTarget.value = null;
-  terminalSessions.value = [];
   enrollOpen.value = false;
   installTarget.value = undefined;
   execOpen.value = false;
-  apiReady.value = false;
+  sessionError.value = "";
+  sessionUpdatedAt.value = null;
+  sessionLoading.value = false;
+  userRefresh = undefined;
   error.value = "";
-  lastUpdated.value = null;
   loginError.value = message;
-  refreshing.value = false;
   loadingTask.value = false;
   search.value = "";
   if (refreshTimer) clearInterval(refreshTimer);
@@ -272,61 +311,70 @@ async function closeTerminalSession(session: TerminalSession) {
     closingSession.value = null;
   }
 }
-async function refresh() {
-  if (!user.value || refreshing.value) return;
+let userRefresh: Promise<void> | undefined;
+function refreshTargets() {
+  const targets = [];
+  if (hasPermission(user.value, "devices.read")) targets.push(deviceList);
+  if (
+    (view.value === "devices" || view.value === "tasks") &&
+    hasPermission(user.value, "tasks.read")
+  )
+    targets.push(taskList);
+  if (view.value === "audit" && hasPermission(user.value, "audit.read"))
+    targets.push(auditList);
+  if (
+    view.value === "terminals" &&
+    hasPermission(user.value, "recordings.read")
+  )
+    targets.push(sessionList);
+  return targets;
+}
+function refreshUser() {
+  if (userRefresh) return userRefresh;
   const generation = sessionGeneration;
-  refreshing.value = true;
-  try {
-    const freshUser = await api.request<User>("/me");
-    if (generation !== sessionGeneration) return;
-    user.value = freshUser;
-    const [deviceResponse, taskResponse, auditResponse, terminalResponse] =
-      await Promise.all([
-        hasPermission(user.value, "devices.read")
-          ? api.request<{ devices: Device[] }>("/devices")
-          : Promise.resolve({ devices: [] }),
-        hasPermission(user.value, "tasks.read")
-          ? api.request<{ tasks: Task[] }>("/tasks")
-          : Promise.resolve({ tasks: [] }),
-        hasPermission(user.value, "audit.read")
-          ? api.request<{ audit: AuditEntry[] }>("/audit")
-          : Promise.resolve({ audit: [] }),
-        hasPermission(user.value, "recordings.read")
-          ? api.request<{ sessions: TerminalSession[] }>("/terminal-sessions")
-          : Promise.resolve({ sessions: [] }),
-      ]);
-    if (generation !== sessionGeneration) return;
-    if (
-      !Array.isArray(deviceResponse.devices) ||
-      !Array.isArray(taskResponse.tasks) ||
-      !Array.isArray(auditResponse.audit) ||
-      !Array.isArray(terminalResponse.sessions)
-    )
-      throw new Error("API 列表响应格式错误");
-    devices.value = deviceResponse.devices;
+  sessionLoading.value = true;
+  userRefresh = (async () => {
+    try {
+      const freshUser = await api.request<User>("/me");
+      if (generation !== sessionGeneration) return;
+      user.value = freshUser;
+      sessionError.value = "";
+      sessionUpdatedAt.value = Date.now();
+      const permissions = {
+        devices: "devices.read",
+        tasks: "tasks.read",
+        audit: "audit.read",
+        terminals: "recordings.read",
+      } as const;
+      for (const key of Object.keys(lists) as (keyof typeof lists)[])
+        if (!hasPermission(freshUser, permissions[key])) lists[key].reset();
+      if (!navigation.value.some((item) => item.id === view.value))
+        view.value = navigation.value[0]?.id ?? "devices";
+    } catch (e) {
+      if (generation === sessionGeneration)
+        sessionError.value = e instanceof Error ? e.message : "身份校验失败";
+    } finally {
+      if (generation === sessionGeneration) {
+        sessionLoading.value = false;
+        userRefresh = undefined;
+      }
+    }
+  })();
+  return userRefresh;
+}
+async function refresh() {
+  if (!user.value) return;
+  const generation = sessionGeneration;
+  await refreshUser();
+  if (generation !== sessionGeneration || !user.value || sessionError.value)
+    return;
+  await Promise.all(refreshTargets().map((list) => list.load()));
+  if (generation === sessionGeneration) {
     selectedDeviceIds.value = selectedDeviceIds.value.filter((id) =>
       devices.value.some((d) => d.id === id),
     );
-    tasks.value = taskResponse.tasks;
-    audit.value = auditResponse.audit;
-    terminalSessions.value = terminalResponse.sessions;
-    apiReady.value = true;
-    lastUpdated.value = Date.now();
-    error.value = "";
-    if (selectedTask.value) await selectTask(selectedTask.value.task_id, true);
-  } catch (e) {
-    if (generation === sessionGeneration) {
-      apiReady.value = false;
-      error.value = e instanceof Error ? e.message : "刷新失败";
-    }
-  } finally {
-    if (generation === sessionGeneration) {
-      refreshing.value = false;
-      if (tagRefreshPending && user.value) {
-        tagRefreshPending = false;
-        void refresh();
-      }
-    }
+    if (view.value === "tasks" && selectedTask.value)
+      await selectTask(selectedTask.value.task_id, true);
   }
 }
 async function selectTask(id: string, quiet = false) {
@@ -334,8 +382,7 @@ async function selectTask(id: string, quiet = false) {
   const session = sessionGeneration;
   if (!quiet) {
     loadingTask.value = true;
-    view.value = "tasks";
-    search.value = "";
+    switchView("tasks");
   }
   try {
     const task = await api.request<Task>(`/tasks/${encodeURIComponent(id)}`);
@@ -353,6 +400,7 @@ function openExec(id = "") {
   execOpen.value = true;
 }
 async function onCreated(id: string) {
+  view.value = "tasks";
   await refresh();
   await selectTask(id);
 }
@@ -360,6 +408,8 @@ function switchView(id: View) {
   if (!navigation.value.some((item) => item.id === id)) return;
   view.value = id;
   search.value = "";
+  error.value = "";
+  void refresh();
 }
 function selectDeviceAccess(kind: "ssh" | "agent") {
   addDeviceOpen.value = false;
@@ -397,8 +447,7 @@ function deviceName(id: string) {
   return devices.value.find((d) => d.id === id)?.name ?? id;
 }
 onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer);
-  api.setToken(null);
+  logout();
   api.onUnauthorized = undefined;
 });
 </script>
@@ -484,9 +533,11 @@ onBeforeUnmount(() => {
         >
           <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span
           >{{ item.label
-          }}<span v-if="item.id === 'tasks' && activeCount" class="nav-count">{{
-            activeCount
-          }}</span>
+          }}<span
+            v-if="item.id === 'tasks' && tasksReady && activeCount"
+            class="nav-count"
+            >{{ activeCount }}</span
+          >
         </button>
       </nav>
       <div class="sidebar-note">
@@ -520,11 +571,12 @@ onBeforeUnmount(() => {
           工作空间 <span>/</span> {{ titles[view][0] }}
         </div>
         <div class="topbar-right">
-          <HealthBadge :value="apiReady ? true : null" good="API 可用" /><span
-            class="muted small"
-            >{{
-              lastUpdated ? `更新于 ${formatTime(lastUpdated)}` : "尚未获取数据"
-            }}</span
+          <HealthBadge
+            :value="currentReady ? true : null"
+            good="列表已更新"
+          /><span class="muted small">{{
+            lastUpdated ? `更新于 ${formatTime(lastUpdated)}` : "尚未获取数据"
+          }}</span
           ><button
             v-if="
               view !== 'settings' && view !== 'upgrades' && view !== 'access'
@@ -563,11 +615,24 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+        <div v-if="sessionError" class="notice danger" role="alert">
+          身份校验刷新失败：{{ sessionError }}。当前数据可能已过期，请重试刷新。
+        </div>
+        <div v-if="listError" class="notice danger" role="alert">
+          当前列表刷新失败：{{ listError
+          }}<span v-if="lastUpdated">。保留上次成功读取的数据</span>。
+          <span v-if="view === 'devices'">当前设备状态未知。</span>
+        </div>
+        <div
+          v-if="view === 'devices' && taskError"
+          class="notice danger"
+          role="alert"
+        >
+          任务概况刷新失败：{{ taskError }}。设备连接状态与操作不受此错误影响。
+        </div>
         <div v-if="error" class="notice danger" role="alert">
-          {{ error
-          }}<span v-if="lastUpdated"
-            >。下方为上次成功读取的数据；当前连接状态未知</span
-          >
+          {{ error }}
+          <button class="text-button" @click="error = ''">关闭提示</button>
         </div>
         <section
           v-if="view === 'devices' && navigation.length"
@@ -591,14 +656,14 @@ onBeforeUnmount(() => {
           <div class="metric">
             <span>当前列表进行中</span
             ><strong
-              >{{ lastUpdated ? activeCount : "—" }}<small>条</small></strong
+              >{{ tasksReady ? activeCount : "—" }}<small>条</small></strong
             >
             <p>排队、下发、接收或运行中</p>
           </div>
           <div class="metric">
             <span>当前列表待核对</span
             ><strong :class="unknownCount ? 'text-warning' : ''"
-              >{{ lastUpdated ? unknownCount : "—" }}<small>条</small></strong
+              >{{ tasksReady ? unknownCount : "—" }}<small>条</small></strong
             >
             <p>UNKNOWN 不会自动重跑</p>
           </div>
