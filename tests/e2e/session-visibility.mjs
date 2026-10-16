@@ -216,6 +216,36 @@ try {
   );
   assert.ok(ownAudit.audit.length > 0);
   assert.ok(ownAudit.audit.every((e) => e.actor_id === alice.id));
+  const loginEvent = ownAudit.audit.find((e) => e.action === "user.login");
+  assert.equal(loginEvent.actor_username, "alice");
+  assert.equal(loginEvent.context.source, "http");
+  assert.equal(loginEvent.context.route, "/api/v1/login");
+  assert.ok(loginEvent.context.remote_address);
+  const commandRow = own.page
+    .locator("tbody tr")
+    .filter({ hasText: "创建命令任务" })
+    .first();
+  await expect(commandRow.getByText("alice", { exact: true })).toBeVisible();
+  await expect(commandRow).toContainText("alice private task");
+  await commandRow.locator("summary").first().click();
+  await expect(commandRow.getByText("工作目录", { exact: true })).toBeVisible();
+  await expect(commandRow.getByText("/tmp", { exact: true })).toBeVisible();
+  await own.page.screenshot({
+    path: join(out, "audit-readable-desktop.png"),
+    fullPage: true,
+  });
+  await own.page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(
+    await own.page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+  );
+  await own.page.screenshot({
+    path: join(out, "audit-readable-mobile.png"),
+    fullPage: true,
+  });
+
   const other = await login("bob");
   await expect(other.page.locator("tbody tr")).toHaveCount(3);
   await expect(other.page.locator("tbody")).not.toContainText(alice.id);
@@ -253,6 +283,9 @@ try {
     own_tasks_and_audit_only: true,
     other_task_details_and_output_denied: true,
     explicit_task_and_audit_review: true,
+    account_names_and_readable_audit_details: true,
+    request_source_recorded: true,
+    mobile_audit_no_page_overflow: true,
     web_and_ssh_history: true,
     direct_recording_and_export_denied: true,
     own_playback_and_export: true,

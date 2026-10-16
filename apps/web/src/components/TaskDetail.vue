@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { Task, User } from "../api/types";
+import ActorIdentity from "./ActorIdentity.vue";
 import { api } from "../api/client";
 import {
   canExecute,
@@ -115,7 +116,9 @@ async function readOutput(stream: "stdout" | "stderr") {
       <dt>设备 ID</dt>
       <dd class="mono">{{ task.device_id }}</dd>
       <dt>平台操作人</dt>
-      <dd class="mono">{{ task.actor_id }}</dd>
+      <dd>
+        <ActorIdentity :id="task.actor_id" :username="task.actor_username" />
+      </dd>
       <dt>程序与参数</dt>
       <dd>
         <pre class="inline-code">{{ JSON.stringify(task.argv, null, 2) }}</pre>

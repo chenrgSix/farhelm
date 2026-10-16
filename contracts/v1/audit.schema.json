@@ -943,6 +943,55 @@
           "required": ["revision", "code"]
         }
       ]
+    },
+    "actor_username": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "device_name": {
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "target_name": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "context": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "enum": ["http", "ssh", "agent", "system"]
+            },
+            "remote_address": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "request_id": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "method": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "route": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "user_agent": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          "required": ["source"]
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

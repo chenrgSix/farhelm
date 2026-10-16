@@ -33,6 +33,7 @@ import {
 } from "node:fs";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
+import { auditContext, auditText } from "./audit-context.js";
 import { deployment } from "./deployment.js";
 import { localAdminServer } from "./local-admin.js";
 import { historyPage } from "./history.js";
@@ -251,6 +252,20 @@ export async function buildServer(config: ServerConfig) {
             },
           },
         });
+  app.addHook("onRequest", (req, _reply, done) => {
+    const route = req.routeOptions.url ?? "unknown";
+    auditContext.run(
+      {
+        source: /^\/(?:api\/)?agent(?:\/|$)/.test(route) ? "agent" : "http",
+        remote_address: auditText(req.ip, 128),
+        request_id: auditText(req.id, 128),
+        method: auditText(req.method, 16),
+        route: auditText(route, 256),
+        user_agent: auditText(req.headers["user-agent"], 512),
+      },
+      done,
+    );
+  });
   if (acmeTls)
     app.server.prependListener("secureConnection", (socket: TLSSocket) => {
       // ACME proves possession in the handshake; it never serves application data.
@@ -1305,6 +1320,10 @@ export async function buildServer(config: ServerConfig) {
         id: r.id,
         at: r.at,
         actor_id: r.actor_id,
+        actor_username: r.actor_name,
+        device_name: r.device_label,
+        target_name: r.target_name,
+        context: r.request_context ? JSON.parse(r.request_context) : null,
         device_id: r.device_id,
         task_id: r.task_id,
         action: r.action,

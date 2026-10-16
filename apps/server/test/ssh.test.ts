@@ -498,6 +498,14 @@ test("SSH bare username lists only scoped devices, sanitizes names and opens the
       .get(opened.session_id)!;
     assert.equal(row.device_id, "device");
     assert.equal(row.transport, "ssh");
+    const createdAudit = f.store.db
+      .prepare(
+        "SELECT actor_username,request_context FROM audit WHERE action='terminal.created' AND json_extract(detail_json,'$.session_id')=?",
+      )
+      .get(opened.session_id) as any;
+    assert.equal(createdAudit.actor_username, "scoped");
+    assert.equal(JSON.parse(createdAudit.request_context).source, "ssh");
+    assert.ok(JSON.parse(createdAudit.request_context).remote_address);
     assert.equal(
       row.actor_id,
       f.store.db.prepare("SELECT id FROM users WHERE username='scoped'").get()!

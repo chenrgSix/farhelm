@@ -25,6 +25,9 @@ import HealthBadge from "./components/HealthBadge.vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
 import TaskDetail from "./components/TaskDetail.vue";
+import ActorIdentity from "./components/ActorIdentity.vue";
+import AuditDetails from "./components/AuditDetails.vue";
+import { auditActionLabels, auditOutcome, auditSource } from "./audit";
 import DeviceNetworkPanel from "./components/DeviceNetworkPanel.vue";
 import HealthChecksPanel from "./components/HealthChecksPanel.vue";
 import SshConnectionPanel from "./components/SshConnectionPanel.vue";
@@ -1162,9 +1165,11 @@ onBeforeUnmount(() => {
                           <strong class="small">{{
                             deviceName(task.device_id)
                           }}</strong
-                          ><small class="mono muted block">{{
-                            task.actor_id
-                          }}</small>
+                          ><small class="muted block"
+                            ><ActorIdentity
+                              :id="task.actor_id"
+                              :username="task.actor_username"
+                          /></small>
                         </td>
                         <td>
                           <StatusBadge :status="task.status" /><small
@@ -1232,7 +1237,12 @@ onBeforeUnmount(() => {
                             >{{ session.id.slice(0, 12) }}…</small
                           >
                         </td>
-                        <td class="mono small">{{ session.actor_id }}</td>
+                        <td class="small">
+                          <ActorIdentity
+                            :id="session.actor_id"
+                            :username="session.actor_username"
+                          />
+                        </td>
                         <td class="small muted">
                           {{ formatTime(session.created_at) }}
                         </td>
@@ -1317,31 +1327,50 @@ onBeforeUnmount(() => {
                   <p>平台操作、授权决定和输出查看会在此留痕</p>
                 </div>
                 <div v-else class="table-scroll">
-                  <table>
+                  <table class="audit-table">
                     <thead>
                       <tr>
                         <th>时间 / 事件</th>
-                        <th>操作人</th>
-                        <th>设备 / 任务</th>
-                        <th>详细记录</th>
+                        <th>操作人 / 来源</th>
+                        <th>操作对象</th>
+                        <th>结果 / 详情</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr v-for="entry in filteredAudit" :key="entry.id">
                         <td>
-                          <strong class="small">{{ entry.action }}</strong
+                          <strong class="small">{{
+                            auditActionLabels[entry.action] ?? entry.action
+                          }}</strong
                           ><small class="muted block">{{
                             formatTime(entry.at)
+                          }}</small
+                          ><small class="muted mono block">{{
+                            entry.action
                           }}</small>
                         </td>
-                        <td class="mono small">
-                          {{ entry.actor_id ?? "系统 / 设备" }}
+                        <td class="small">
+                          <ActorIdentity
+                            :id="entry.actor_id"
+                            :username="entry.actor_username"
+                          /><small class="muted block">{{
+                            auditSource(entry)
+                          }}</small
+                          ><small
+                            v-if="entry.context?.remote_address"
+                            class="muted mono block"
+                            >{{ entry.context.remote_address }}</small
+                          >
                         </td>
                         <td class="small">
-                          <span>{{
-                            entry.device_id ? deviceName(entry.device_id) : "—"
-                          }}</span
-                          ><button
+                          <strong>{{
+                            entry.target_name ||
+                            entry.device_name ||
+                            (entry.device_id
+                              ? deviceName(entry.device_id)
+                              : "平台 / 账号")
+                          }}</strong>
+                          <button
                             v-if="entry.task_id"
                             class="text-button mono block"
                             @click="selectTask(entry.task_id)"
@@ -1350,20 +1379,15 @@ onBeforeUnmount(() => {
                           </button>
                         </td>
                         <td>
-                          <details>
-                            <summary class="text-button">
-                              查看记录 #{{ entry.id }}
-                            </summary>
-                            <pre class="audit-json">{{
-                              JSON.stringify(entry.detail ?? {}, null, 2)
-                            }}</pre>
-                          </details>
+                          <span class="audit-outcome">{{
+                            auditOutcome(entry)
+                          }}</span
+                          ><AuditDetails :entry="entry" />
                         </td>
                       </tr>
                     </tbody>
-                  </table>
-                </div></template
-              >
+                  </table></div
+              ></template>
               <div class="table-footer">
                 <template v-if="currentHistory">
                   <span role="status"
@@ -1507,6 +1531,58 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.audit-table td {
+  vertical-align: top;
+}
+@media (max-width: 800px) {
+  .audit-table,
+  .audit-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .audit-table thead {
+    display: none;
+  }
+  .audit-table tr {
+    display: block;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .audit-table td {
+    display: block;
+    padding: 6px 0;
+    border: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .audit-table td:nth-child(2)::before {
+    content: "操作人 / 来源";
+  }
+  .audit-table td:nth-child(3)::before {
+    content: "操作对象";
+  }
+  .audit-table td:nth-child(4)::before {
+    content: "结果 / 详情";
+  }
+  .audit-table td::before {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .audit-table :deep(.audit-details) {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+.audit-outcome {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
 .device-selection {
   width: 42px;
   min-width: 42px;

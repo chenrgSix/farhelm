@@ -289,7 +289,11 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     const { rows, page } = historyPage(db, user, "sessions", req.query);
     return {
       v: 1,
-      sessions: rows,
+      sessions: rows.map(({ actor_name, device_label, ...row }) => ({
+        ...row,
+        actor_username: actor_name,
+        device_name: device_label,
+      })),
       page,
     };
   });

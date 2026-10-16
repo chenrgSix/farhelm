@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { auditContext } from "./audit-context.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
@@ -248,6 +249,20 @@ export class Store {
         ),
       ),
     );
+    if (
+      !(this.db.prepare("PRAGMA table_info(audit)").all() as any[]).some(
+        (c) => c.name === "request_context",
+      )
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL("../migrations/024_audit_context.sql", import.meta.url),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",
@@ -277,11 +292,61 @@ export class Store {
     taskId: string | null,
     detail: unknown = {},
   ) {
+    const username = actorId
+      ? ((
+          this.db
+            .prepare("SELECT username FROM users WHERE id=?")
+            .get(actorId) as any
+        )?.username ?? null)
+      : null;
+    const deviceName = deviceId
+      ? ((
+          this.db
+            .prepare("SELECT name FROM devices WHERE id=?")
+            .get(deviceId) as any
+        )?.name ?? null)
+      : null;
+    const data =
+      detail && typeof detail === "object" && !Array.isArray(detail)
+        ? (detail as Record<string, any>)
+        : {};
+    const targetTable =
+      action.startsWith("access.user_") ||
+      ["access.password_reset", "access.password_changed"].includes(action)
+        ? "users"
+        : action.startsWith("access.role_")
+          ? "access_roles"
+          : action.startsWith("access.group_")
+            ? "access_groups"
+            : action.startsWith("access.device_group_")
+              ? "device_groups"
+              : null;
+    const target =
+      targetTable && typeof data.target_id === "string"
+        ? (this.db
+            .prepare(
+              `SELECT ${targetTable === "users" ? "username" : "name"} AS name FROM ${targetTable} WHERE id=?`,
+            )
+            .get(data.target_id) as any)
+        : undefined;
+    const targetName =
+      target?.name ?? data.changes?.username ?? data.changes?.name ?? null;
     this.db
       .prepare(
-        "INSERT INTO audit(at,actor_id,device_id,task_id,action,detail_json) VALUES(?,?,?,?,?,?)",
+        "INSERT INTO audit(at,actor_id,device_id,task_id,action,detail_json,actor_username,device_name,target_name,request_context) VALUES(?,?,?,?,?,?,?,?,?,?)",
       )
-      .run(Date.now(), actorId, deviceId, taskId, action, canonical(detail));
+      .run(
+        Date.now(),
+        actorId,
+        deviceId,
+        taskId,
+        action,
+        canonical(detail),
+        username,
+        deviceName,
+        targetName,
+        JSON.stringify(auditContext.getStore() ?? { source: "system" }),
+      );
   }
   seedUser(input: {
     username: string;
@@ -391,6 +456,22 @@ export class Store {
   taskView(row: any) {
     return {
       ...(JSON.parse(row.task_json) as Task),
+      actor_username:
+        row.actor_name ??
+        (
+          this.db
+            .prepare("SELECT username FROM users WHERE id=?")
+            .get(row.actor_id) as any
+        )?.username ??
+        null,
+      device_name:
+        row.device_label ??
+        (
+          this.db
+            .prepare("SELECT name FROM devices WHERE id=?")
+            .get(row.device_id) as any
+        )?.name ??
+        null,
       status: row.status,
       last_seq: row.last_seq,
       cancel_requested: !!row.cancel_requested,

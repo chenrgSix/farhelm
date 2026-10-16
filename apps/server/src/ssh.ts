@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { auditContext, auditText } from "./audit-context.js";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Socket, type AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -127,11 +128,15 @@ export function createSshGateway(
         const composite = str(ctx.username, 1, 257);
         const separator = composite.lastIndexOf(":");
         if (separator === 0) throw new Error("Username required");
-        login = d.authenticate(
-          separator < 0 ? composite : composite.slice(0, separator),
-          ctx.password,
-          separator < 0 ? undefined : composite.slice(separator + 1),
-          info.ip,
+        login = auditContext.run(
+          { source: "ssh", remote_address: auditText(info.ip, 128) },
+          () =>
+            d.authenticate(
+              separator < 0 ? composite : composite.slice(0, separator),
+              ctx.password,
+              separator < 0 ? undefined : composite.slice(separator + 1),
+              info.ip,
+            ),
         );
         deadline(socket, 30000); // Authenticated clients must open a shell promptly.
         ctx.accept();
@@ -266,15 +271,20 @@ export function createSshGateway(
         const authenticated = login;
         function connect(deviceId: string) {
           if (!size) throw new Error("PTY required");
+          const { cols, rows } = size;
           channel!.pause();
           const user = d.currentUser(authenticated);
-          handle = d.terminals.openSsh(
-            user,
-            authenticated.sessionHash,
-            deviceId,
-            size.cols,
-            size.rows,
-            peer,
+          handle = auditContext.run(
+            { source: "ssh", remote_address: auditText(info.ip, 128) },
+            () =>
+              d.terminals.openSsh(
+                user,
+                authenticated.sessionHash,
+                deviceId,
+                cols,
+                rows,
+                peer,
+              ),
           );
           menu = undefined;
           if (!closed) deadline(socket, 3600000);

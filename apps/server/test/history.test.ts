@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { buildServer } from "../src/server.js";
+import { auditContext } from "../src/audit-context.js";
 import { assertValid } from "../../../tests/contracts/validate.mjs";
 
 async function fixture() {
@@ -134,6 +135,7 @@ async function fixture() {
     reader,
     readerToken,
     emptyToken,
+    adminToken,
     login,
     cleanup: async () => {
       await server.close();
@@ -398,6 +400,118 @@ test("ordinary users only read their own tasks and audit; read-all grants remain
       400,
     );
     assert.equal((await f.get("/tasks/task-0000", auth)).status, 403);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("audit displays recorded identities, retains legacy evidence and captures bounded request context without secrets", async () => {
+  const f = await fixture();
+  try {
+    const login = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/login?password=DO_NOT_LOG_QUERY",
+      remoteAddress: "203.0.113.8",
+      headers: {
+        "user-agent": "Audit test browser",
+        "x-forwarded-for": "198.51.100.9",
+      },
+      payload: { username: "admin", password: "history-test-password1" },
+    });
+    assert.equal(login.statusCode, 200);
+    const logged = (await f.get("/audit?action=user.login&actor_id=admin")).body
+      .audit[0];
+    assert.equal(logged.actor_username, "admin");
+    assert.equal(logged.context.source, "http");
+    assert.equal(logged.context.remote_address, "203.0.113.8");
+    assert.equal(logged.context.route, "/api/v1/login");
+    assert.equal(logged.context.method, "POST");
+    assert.equal(logged.context.user_agent, "Audit test browser");
+    assert.ok(logged.context.request_id);
+    assert.ok(!JSON.stringify(logged).includes("history-test-password1"));
+    assert.ok(!JSON.stringify(logged).includes("DO_NOT_LOG_QUERY"));
+    assert.ok(!JSON.stringify(logged).includes(login.json().access_token));
+    await Promise.all(
+      ["admin", "reader"].map((username, index) =>
+        f.app.inject({
+          method: "POST",
+          url: "/api/v1/login",
+          remoteAddress: `203.0.113.${20 + index}`,
+          headers: { "user-agent": `parallel-${username}` },
+          payload: { username, password: "history-test-password1" },
+        }),
+      ),
+    );
+    for (const [index, username] of ["admin", "reader"].entries()) {
+      const entry = (
+        await f.get("/audit?action=user.login&actor_id=" + username)
+      ).body.audit[0];
+      assert.equal(entry.context.remote_address, `203.0.113.${20 + index}`);
+      assert.equal(entry.context.user_agent, `parallel-${username}`);
+    }
+    const created = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/roles",
+      headers: { authorization: "Bearer " + f.adminToken },
+      payload: {
+        v: 1,
+        name: "审计角色名称",
+        description: "可核对的修改",
+        permissions: ["devices.read"],
+      },
+    });
+    assert.equal(created.statusCode, 200);
+    const event = (await f.get("/audit?action=access.role_created")).body
+      .audit[0];
+    assert.equal(event.target_name, "审计角色名称");
+    assert.equal(event.detail.changes.description, "可核对的修改");
+    const adminId = logged.actor_id;
+    auditContext.run({ source: "http", user_agent: undefined }, () =>
+      f.store.audit("user.login", adminId, null, null),
+    );
+    const noAgent = (await f.get("/audit?action=user.login")).body.audit[0];
+    assert.deepEqual(noAgent.context, { source: "http" });
+    f.store.audit("device.revoked", adminId, "visible", null);
+    const recorded = f.db
+      .prepare("SELECT * FROM audit ORDER BY id DESC LIMIT 1")
+      .get() as any;
+    f.db
+      .prepare(
+        "INSERT INTO audit(at,actor_id,device_id,task_id,action,detail_json) VALUES(1,?,'visible',NULL,'device.revoked','{}')",
+      )
+      .run(adminId);
+    const legacyId = f.db.prepare("SELECT max(id) id FROM audit").get()!.id;
+    f.db
+      .prepare("UPDATE users SET username='renamed-admin' WHERE id=?")
+      .run(adminId);
+    f.db
+      .prepare("UPDATE devices SET name='新设备名称' WHERE id='visible'")
+      .run();
+    const response = await f.get("/audit?action=device.revoked&limit=100");
+    assertValid("audit-response", response.body);
+    const snapshot = response.body.audit.find((a: any) => a.id === recorded.id);
+    const legacy = response.body.audit.find((a: any) => a.id === legacyId);
+    assert.equal(snapshot.actor_username, "admin");
+    assert.equal(snapshot.device_name, "生产设备");
+    assert.equal(legacy.actor_username, "renamed-admin");
+    assert.equal(legacy.device_name, "新设备名称");
+    assert.equal(legacy.context, null);
+    assert.deepEqual(
+      f.db.prepare("SELECT * FROM audit WHERE id=?").get(recorded.id),
+      recorded,
+    );
+    assert.ok(
+      (await f.get("/audit?actor_id=admin")).body.audit.some(
+        (a: any) => a.id === recorded.id,
+      ),
+    );
+    const task = (await f.get("/tasks/task-0000")).body;
+    assert.equal(task.actor_username, "renamed-admin");
+    assert.equal(task.actor_id, adminId);
+    assertValid(
+      "task-detail",
+      Object.fromEntries(Object.entries(task).filter(([k]) => k !== "v")),
+    );
   } finally {
     await f.cleanup();
   }

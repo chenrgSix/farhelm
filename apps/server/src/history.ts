@@ -113,7 +113,13 @@ export function historyPage(
   if (kind !== "audit" && !canReadOtherHistory(user, kind))
     add("r.actor_id=?", user.id);
   if (device) add("r.device_id=?", device);
-  if (actor) add("r.actor_id=? OR u.username=?", actor, actor);
+  if (actor) {
+    const names =
+      kind === "audit"
+        ? ["r.actor_id", "u.username", "r.actor_username"]
+        : ["r.actor_id", "u.username"];
+    add(names.map((c) => `${c}=?`).join(" OR "), ...names.map(() => actor));
+  }
   if (status) add("r.status=?", status);
   if (action) add("r.action=?", action);
   const time = kind === "audit" ? "r.at" : "r.created_at";
@@ -130,7 +136,14 @@ export function historyPage(
       ...(kind === "tasks"
         ? ["r.task_json", "r.status"]
         : kind === "audit"
-          ? ["r.action", "r.task_id"]
+          ? [
+              "r.action",
+              "r.task_id",
+              "r.actor_username",
+              "r.device_name",
+              "r.target_name",
+              "r.detail_json",
+            ]
           : ["r.status"]),
     ];
     add(
@@ -168,7 +181,7 @@ export function historyPage(
   const order = kind === "audit" ? "r.id DESC" : "r.created_at DESC,r.id DESC";
   const rows = db
     .prepare(
-      `SELECT r.* FROM ${table} r LEFT JOIN devices d ON d.id=r.device_id LEFT JOIN users u ON u.id=r.actor_id${conditions.length ? " WHERE " + conditions.join(" AND ") : ""} ORDER BY ${order} LIMIT ?`,
+      `SELECT r.*,${kind === "audit" ? "COALESCE(r.actor_username,u.username)" : "u.username"} AS actor_name,${kind === "audit" ? "COALESCE(r.device_name,d.name)" : "d.name"} AS device_label FROM ${table} r LEFT JOIN devices d ON d.id=r.device_id LEFT JOIN users u ON u.id=r.actor_id${conditions.length ? " WHERE " + conditions.join(" AND ") : ""} ORDER BY ${order} LIMIT ?`,
     )
     .all(...values, limit + 1) as Record<string, any>[];
   const hasMore = rows.length > limit;

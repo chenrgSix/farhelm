@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import type { Device } from "../api/types";
 import { statusLabels } from "../model";
+import { auditActionLabels } from "../audit";
 import {
   emptyHistoryFilters,
   type HistoryFilters,
@@ -91,11 +92,23 @@ function clear() {
       </select></label
     >
     <label v-else
-      >事件类型<input
-        v-model="draft.action"
-        maxlength="128"
-        placeholder="例如 task.created"
-    /></label>
+      >事件类型<select v-model="draft.action">
+        <option value="">全部事件</option>
+        <option
+          v-for="(label, action) in auditActionLabels"
+          :key="action"
+          :value="action"
+        >
+          {{ label }}
+        </option>
+        <option
+          v-if="draft.action && !auditActionLabels[draft.action]"
+          :value="draft.action"
+        >
+          {{ draft.action }}
+        </option>
+      </select></label
+    >
     <label>开始时间<input v-model="draft.from" type="datetime-local" /></label>
     <label>结束时间<input v-model="draft.to" type="datetime-local" /></label>
     <div class="history-filter-actions">

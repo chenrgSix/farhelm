@@ -121,6 +121,8 @@ export interface TaskEvent {
   payload: unknown;
 }
 export interface Task {
+  actor_username?: string | null;
+  device_name?: string | null;
   task_id: string;
   device_id: string;
   actor_id: string;
@@ -138,6 +140,17 @@ export interface Task {
   cancel_requested?: boolean | number;
 }
 export interface AuditEntry {
+  actor_username?: string | null;
+  device_name?: string | null;
+  target_name?: string | null;
+  context?: {
+    source: "http" | "ssh" | "agent" | "system";
+    remote_address?: string;
+    request_id?: string;
+    method?: string;
+    route?: string;
+    user_agent?: string;
+  } | null;
   id: string | number;
   at: number;
   actor_id: string | null;
@@ -161,6 +174,8 @@ export interface CommandResponse {
   status: TaskStatus;
 }
 export interface TerminalSession {
+  actor_username?: string | null;
+  device_name?: string | null;
   backend?: "agent" | "ssh";
   transport?: "web" | "ssh";
   id: string;
