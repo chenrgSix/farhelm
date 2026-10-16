@@ -33,8 +33,9 @@ export interface TaskEvent {
 }
 export interface ServerConfig {
   dataDir: string;
-  tlsCert: string | Buffer;
-  tlsKey: string | Buffer;
+  mode?: "full" | "ssh-only";
+  tlsCert?: string | Buffer;
+  tlsKey?: string | Buffer;
   adminUsername?: string;
   adminPassword?: string;
   deviceTokenTtlMs?: number;

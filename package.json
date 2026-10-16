@@ -37,7 +37,8 @@
     "test:acme": "node tests/e2e/acme.mjs",
     "test:certificates:private": "node tests/e2e/private-certificates.mjs",
     "test:certificates:private:browser": "node tests/e2e/private-certificates-browser.mjs",
-    "test:certificates:ca-sync": "node tests/e2e/agent-ca-sync.mjs"
+    "test:certificates:ca-sync": "node tests/e2e/agent-ca-sync.mjs",
+    "test:ssh:only": "node tests/e2e/ssh-only.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
