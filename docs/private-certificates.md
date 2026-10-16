@@ -30,6 +30,17 @@ node scripts/init-private-tls.mjs /var/lib/farhelm
 
 已有受信管理入口的部署，可以直接在系统设置创建并下载 CA，无需运行初始化脚本；切换前完成新 CA 的信任配置。
 
+## Edge 已信任 CA 但仍提示证书错误
+
+如果 macOS 已信任平台 CA，新启动的同版本 Edge 可正常访问，而原来的 Edge 仍提示 `NET::ERR_CERT_AUTHORITY_INVALID`，先核对两者访问的是同一入口、收到相同证书，并排除代理和 DNS 差异。新浏览器通过校验，不能替代对原浏览器的验证。
+
+1. 在报错的 Edge 打开 `edge://policy`，检查 `CAPlatformIntegrationEnabled`。如果组织策略禁用系统证书集成，应由管理员处理；策略含义见 [Microsoft Edge 文档](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/caplatformintegrationenabled)。
+2. 打开 `edge://certificate-manager`，在「本地证书」中检查「使用从操作系统导入的本地证书」（`Use imported local certificates from your operating system`）。使用系统中已信任的私有 CA 时，此项应开启。
+3. 如果开关已开启且不受组织策略限制，可以关闭后立即重新开启，再刷新平台入口。这会重新应用浏览器的系统证书信任配置；操作结束时保持开启。若仍报错，继续核对该浏览器的证书列表和诊断日志，不把刷新开关视为所有证书错误的通用修复。
+4. 在原浏览器中重新验证登录、网页终端、正常退出及录制回放，确认实际使用的浏览器已经恢复。
+
+2026-10-16 在 macOS / Edge 155 的实际环境中验证：同一浏览器进程、同一服务端证书和 CA 保持不变，重新应用上述开关后 HTTPS 和 WSS 恢复正常。故障范围是该浏览器的系统证书信任状态，无需修改平台证书生成逻辑。网页代码无法代替浏览器执行证书信任管理；日常续签继续复用原 CA。
+
 ## 系统设置流程
 
 1. 进入「HTTPS 证书」，选择「纯内网（平台私有 CA）」，填写统一入口域名或 IP，保存。无需联系邮箱及外部证书机构条款。
