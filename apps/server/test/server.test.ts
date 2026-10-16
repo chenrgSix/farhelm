@@ -46,7 +46,7 @@ const config = {
   tlsCert,
   tlsKey,
   adminUsername: "admin",
-  adminPassword: "local-test-password",
+  adminPassword: "local-test-password1",
   testMode: true,
   heartbeatTimeoutMs: 60000,
 };
@@ -82,7 +82,7 @@ async function api(
 async function login(s: any, username = "admin") {
   const r = await api(s, "POST", "/api/v1/login", {
     username,
-    password: "local-test-password",
+    password: "local-test-password1",
   });
   assert.equal(r.status, 200);
   return r.body.access_token as string;
@@ -234,7 +234,7 @@ test("durable Ed25519 enrollment, scoped RBAC, HTTPS objects, WSS ACK/replay and
     for (const role of ["business", "auditor", "ops"] as const) {
       s.store.seedUser({
         username: role,
-        password: "local-test-password",
+        password: "local-test-password1",
         role,
         deviceScope: role === "ops" ? [] : "*",
       });
@@ -595,7 +595,7 @@ test("cross-device denial is auditable; malformed Unicode and huge frames reject
     const device = await enroll(s, admin);
     const ops = s.store.seedUser({
       username: "limited",
-      password: "local-test-password",
+      password: "local-test-password1",
       role: "ops",
       deviceScope: [],
     });

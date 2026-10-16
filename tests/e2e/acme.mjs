@@ -49,7 +49,7 @@ const domain = ipv6
     : ipMode
       ? "11.222.33.14"
       : "fleet.example.com",
-  password = "isolated-acme-test-password";
+  password = "isolated-acme-test-password1";
 const pebble = `farhelm-acme-ca-${process.pid}`,
   agent = `farhelm-acme-agent-${process.pid}`;
 const network = `farhelm-acme-ip-${process.pid}`,

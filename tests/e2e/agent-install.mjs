@@ -16,7 +16,7 @@ const tls = join(temp, "tls");
 execFileSync("bash", [join(root, "deploy/dev/generate-tls.sh"), tls], {
   stdio: "ignore",
 });
-const password = "isolated-agent-install-password";
+const password = "isolated-agent-install-password1";
 const containers = [];
 let server, vite, browser, wrongServer;
 const proxies = [];

@@ -40,7 +40,7 @@ async function fixture() {
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "release-test-password",
+    adminPassword: "release-test-password1",
     agentInstall: {
       distDir,
       publicUrl: "https://fleet.example.com",
@@ -53,13 +53,13 @@ async function fixture() {
       await server.app.inject({
         method: "POST",
         url: "/api/v1/login",
-        payload: { username, password: "release-test-password" },
+        payload: { username, password: "release-test-password1" },
       })
     ).json().access_token as string;
   const admin = await login("admin");
   server.store.seedUser({
     username: "ops",
-    password: "release-test-password",
+    password: "release-test-password1",
     role: "ops",
     deviceScope: "*",
   });

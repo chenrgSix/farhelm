@@ -9,6 +9,7 @@ import {
   integer,
   keys,
   object,
+  accountPassword,
   passwordHash,
   passwordVerify,
   str,
@@ -363,7 +364,7 @@ export function registerAccessControl(
       const input = userInput(b);
       unique("users", "username", input.username);
       limit("users", 1000);
-      const password = passwordHash(str(b.password, 12, 1024)),
+      const password = passwordHash(accountPassword(b.password)),
         userId = randomUUID();
       db.prepare(
         "INSERT INTO users(id,username,password_hash,role,device_scope,created_at,enabled) VALUES(?,?,?,'business',?,?,?)",
@@ -428,7 +429,7 @@ export function registerAccessControl(
     keys(b, ["v", "current_password", "new_password"]);
     version(b);
     const currentPassword = str(b.current_password, 1, 1024);
-    const newPassword = str(b.new_password, 12, 1024);
+    const newPassword = accountPassword(b.new_password);
     d.rate.check("password-change-global", 100);
     d.rate.check("password-change-user:" + actor.id, 5);
     d.availableStorage();
@@ -463,7 +464,7 @@ export function registerAccessControl(
       const userId = id(req),
         current = row("users", userId);
       checkRevision(current, b.revision);
-      const password = passwordHash(str(b.password, 12, 1024));
+      const password = passwordHash(accountPassword(b.password));
       db.prepare("UPDATE users SET password_hash=? WHERE id=?").run(
         password,
         userId,

@@ -31,7 +31,7 @@ async function fixture(
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "installer-test-password",
+    adminPassword: "installer-test-password1",
     agentInstall: {
       distDir,
       publicUrl,
@@ -43,7 +43,7 @@ async function fixture(
     await server.app.inject({
       method: "POST",
       url: "/api/v1/login",
-      payload: { username: "admin", password: "installer-test-password" },
+      payload: { username: "admin", password: "installer-test-password1" },
     })
   ).json().access_token;
   const api = (
@@ -71,14 +71,14 @@ test("installer is admin-only, validates HTTPS/account/options and reports missi
   try {
     f.store.seedUser({
       username: "ops",
-      password: "installer-test-password",
+      password: "installer-test-password1",
       role: "ops",
       deviceScope: "*",
     });
     const ops = (
       await f.api("POST", "/api/v1/login", {
         username: "ops",
-        password: "installer-test-password",
+        password: "installer-test-password1",
       })
     ).json().access_token;
     assert.equal(
@@ -441,7 +441,7 @@ test("SSH enrollment stages a bound key, preserves identity and promotes atomica
       oldRecordings = db.prepare("SELECT * FROM terminal_recordings").all();
     f.store.seedUser({
       username: "scoped",
-      password: "installer-test-password",
+      password: "installer-test-password1",
       role: "ops",
       deviceScope: [f.id],
     });
@@ -566,14 +566,14 @@ test("bound commands cannot rebind other identities, bypass admin, swap devices 
   try {
     f.store.seedUser({
       username: "ops",
-      password: "installer-test-password",
+      password: "installer-test-password1",
       role: "ops",
       deviceScope: [f.id],
     });
     const ops = (
       await f.api("POST", "/api/v1/login", {
         username: "ops",
-        password: "installer-test-password",
+        password: "installer-test-password1",
       })
     ).json().access_token;
     assert.equal(

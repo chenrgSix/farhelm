@@ -9,7 +9,7 @@ import { buildServer } from "../../apps/server/dist/server.js";
 const root = resolve(import.meta.dirname, "../..");
 const temp = mkdtempSync(join(tmpdir(), "farhelm-private-browser-"));
 const tls = process.env.FLEET_TEST_TLS_DIR ?? join(root, ".dev/tls");
-const password = "isolated-private-browser-password";
+const password = "isolated-private-browser-password1";
 const server = await buildServer({
   dataDir: temp,
   tlsCert: join(tls, "server.crt"),

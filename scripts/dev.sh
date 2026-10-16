@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 : "${FLEET_ADMIN_USER:=admin}"
-: "${FLEET_ADMIN_PASSWORD:?Set FLEET_ADMIN_PASSWORD to a unique local administrator password (12+ characters)}"
+: "${FLEET_ADMIN_PASSWORD:?Set FLEET_ADMIN_PASSWORD to a unique local administrator password (8+ characters, including letters and digits)}"
 : "${FLEET_PORT:=8443}"
 : "${FLEET_DEV_DIR:=$ROOT/.dev}"
 export FLEET_ADMIN_USER FLEET_ADMIN_PASSWORD FLEET_PORT

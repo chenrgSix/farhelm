@@ -209,7 +209,7 @@ test("CA activation requires all receipts, rechecks pending issuance and bypasse
   const store = new Store(mkdtempSync(join(root, "data-")));
   const actor = store.seedUser({
     username: "admin",
-    password: "test-ca-sync-password",
+    password: "test-ca-sync-password1",
     role: "admin",
     deviceScope: "*",
   }).id;
@@ -291,13 +291,13 @@ test("CA sync APIs require an administrator and strict configuration revision", 
     tlsKey: join(root, "tls/server.key"),
     webDist: "../../apps/web/dist",
     adminUsername: "admin",
-    adminPassword: "test-ca-sync-password",
+    adminPassword: "test-ca-sync-password1",
   });
   try {
     const login = await server.app.inject({
       method: "POST",
       url: "/api/v1/login",
-      payload: { username: "admin", password: "test-ca-sync-password" },
+      payload: { username: "admin", password: "test-ca-sync-password1" },
     });
     const headers = { authorization: `Bearer ${login.json().access_token}` };
     assert.equal(
@@ -338,14 +338,14 @@ test("CA sync APIs require an administrator and strict configuration revision", 
     assert.equal(result.json().all_ready, true);
     server.store.seedUser({
       username: "viewer",
-      password: "viewer-ca-sync-password",
+      password: "viewer-ca-sync-password1",
       role: "auditor",
       deviceScope: "*",
     });
     const viewer = await server.app.inject({
       method: "POST",
       url: "/api/v1/login",
-      payload: { username: "viewer", password: "viewer-ca-sync-password" },
+      payload: { username: "viewer", password: "viewer-ca-sync-password1" },
     });
     for (const method of ["GET", "POST"] as const)
       assert.equal(

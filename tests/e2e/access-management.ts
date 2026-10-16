@@ -16,7 +16,7 @@ mkdirSync(output, { recursive: true });
 execFileSync("bash", [join(root, "deploy/dev/generate-tls.sh"), tls], {
   stdio: "ignore",
 });
-const password = "access-browser-password";
+const password = "access-browser-password1";
 const server = await buildServer({
   dataDir: join(temp, "server"),
   tlsCert: join(tls, "server.crt"),

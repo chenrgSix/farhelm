@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import {
+  PASSWORD_HINT,
+  PASSWORD_PATTERN,
+  isAccountPassword,
+} from "../password-policy";
 import { api } from "../api/client";
 import type {
   AccessManagement,
@@ -172,6 +177,13 @@ function permissionChanged() {
 async function save() {
   if (saving.value || uncertain.value || editing.value?.builtin || !mode.value)
     return;
+  if (
+    (mode.value === "password" || (mode.value === "user" && !editing.value)) &&
+    !isAccountPassword(draft.value.password)
+  ) {
+    formError.value = PASSWORD_HINT;
+    return;
+  }
   saving.value = true;
   formError.value = "";
   notice.value = "";
@@ -577,13 +589,14 @@ onBeforeUnmount(() => {
                   }}<input
                     v-model="draft.password"
                     type="password"
-                    minlength="12"
+                    minlength="8"
+                    :pattern="PASSWORD_PATTERN"
                     maxlength="1024"
                     required
                     autocomplete="new-password"
                 /></label>
                 <p v-if="!editing || mode === 'password'" class="field-hint">
-                  至少 12 个字符。保存后无法查看密码。
+                  {{ PASSWORD_HINT }}保存后无法查看密码。
                 </p>
                 <label v-if="mode === 'user'" class="access-check"
                   ><input

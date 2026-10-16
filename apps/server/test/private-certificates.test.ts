@@ -48,7 +48,7 @@ async function fixture(dataDir = mkdtempSync(join(root, "data-"))) {
   const store = new Store(dataDir);
   const actor = store.seedUser({
     username: "admin",
-    password: "private-ca-test-password",
+    password: "private-ca-test-password1",
     role: "admin",
     deviceScope: "*",
   }).id;
@@ -271,7 +271,7 @@ test("private certificate APIs are admin-only and installers capture the active 
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "private-ca-test-password",
+    adminPassword: "private-ca-test-password1",
     agentInstall: { distDir, publicUrl: "https://farhelm.internal" },
   };
   let server = await buildServer(config);

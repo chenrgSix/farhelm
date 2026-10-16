@@ -23,7 +23,7 @@ const dataDir = join(temp, "server"),
   socketPath = join(dataDir, "admin.sock"),
   out = join(root, ".test-output");
 const webEnabled = process.env.FLEET_TEST_SSH_WEB === "1";
-const password = "isolated-ssh-only-test-password",
+const password = "isolated-ssh-only-test-password1",
   container = `farhelm-ssh-only-${process.pid}`;
 const steps = [],
   clients = [];

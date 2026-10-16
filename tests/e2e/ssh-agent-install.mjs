@@ -57,7 +57,7 @@ export async function installOnSshDevice(c) {
   ).run(device.id);
   server.store.seedUser({
     username: "scoped",
-    password: "scoped-install-test-password",
+    password: "scoped-install-test-password1",
     role: "ops",
     deviceScope: [],
   });
@@ -71,7 +71,7 @@ export async function installOnSshDevice(c) {
   db.prepare("INSERT INTO group_members VALUES('operations',?)").run(userId);
   const scoped = await post("/login", {
     username: "scoped",
-    password: "scoped-install-test-password",
+    password: "scoped-install-test-password1",
   });
   const scopedDevices = async () =>
     (

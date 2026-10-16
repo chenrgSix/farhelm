@@ -59,7 +59,7 @@ try {
     publicPort = await port(),
     webPort = await port(),
     origin = `http://127.0.0.1:${webPort}`,
-    password = "isolated-network-test-password";
+    password = "isolated-network-test-password1";
   proxy = createServer((client) => {
     peers.add(client);
     client.on("error", () => {});

@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import {
+  PASSWORD_HINT,
+  PASSWORD_PATTERN,
+  isAccountPassword,
+} from "../password-policy";
 import { api, ApiError } from "../api/client";
 defineProps<{ username: string }>();
 const emit = defineEmits<{ close: []; changed: []; unconfirmed: [] }>();
@@ -16,8 +21,7 @@ const mismatch = computed(
 const canSave = computed(
   () =>
     currentPassword.value.length > 0 &&
-    newPassword.value.length >= 12 &&
-    newPassword.value.length <= 1024 &&
+    isAccountPassword(newPassword.value) &&
     newPassword.value === confirmation.value &&
     currentPassword.value !== newPassword.value,
 );
@@ -129,12 +133,13 @@ async function save() {
             type="password"
             autocomplete="new-password"
             required
-            minlength="12"
+            minlength="8"
             maxlength="1024"
+            :pattern="PASSWORD_PATTERN"
             aria-describedby="password-length"
         /></label>
         <p id="password-length" class="field-hint">
-          至少 12 个字符，不能与当前密码相同。
+          {{ PASSWORD_HINT }}新密码不能与当前密码相同。
         </p>
         <label
           >确认新密码<input
@@ -143,7 +148,7 @@ async function save() {
             type="password"
             autocomplete="new-password"
             required
-            minlength="12"
+            minlength="8"
             maxlength="1024"
             :aria-invalid="mismatch"
         /></label>

@@ -13,7 +13,7 @@ const server = await buildServer({
   tlsKey: join(tls, "server.key"),
   webDist: join(root, "apps/web/dist"),
   adminUsername: "admin",
-  adminPassword: "isolated-ip-browser-password",
+  adminPassword: "isolated-ip-browser-password1",
   acme: { httpHost: "127.0.0.1", httpPort: 0 },
 });
 let browser;
@@ -32,7 +32,7 @@ try {
   await page.getByLabel("账号", { exact: true }).fill("admin");
   await page
     .getByLabel("密码", { exact: true })
-    .fill("isolated-ip-browser-password");
+    .fill("isolated-ip-browser-password1");
   await page.getByRole("button", { name: "登录 →", exact: true }).click();
   await page.getByRole("button", { name: "系统设置", exact: true }).click();
   const host = page.getByRole("textbox", {

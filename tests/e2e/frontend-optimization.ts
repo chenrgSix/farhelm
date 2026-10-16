@@ -19,7 +19,7 @@ const server = await buildServer({
   tlsCert: join(temp, "tls/server.crt"),
   tlsKey: join(temp, "tls/server.key"),
   adminUsername: "ui-review",
-  adminPassword: "isolated-ui-test-password",
+  adminPassword: "isolated-ui-test-password1",
 });
 const db = server.store.db;
 const actor = (
@@ -144,7 +144,7 @@ try {
   await page.getByLabel("账号", { exact: true }).fill("ui-review");
   await page
     .getByLabel("密码", { exact: true })
-    .fill("isolated-ui-test-password");
+    .fill("isolated-ui-test-password1");
   await page.getByRole("button", { name: "登录 →", exact: true }).click();
   const row = page
     .locator(".device-table tbody tr")

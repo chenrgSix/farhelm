@@ -128,7 +128,7 @@ async function fixture(
   )?.id;
   actor ??= store.seedUser({
     username: "admin",
-    password: "certificate-password",
+    password: "certificate-password1",
     role: "admin",
     deviceScope: "*",
   }).id;
@@ -482,14 +482,14 @@ test("certificate API is admin-only and rejects unavailable deployments without 
     tlsCert: bootstrap.cert,
     tlsKey: bootstrap.key,
     adminUsername: "admin",
-    adminPassword: "certificate-api-password",
+    adminPassword: "certificate-api-password1",
   });
   const login = async (username: string) =>
     (
       await server.app.inject({
         method: "POST",
         url: "/api/v1/login",
-        payload: { username, password: "certificate-api-password" },
+        payload: { username, password: "certificate-api-password1" },
       })
     ).json().access_token;
   const api = (
@@ -509,7 +509,7 @@ test("certificate API is admin-only and rejects unavailable deployments without 
     for (const role of ["ops", "business", "auditor"] as const) {
       server.store.seedUser({
         username: role,
-        password: "certificate-api-password",
+        password: "certificate-api-password1",
         role,
         deviceScope: "*",
       });

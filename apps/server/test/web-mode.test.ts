@@ -109,7 +109,7 @@ test(
         distDir: "/unused",
       },
       adminUsername: "admin",
-      adminPassword: "http-management-test-password",
+      adminPassword: "http-management-test-password1",
     });
     try {
       await server.app.listen({ host: "127.0.0.1", port: 0 });
@@ -129,7 +129,7 @@ test(
         url: "/api/v1/login",
         payload: {
           username: "admin",
-          password: "http-management-test-password",
+          password: "http-management-test-password1",
         },
       });
       assert.equal(login.statusCode, 200);

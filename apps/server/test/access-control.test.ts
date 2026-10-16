@@ -14,7 +14,7 @@ const root = mkdtempSync(join(tmpdir(), "farhelm-access-test-"));
 execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
   stdio: "ignore",
 });
-const password = "access-test-password";
+const password = "access-test-password1";
 async function fixture() {
   const s = await buildServer({
     dataDir: mkdtempSync(join(root, "data-")),
@@ -359,12 +359,12 @@ test("admin-only management, password reset, disabled users, immutable builtins,
     const reset = await f.api("POST", `/users/${u.id}/password`, {
       v: 1,
       revision: u.revision,
-      password: "new-access-password",
+      password: "new-access-password1",
     });
     assert.equal(reset.status, 200);
     assert.equal((await f.login("reader")).status, 401);
     assert.equal((await f.api("GET", "/me", undefined, auth)).status, 401);
-    auth = (await f.login("reader", "new-access-password")).body.access_token;
+    auth = (await f.login("reader", "new-access-password1")).body.access_token;
     assert.equal(
       (await f.api("PUT", "/users/" + u.id, f.userBody(u))).body.error,
       "ACCESS_REVISION_CONFLICT",
@@ -381,7 +381,7 @@ test("admin-only management, password reset, disabled users, immutable builtins,
       ).status,
       200,
     );
-    assert.equal((await f.login("reader", "new-access-password")).status, 401);
+    assert.equal((await f.login("reader", "new-access-password1")).status, 401);
     assert.equal((await f.api("GET", "/me", undefined, auth)).status, 401);
     all = await f.all();
     const self = all.users.find((x: any) => x.username === "admin");
@@ -413,7 +413,7 @@ test("admin-only management, password reset, disabled users, immutable builtins,
     );
     for (const text of [response, audit]) {
       assert.ok(!text.includes(password));
-      assert.ok(!text.includes("new-access-password"));
+      assert.ok(!text.includes("new-access-password1"));
       assert.ok(!text.includes("password_hash"));
     }
   } finally {
@@ -807,7 +807,7 @@ test("users without device permissions change only their own password, revoke al
     const body = {
       v: 1,
       current_password: password,
-      new_password: "updated-personal-password",
+      new_password: "updated-personal-password1",
     };
     assertValid("password-change", body);
     assert.equal((await f.api("POST", "/me/password", body, "")).status, 401);
@@ -877,7 +877,7 @@ test("users without device permissions change only their own password, revoke al
     const stale = await f.api("POST", `/users/${u.id}/password`, {
       v: 1,
       revision: u.revision,
-      password: "stale-admin-password",
+      password: "stale-admin-password1",
     });
     assert.equal(stale.status, 409);
     const events = (await f.api("GET", "/audit")).body.audit;
@@ -912,7 +912,7 @@ test("personal password attempts are limited by account across login sessions", 
         {
           v: 1,
           current_password: "wrong",
-          new_password: "new-personal-password",
+          new_password: "new-personal-password1",
         },
         tokens[i % 2],
       );
@@ -929,7 +929,7 @@ test("administrators can change their own password; audit failure rolls back pas
     const body = {
       v: 1,
       current_password: password,
-      new_password: "updated-admin-password",
+      new_password: "updated-admin-password1",
     };
     f.store.db.exec(
       "CREATE TRIGGER fail_password_audit BEFORE INSERT ON audit WHEN NEW.action='access.password_changed' BEGIN SELECT RAISE(ABORT,'test audit failure'); END",
@@ -944,6 +944,94 @@ test("administrators can change their own password; audit failure rolls back pas
     const updated = await f.login("admin", body.new_password);
     assert.equal(updated.status, 200);
     assert.equal(updated.body.user.role, "admin");
+  } finally {
+    await f.close();
+  }
+});
+
+test("all account password setters enforce eight characters plus letters and digits; legacy passwords still authenticate", async () => {
+  const f = await fixture();
+  try {
+    const u = await f.user("password-policy", { password: "abcd1234" });
+    let auth = (await f.login(u.username, "abcd1234")).body.access_token;
+    for (const invalid of [
+      "abc1234",
+      "abcdefgh",
+      "12345678",
+      "abcdefgh!",
+      "1234567!",
+      "A1".repeat(513),
+    ]) {
+      const create = await f.api("POST", "/users", {
+        v: 1,
+        username: "invalid-policy",
+        password: invalid,
+        enabled: true,
+        role_ids: [],
+        group_ids: [],
+        device_scope: [],
+      });
+      const reset = await f.api("POST", `/users/${u.id}/password`, {
+        v: 1,
+        revision: 0,
+        password: invalid,
+      });
+      const change = await f.api(
+        "POST",
+        "/me/password",
+        { v: 1, current_password: "abcd1234", new_password: invalid },
+        auth,
+      );
+      for (const r of [create, reset, change]) {
+        assert.equal(r.status, 400);
+        assert.equal(r.body.error, "INVALID_PASSWORD_POLICY");
+      }
+    }
+    assert.equal((await f.api("GET", "/me", undefined, auth)).status, 200);
+    assert.equal(
+      (
+        await f.api("POST", `/users/${u.id}/password`, {
+          v: 1,
+          revision: 0,
+          password: "ABCDEFG1",
+        })
+      ).status,
+      200,
+    );
+    auth = (await f.login(u.username, "ABCDEFG1")).body.access_token;
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/me/password",
+          { v: 1, current_password: "ABCDEFG1", new_password: "a123456!" },
+          auth,
+        )
+      ).status,
+      200,
+    );
+    assert.equal((await f.login(u.username, "a123456!")).status, 200);
+    // Simulate an account persisted before the new composition policy.
+    f.store.db
+      .prepare("UPDATE users SET password_hash=? WHERE id=?")
+      .run(passwordHash("legacy-password"), u.id);
+    const legacy = await f.login(u.username, "legacy-password");
+    assert.equal(legacy.status, 200);
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/me/password",
+          {
+            v: 1,
+            current_password: "legacy-password",
+            new_password: "abcd1234",
+          },
+          legacy.body.access_token,
+        )
+      ).status,
+      200,
+    );
   } finally {
     await f.close();
   }

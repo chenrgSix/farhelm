@@ -74,7 +74,7 @@ try {
   const apiPort = await port(),
     webPort = await port(),
     origin = `http://127.0.0.1:${webPort}`,
-    password = "isolated-upgrade-test-password";
+    password = "isolated-upgrade-test-password1";
   server = await buildServer({
     dataDir: join(temp, "server"),
     tlsCert: join(tls, "server.crt"),

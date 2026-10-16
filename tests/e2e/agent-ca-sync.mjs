@@ -46,7 +46,7 @@ assert.equal(
   "0.2.3",
 );
 const container = `farhelm-ca-sync-${process.pid}`,
-  password = "isolated-ca-sync-password";
+  password = "isolated-ca-sync-password1";
 let server, browser, terminal;
 async function docker(args) {
   return new Promise((resolve, reject) => {

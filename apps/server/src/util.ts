@@ -31,6 +31,18 @@ export function canonical(value: unknown): string {
 export const hash = (data: string | Buffer) =>
   createHash("sha256").update(data).digest("hex");
 export const token = () => randomBytes(32).toString("base64url");
+// Apply only when setting a new platform password; existing credentials still log in.
+export function accountPassword(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length < 8 ||
+    value.length > 1024 ||
+    !/[A-Za-z]/.test(value) ||
+    !/[0-9]/.test(value)
+  )
+    fail(400, "INVALID_PASSWORD_POLICY");
+  return str(value, 8, 1024);
+}
 export function passwordHash(password: string) {
   const salt = randomBytes(16);
   return (

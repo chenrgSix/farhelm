@@ -29,7 +29,7 @@ assert.deepEqual(
   initialCA,
 );
 const domain = "private.farhelm.internal",
-  password = "isolated-private-certificate-password";
+  password = "isolated-private-certificate-password1";
 const agent = `farhelm-private-agent-${process.pid}`;
 let server, terminal;
 async function docker(args) {

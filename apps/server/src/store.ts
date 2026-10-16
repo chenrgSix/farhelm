@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { passwordHash, canonical, fail, str } from "./util.js";
+import { accountPassword, passwordHash, canonical, fail, str } from "./util.js";
 import type { User, Role, Scope, Task } from "./types.js";
 import type { Permission } from "./permissions.js";
 export class Store {
@@ -271,7 +271,7 @@ export class Store {
     deviceScope: Scope;
   }): User {
     str(input.username, 1, 128);
-    str(input.password, 12, 1024);
+    accountPassword(input.password);
     if (!["admin", "ops", "business", "auditor"].includes(input.role))
       fail(400, "INVALID_ROLE");
     if (

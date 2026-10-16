@@ -1463,5 +1463,65 @@
     "path": "valid/audit-password-change-failed.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/access-user-create-eight.json",
+    "schema": "access-user-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/access-user-create-letters.json",
+    "schema": "access-user-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/access-user-create-digits.json",
+    "schema": "access-user-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/access-user-create-seven.json",
+    "schema": "access-user-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/access-password-reset-eight.json",
+    "schema": "access-password-reset.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/access-password-reset-letters.json",
+    "schema": "access-password-reset.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/access-password-reset-digits.json",
+    "schema": "access-password-reset.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/access-password-reset-seven.json",
+    "schema": "access-password-reset.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/password-change-eight.json",
+    "schema": "password-change.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/password-change-letters.json",
+    "schema": "password-change.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/password-change-digits.json",
+    "schema": "password-change.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/password-change-seven.json",
+    "schema": "password-change.schema.json",
+    "valid": false
   }
 ]

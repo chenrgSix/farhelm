@@ -32,7 +32,7 @@ writeFileSync(
     upgrade_protocol: 1,
   }),
 );
-const password = "upgrade-groups-browser-password";
+const password = "upgrade-groups-browser-password1";
 const server = await buildServer({
   dataDir: join(temp, "server"),
   tlsCert: join(tls, "server.crt"),

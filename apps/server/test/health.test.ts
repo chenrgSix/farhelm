@@ -19,7 +19,7 @@ async function fixture() {
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "health-test-password",
+    adminPassword: "health-test-password1",
   };
   const server = await buildServer(config);
   await server.app.listen({ host: "127.0.0.1", port: 0 });
@@ -37,7 +37,7 @@ async function fixture() {
   admin = (
     await api("POST", "/login", {
       username: "admin",
-      password: "health-test-password",
+      password: "health-test-password1",
     })
   ).body.access_token;
   server.store.db
@@ -108,14 +108,14 @@ async function fixture() {
   ) {
     server.store.seedUser({
       username: name,
-      password: "health-test-password",
+      password: "health-test-password1",
       role,
       deviceScope: scope,
     });
     return (
       await api("POST", "/login", {
         username: name,
-        password: "health-test-password",
+        password: "health-test-password1",
       })
     ).body.access_token;
   }
@@ -308,7 +308,7 @@ test("health configuration survives server restart while old results remain unkn
     const login = await server.app.inject({
       method: "POST",
       url: "/api/v1/login",
-      payload: { username: "admin", password: "health-test-password" },
+      payload: { username: "admin", password: "health-test-password1" },
     });
     const response = await server.app.inject({
       method: "GET",

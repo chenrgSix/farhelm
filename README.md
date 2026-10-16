@@ -45,7 +45,7 @@ npm --prefix apps/web ci
 npm --prefix tests/contracts ci
 cargo build --manifest-path agent/Cargo.toml --locked
 export FLEET_ADMIN_USER=admin
-export FLEET_ADMIN_PASSWORD='请替换为你自己的至少12字符密码'
+export FLEET_ADMIN_PASSWORD='请替换为至少8位且含英文字母和数字的密码'
 npm run dev
 ```
 

@@ -9,7 +9,7 @@ Run `npm ci`, `npm run build`, then `npm start` in this directory. Set:
 - `FLEET_HOST` (default `127.0.0.1`), `FLEET_PORT` (default `8443`)
 - `FLEET_DATA_DIR` (default `./data`): private server-owned storage, separate from Agent execution storage
 - `FLEET_TLS_CERT`, `FLEET_TLS_KEY`: certificate-chain and key file paths; TLS 1.2+ only, no HTTP downgrade
-- `FLEET_ADMIN_USER`, `FLEET_ADMIN_PASSWORD`: explicit initial admin; minimum password length 12, no defaults. Existing users are never reset from environment variables. Remove bootstrap password from the environment after first use
+- `FLEET_ADMIN_USER`, `FLEET_ADMIN_PASSWORD`: explicit initial admin; 8–1024 characters including an ASCII letter and a digit, no defaults. Existing users are never reset from environment variables. Remove bootstrap password from the environment after first use
 - Optional `FLEET_WEB_DIST`: built Vue directory containing `index.html`; serves the console and APIs on the same HTTPS origin
 - Optional `FLEET_SSH_PORT` enables the SSH gateway; `FLEET_SSH_HOST` defaults to `FLEET_HOST`. `FLEET_SSH_PUBLIC_HOST` / `FLEET_SSH_PUBLIC_PORT` override the address displayed in the console. See [SSH gateway](../../docs/ssh-gateway.md).
 - Optional `FLEET_TEST_MODE=1`: in-process hooks only. CLI requires loopback binding. No fault-injection HTTP endpoint exists

@@ -22,8 +22,8 @@ afterEach(() => {
   api.setToken(null);
 });
 async function fill(
-  current = "old-personal-password",
-  next = "new-personal-password",
+  current = "old-personal-password1",
+  next = "new-personal-password1",
   confirm = next,
 ) {
   await wrapper!.get('[name="current-password"]').setValue(current);
@@ -40,8 +40,8 @@ it("validates confirmation, prevents duplicate submits and sends only current an
   );
   wrapper = mount(ChangePasswordPanel, { props: { username: "operator" } });
   await fill(
-    "old-personal-password",
-    " new-personal-password ",
+    "old-personal-password1",
+    " new-personal-password1 ",
     "different-password",
   );
   expect(
@@ -50,7 +50,7 @@ it("validates confirmation, prevents duplicate submits and sends only current an
   expect(wrapper.get('[role="alert"]').text()).toContain("不一致");
   await wrapper
     .get('[name="confirm-password"]')
-    .setValue(" new-personal-password ");
+    .setValue(" new-personal-password1 ");
   await wrapper.get("form").trigger("submit");
   await wrapper.get("form").trigger("submit");
   expect(request).toHaveBeenCalledTimes(1);
@@ -58,8 +58,8 @@ it("validates confirmation, prevents duplicate submits and sends only current an
     method: "POST",
     body: {
       v: 1,
-      current_password: "old-personal-password",
-      new_password: " new-personal-password ",
+      current_password: "old-personal-password1",
+      new_password: " new-personal-password1 ",
     },
   });
   await wrapper.get("dialog").trigger("cancel");
@@ -107,7 +107,7 @@ it("an account without assigned permissions can open the form and returns to log
   });
   wrapper = mount(App);
   await wrapper.get('[name="username"]').setValue("empty-user");
-  await wrapper.get('[name="password"]').setValue("old-personal-password");
+  await wrapper.get('[name="password"]').setValue("old-personal-password1");
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(wrapper.text()).toContain("尚未分配操作权限");
@@ -123,4 +123,26 @@ it("an account without assigned permissions can open the form and returns to log
   expect(request.mock.calls.filter(([p]) => p === "/me/password")).toHaveLength(
     1,
   );
+});
+
+it("accepts eight-character mixed passwords and rejects missing letters, missing digits and short values", async () => {
+  vi.spyOn(api, "request").mockResolvedValue({ v: 1, ok: true });
+  wrapper = mount(ChangePasswordPanel, { props: { username: "operator" } });
+  expect(wrapper.text()).toContain("至少 8 个字符");
+  for (const value of ["abc1234", "abcdefgh", "12345678", "abcdefgh!"]) {
+    await fill("legacy-password", value);
+    expect(
+      wrapper.get('button[type="submit"]').attributes("disabled"),
+    ).toBeDefined();
+  }
+  for (const value of ["abcd1234", "ABCDEFG1", "a123456!"]) {
+    await fill("legacy-password", value);
+    expect(
+      wrapper.get('button[type="submit"]').attributes("disabled"),
+    ).toBeUndefined();
+    expect(
+      wrapper.get<HTMLInputElement>('[name="new-password"]').element.validity
+        .patternMismatch,
+    ).toBe(false);
+  }
 });

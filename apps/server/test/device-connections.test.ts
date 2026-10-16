@@ -104,7 +104,7 @@ async function fixture(heartbeatTimeoutMs = 15000) {
     tlsKey: join(root, "tls/server.key"),
     heartbeatTimeoutMs,
     adminUsername: "admin",
-    adminPassword: "connection-test-password",
+    adminPassword: "connection-test-password1",
     ssh: { host: "127.0.0.1", port: 0 },
   };
   const s = await buildServer(config);
@@ -125,7 +125,7 @@ async function fixture(heartbeatTimeoutMs = 15000) {
       await api(
         "POST",
         "/login",
-        { username, password: "connection-test-password" },
+        { username, password: "connection-test-password1" },
         "",
       )
     ).body.access_token as string;
@@ -184,7 +184,7 @@ async function fixture(heartbeatTimeoutMs = 15000) {
       host: "127.0.0.1",
       port: s.ssh!.info().port,
       username,
-      password: "connection-test-password",
+      password: "connection-test-password1",
       hostVerifier: (raw: Buffer) =>
         fingerprint(raw) === s.ssh!.info().fingerprint,
     });
@@ -273,7 +273,7 @@ test("SSH device credentials: admin-only, encrypted and write-only, explicit hos
   try {
     f.store.seedUser({
       username: "ops",
-      password: "connection-test-password",
+      password: "connection-test-password1",
       role: "ops",
       deviceScope: [f.id],
     });
@@ -443,13 +443,13 @@ test("SSH gateway selects SSH-only devices, uses shared recordings and rechecks 
   try {
     f.store.seedUser({
       username: "ops",
-      password: "connection-test-password",
+      password: "connection-test-password1",
       role: "ops",
       deviceScope: [f.id],
     });
     f.store.seedUser({
       username: "outsider",
-      password: "connection-test-password",
+      password: "connection-test-password1",
       role: "ops",
       deviceScope: [],
     });
@@ -517,7 +517,7 @@ test("Agent optional sudo password is preserved/cleared explicitly and is never 
     );
     f.store.seedUser({
       username: "ops",
-      password: "connection-test-password",
+      password: "connection-test-password1",
       role: "ops",
       deviceScope: ["agent-device"],
     });
@@ -646,7 +646,7 @@ test("offline backup and restart preserve decryptable credentials, gateway ident
     const login = await restored.app.inject({
       method: "POST",
       url: "/api/v1/login",
-      payload: { username: "admin", password: "connection-test-password" },
+      payload: { username: "admin", password: "connection-test-password1" },
     });
     const view = await restored.app.inject({
       method: "GET",
@@ -673,7 +673,7 @@ test("one Agent identity can configure, test, preserve and remove encrypted SSH 
       .run(id);
     f.store.seedUser({
       username: "ops",
-      password: "connection-test-password",
+      password: "connection-test-password1",
       role: "ops",
       deviceScope: [id],
     });
@@ -803,13 +803,13 @@ test("web and gateway prefer Agent, fall back on new connections, preserve exist
     });
     f.store.seedUser({
       username: "ops",
-      password: "connection-test-password",
+      password: "connection-test-password1",
       role: "ops",
       deviceScope: [id],
     });
     f.store.seedUser({
       username: "outsider",
-      password: "connection-test-password",
+      password: "connection-test-password1",
       role: "ops",
       deviceScope: [],
     });

@@ -65,7 +65,7 @@ export FLEET_DATA_DIR=/var/lib/farhelm
 export FLEET_SSH_HOST=127.0.0.1
 export FLEET_SSH_PORT=2222
 export FLEET_ADMIN_USER=admin
-export FLEET_ADMIN_PASSWORD='请替换为你自己的至少12字符密码'
+export FLEET_ADMIN_PASSWORD='请替换为至少8位且含英文字母和数字的密码'
 node apps/server/dist/index.js
 ```
 

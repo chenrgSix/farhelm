@@ -69,7 +69,7 @@ async function fixture(confirmationMs = 10000, withTls = true) {
     FLEET_WEB_ENABLED: "1",
     FLEET_WEB_PROTOCOL: "http",
     FLEET_ADMIN_USER: "admin",
-    FLEET_ADMIN_PASSWORD: "deployment-test-password",
+    FLEET_ADMIN_PASSWORD: "deployment-test-password1",
     ...(withTls
       ? { FLEET_TLS_CERT: root + "/cert", FLEET_TLS_KEY: root + "/key" }
       : {}),
@@ -206,14 +206,14 @@ test("administrator-only settings validate revisions, TLS readiness, active term
     );
     f.running.store.seedUser({
       username: "ops",
-      password: "deployment-test-password",
+      password: "deployment-test-password1",
       role: "ops",
       deviceScope: "*",
     });
     const ops = (
       await f.api("/login", "POST", {
         username: "ops",
-        password: "deployment-test-password",
+        password: "deployment-test-password1",
       })
     ).body.access_token;
     for (const method of ["GET", "PUT", "POST"]) {

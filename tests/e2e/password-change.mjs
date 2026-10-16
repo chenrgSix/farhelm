@@ -14,8 +14,8 @@ const require = createRequire(import.meta.url),
 const root = resolve(import.meta.dirname, "../.."),
   tls = process.env.FLEET_TEST_TLS_DIR ?? join(root, ".dev/tls"),
   out = join(root, ".test-output");
-const oldPassword = "personal-browser-old-password",
-  newPassword = "personal-browser-new-password";
+const oldPassword = "personal-browser-old-password1",
+  newPassword = "abcd1234";
 const server = await buildServer({
   dataDir: mkdtempSync(join(tmpdir(), "farhelm-password-")),
   tlsCert: join(tls, "server.crt"),
@@ -164,6 +164,13 @@ try {
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByLabel("当前密码", { exact: true })).toBeFocused();
   await dialog.getByLabel("当前密码", { exact: true }).fill("wrong");
+  for (const value of ["abc1234", "abcdefgh", "12345678"]) {
+    await dialog.getByLabel("新密码", { exact: true }).fill(value);
+    await dialog.getByLabel("确认新密码", { exact: true }).fill(value);
+    await expect(
+      dialog.getByRole("button", { name: "确认修改", exact: true }),
+    ).toBeDisabled();
+  }
   await dialog.getByLabel("新密码", { exact: true }).fill(newPassword);
   await dialog
     .getByLabel("确认新密码", { exact: true })
@@ -248,6 +255,7 @@ try {
     trusted_https: true,
     wrong_password_preserves_login: true,
     confirmation_validation: true,
+    eight_character_letter_digit_policy: true,
     new_password_web_and_ssh_login: true,
     old_password_rejected: true,
     own_web_and_ssh_terminals_revoked: true,

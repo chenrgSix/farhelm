@@ -99,7 +99,7 @@ it("creates users with no implicit privileges, uses device-group tags to select 
   const { wrapper, request, button } = await setup();
   await button("创建用户").trigger("click");
   await wrapper.get('input[autocomplete="off"]').setValue("new-user");
-  await wrapper.get('input[type="password"]').setValue("new-user-password");
+  await wrapper.get('input[type="password"]').setValue("abcd1234");
   await wrapper.get('[aria-label="加入用户组 运维组"]').setValue(true);
   await wrapper.get('[aria-label="批量选择设备组 生产组"]').setValue(true);
   await wrapper.get("form").trigger("submit");
@@ -109,7 +109,7 @@ it("creates users with no implicit privileges, uses device-group tags to select 
     body: {
       v: 1,
       username: "new-user",
-      password: "new-user-password",
+      password: "abcd1234",
       enabled: true,
       role_ids: [],
       group_ids: ["group"],
@@ -188,4 +188,24 @@ it("granular permissions replace legacy ops powers and always honor device scope
   expect(hasPermission(u, "terminal.connect", "two")).toBe(false);
   expect(hasPermission(u, "tasks.execute", "one")).toBe(false);
   expect(hasPermission({ ...u, permissions: [] }, "devices.read")).toBe(false);
+});
+
+it("validates the same password policy when an administrator resets a password", async () => {
+  const { wrapper, request } = await setup();
+  await wrapper.get('[aria-label="重置密码 operator"]').trigger("click");
+  await wrapper.get('input[type="password"]').setValue("onlyletters");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toContain("英文字母和数字");
+  expect(
+    request.mock.calls.filter(([, options]) => options?.method === "POST"),
+  ).toHaveLength(0);
+  await wrapper.get('input[type="password"]').setValue("abcd1234");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith("/users/user/password", {
+    method: "POST",
+    body: { v: 1, revision: 3, password: "abcd1234" },
+  });
+  wrapper.unmount();
 });

@@ -14,7 +14,7 @@ async function fixture() {
     ["../../deploy/dev/generate-tls.sh", join(root, "tls")],
     { stdio: "ignore" },
   );
-  const password = "history-test-password";
+  const password = "history-test-password1";
   const server = await buildServer({
     dataDir: join(root, "data"),
     tlsCert: join(root, "tls/server.crt"),

@@ -29,7 +29,7 @@ async function fixture() {
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "ssh-test-password",
+    adminPassword: "ssh-test-password1",
     ssh: { host: "127.0.0.1", port: 0 },
   };
   const s = await buildServer(config);
@@ -73,7 +73,7 @@ async function fixture() {
   const clients: ssh2.Client[] = [];
   async function connect(
     username = "admin:device",
-    password = "ssh-test-password",
+    password = "ssh-test-password1",
   ) {
     const c = new ssh2.Client();
     clients.push(c);
@@ -155,13 +155,13 @@ test("SSH enforces platform password, role, scope, revocation and unambiguous ta
   try {
     f.store.seedUser({
       username: "business",
-      password: "ssh-test-password",
+      password: "ssh-test-password1",
       role: "business",
       deviceScope: "*",
     });
     f.store.seedUser({
       username: "ops",
-      password: "ssh-test-password",
+      password: "ssh-test-password1",
       role: "ops",
       deviceScope: [],
     });
@@ -241,7 +241,7 @@ test("SSH shares durable recording, raw input privacy, resize, web close and pri
     const login = await f.app.inject({
       method: "POST",
       url: "/api/v1/login",
-      payload: { username: "admin", password: "ssh-test-password" },
+      payload: { username: "admin", password: "ssh-test-password1" },
     });
     const closed = once(channel, "close");
     assert.equal(
@@ -265,7 +265,7 @@ test("SSH shares durable recording, raw input privacy, resize, web close and pri
     );
     f.store.seedUser({
       username: "scoped",
-      password: "ssh-test-password",
+      password: "ssh-test-password1",
       role: "ops",
       deviceScope: ["device"],
     });
@@ -463,7 +463,7 @@ test("SSH bare username lists only scoped devices, sanitizes names and opens the
       .run("local-linux\u001b[31m\nspoof");
     f.store.seedUser({
       username: "scoped",
-      password: "ssh-test-password",
+      password: "ssh-test-password1",
       role: "ops",
       deviceScope: ["device", "offline"],
     });
@@ -599,7 +599,7 @@ test("SSH menu preserves displayed device identity and rechecks scope/revocation
     await f.wait("terminal.close");
     f.store.seedUser({
       username: "limited",
-      password: "ssh-test-password",
+      password: "ssh-test-password1",
       role: "ops",
       deviceScope: ["device"],
     });
@@ -640,7 +640,7 @@ test("SSH menu rejects non-operators and closes expired/downgraded logins before
   try {
     f.store.seedUser({
       username: "business",
-      password: "ssh-test-password",
+      password: "ssh-test-password1",
       role: "business",
       deviceScope: "*",
     });
@@ -677,7 +677,7 @@ test("SSH empty menu supports Ctrl-C/EOF and bounds oversized input without crea
   try {
     f.store.seedUser({
       username: "empty",
-      password: "ssh-test-password",
+      password: "ssh-test-password1",
       role: "ops",
       deviceScope: [],
     });
@@ -710,7 +710,7 @@ test(
       const login = await f.app.inject({
         method: "POST",
         url: "/api/v1/login",
-        payload: { username: "admin", password: "ssh-test-password" },
+        payload: { username: "admin", password: "ssh-test-password1" },
       });
       const headers = { authorization: "Bearer " + login.json().access_token };
       const created = await f.app.inject({
@@ -720,7 +720,7 @@ test(
         payload: {
           v: 1,
           username: "group-ssh",
-          password: "ssh-test-password",
+          password: "ssh-test-password1",
           enabled: true,
           role_ids: ["ops"],
           group_ids: [],

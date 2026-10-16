@@ -23,7 +23,7 @@ async function fixture() {
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "settings-test-password",
+    adminPassword: "settings-test-password1",
     agentInstall: {
       distDir,
       publicUrl: "https://initial.example.com",

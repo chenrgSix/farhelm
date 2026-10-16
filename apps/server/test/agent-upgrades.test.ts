@@ -18,7 +18,7 @@ function fixture() {
     app = Fastify();
   const user = store.seedUser({
     username: "admin",
-    password: "upgrade-test-password",
+    password: "upgrade-test-password1",
     role: "admin",
     deviceScope: "*",
   });

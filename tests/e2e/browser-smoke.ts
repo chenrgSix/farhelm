@@ -10,7 +10,7 @@ const temp = mkdtempSync(path.join(tmpdir(), "fleet-browser-"));
 const tls = path.join(temp, "tls");
 execFileSync("bash", [path.join(root, "deploy/dev/generate-tls.sh"), tls]);
 const ca = readFileSync(path.join(tls, "ca.crt"));
-const password = "local-browser-test-password-unique";
+const password = "local-browser-test-password-unique1";
 const server = await buildServer({
   dataDir: path.join(temp, "server"),
   tlsCert: path.join(tls, "server.crt"),

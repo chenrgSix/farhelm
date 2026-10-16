@@ -22,7 +22,7 @@ test("network observations are authenticated, scoped, validated, durable, idempo
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "network-test-password",
+    adminPassword: "network-test-password1",
   };
   let server = await buildServer(config);
   let agent: WebSocket | undefined;

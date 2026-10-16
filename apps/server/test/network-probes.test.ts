@@ -22,7 +22,7 @@ test("network probe configs are scoped and versioned; offline evidence is immuta
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "network-probe-test-password",
+    adminPassword: "network-probe-test-password1",
   };
   let s = await buildServer(cfg);
   let ws: WebSocket | undefined;

@@ -16,7 +16,7 @@ const temp = mkdtempSync(join(tmpdir(), "fh-ui-deploy-"));
 const dataDir = join(temp, "data"),
   out = join(root, ".test-output");
 mkdirSync(out, { recursive: true });
-const password = "isolated-deployment-ui-password";
+const password = "isolated-deployment-ui-password1";
 async function port() {
   const s = createServer();
   await new Promise((r) => s.listen(0, "127.0.0.1", r));

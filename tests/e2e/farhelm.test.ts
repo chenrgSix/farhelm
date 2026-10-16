@@ -533,13 +533,13 @@ test(
             const username = `test-${role}`;
             server.store.seedUser({
               username,
-              password: "role-test-password-that-is-long-enough",
+              password: "role-test-password-that-is-long-enough1",
               role,
               deviceScope: role === "ops" ? ["not-this-device"] : "*",
             } as any);
             const l = await api("POST", "/api/v1/login", {
               username,
-              password: "role-test-password-that-is-long-enough",
+              password: "role-test-password-that-is-long-enough1",
             });
             assert.equal(l.status, 200);
             const r = await api(

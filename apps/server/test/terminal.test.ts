@@ -42,7 +42,7 @@ async function fixture() {
     tlsCert: join(root, "tls/server.crt"),
     tlsKey: join(root, "tls/server.key"),
     adminUsername: "admin",
-    adminPassword: "terminal-test-password",
+    adminPassword: "terminal-test-password1",
   });
   await s.app.listen({ host: "127.0.0.1", port: 0 });
   const origin = `https://localhost:${(s.app.server.address() as any).port}`;
@@ -59,7 +59,7 @@ async function fixture() {
   async function login(username: string) {
     const r = await api("POST", "/api/v1/login", {
       username,
-      password: "terminal-test-password",
+      password: "terminal-test-password1",
     });
     assert.equal(r.status, 200);
     return r.body.access_token as string;
@@ -146,13 +146,13 @@ test("terminal gateway: role/scope checks, origin, single-use ticket and user-se
   try {
     f.store.seedUser({
       username: "business",
-      password: "terminal-test-password",
+      password: "terminal-test-password1",
       role: "business",
       deviceScope: "*",
     });
     f.store.seedUser({
       username: "other-ops",
-      password: "terminal-test-password",
+      password: "terminal-test-password1",
       role: "ops",
       deviceScope: [],
     });
@@ -373,7 +373,7 @@ test("startup reclassifies historical intentional closes without changing record
   try {
     const actor = store.seedUser({
       username: "admin",
-      password: "terminal-test-password",
+      password: "terminal-test-password1",
       role: "admin",
       deviceScope: "*",
     });
@@ -445,7 +445,7 @@ test("management and personal password changes immediately revoke affected activ
         {
           v: 1,
           username: "group-operator",
-          password: "terminal-test-password",
+          password: "terminal-test-password1",
           enabled: true,
           role_ids: ["ops"],
           group_ids: [],
@@ -469,8 +469,8 @@ test("management and personal password changes immediately revoke affected activ
               "/api/v1/me/password",
               {
                 v: 1,
-                current_password: "terminal-test-password",
-                new_password: "changed-terminal-password",
+                current_password: "terminal-test-password1",
+                new_password: "changed-terminal-password1",
               },
               auth,
             )

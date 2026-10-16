@@ -75,7 +75,7 @@ test("SSH-only starts with no certificate, retains its SSH identity and exposes 
     dataDir,
     mode: "ssh-only" as const,
     adminUsername: "admin",
-    adminPassword: "ssh-only-test-password",
+    adminPassword: "ssh-only-test-password1",
     ssh: { host: "127.0.0.1", port: 0 },
     tlsCert: "/missing",
     tlsKey: "/missing",
