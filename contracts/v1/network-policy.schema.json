@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/network-policy.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "enum": ["vpn_preferred", "private_only"]
+    },
+    "agent": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "vpn_url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "public_url": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "vpn_ip": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 45
+            }
+          },
+          "required": ["vpn_url", "public_url"]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ssh": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "vpn_host": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 45
+            },
+            "vpn_port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "public_host": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 253
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "public_port": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["vpn_host", "vpn_port", "public_host", "public_port"]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": ["mode", "agent", "ssh"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "private_only"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "vpn_url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "public_url": {
+                    "type": "null"
+                  },
+                  "vpn_ip": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 45
+                  }
+                },
+                "required": ["vpn_url", "public_url"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ssh": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "vpn_host": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 45
+                  },
+                  "vpn_port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "public_host": {
+                    "type": "null"
+                  },
+                  "public_port": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "vpn_host",
+                  "vpn_port",
+                  "public_host",
+                  "public_port"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

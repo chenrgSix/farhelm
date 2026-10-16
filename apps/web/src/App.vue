@@ -28,6 +28,8 @@ import TaskDetail from "./components/TaskDetail.vue";
 import ActorIdentity from "./components/ActorIdentity.vue";
 import AuditDetails from "./components/AuditDetails.vue";
 import { auditActionLabels, auditOutcome, auditSource } from "./audit";
+import NetworkRoutePanel from "./components/NetworkRoutePanel.vue";
+import { routeDescription, routeReasons } from "./network-route";
 import DeviceNetworkPanel from "./components/DeviceNetworkPanel.vue";
 import HealthChecksPanel from "./components/HealthChecksPanel.vue";
 import SshConnectionPanel from "./components/SshConnectionPanel.vue";
@@ -163,6 +165,7 @@ const deviceGroupFilter = ref("");
 const selectedDeviceIds = ref<string[]>([]);
 const sshTarget = ref<Device | null>(null);
 const networkTarget = ref<Device | null>(null);
+const networkRouteTarget = ref<Device | null>(null);
 const healthTarget = ref<Device | null>(null);
 const connectionTarget = ref<Device | undefined>();
 const connectionOpen = ref(false);
@@ -287,6 +290,7 @@ function logout(message = "") {
   terminalTarget.value = null;
   healthTarget.value = null;
   networkTarget.value = null;
+  networkRouteTarget.value = null;
   connectionTarget.value = undefined;
   connectionOpen.value = false;
   addDeviceOpen.value = false;
@@ -963,7 +967,7 @@ onBeforeUnmount(() => {
                         </th>
                         <th>设备</th>
                         <th>连接状态</th>
-                        <th>私网数据</th>
+                        <th>网络通道</th>
                         <th>业务健康</th>
                         <th>最近心跳 / 检查</th>
                         <th>操作</th>
@@ -1070,13 +1074,63 @@ onBeforeUnmount(() => {
                             }}
                           </small>
                         </td>
-                        <td data-label="私网数据">
-                          <HealthBadge
-                            :value="
-                              apiReady ? device.private_data_reachable : null
-                            "
-                            good="可达"
-                          />
+                        <td data-label="网络通道" class="small">
+                          <template v-if="device.network_route">
+                            <span v-if="device.connection_kind !== 'ssh'"
+                              >Agent
+                              {{
+                                device.network_route.agent?.connected
+                                  ? "当前"
+                                  : "最近"
+                              }}：{{
+                                routeDescription(device.network_route.agent)
+                              }}</span
+                            >
+                            <small
+                              v-if="
+                                device.connection_kind === 'ssh' ||
+                                device.ssh_configured
+                              "
+                              class="block"
+                              >SSH 最近：{{
+                                routeDescription(device.network_route.ssh)
+                              }}</small
+                            >
+                            <small
+                              v-if="device.network_route.agent?.reason"
+                              class="muted block"
+                              >{{
+                                routeReasons[
+                                  device.network_route.agent.reason
+                                ] ?? device.network_route.agent.reason
+                              }}</small
+                            >
+                            <small
+                              v-if="device.network_route.ssh?.reason"
+                              class="muted block"
+                              >{{
+                                routeReasons[device.network_route.ssh.reason] ??
+                                device.network_route.ssh.reason
+                              }}</small
+                            >
+                            <small class="muted block">{{
+                              device.network_route.policy?.mode ===
+                              "private_only"
+                                ? "仅内网 / VPN"
+                                : device.network_route.policy
+                                  ? "VPN 优先、公网备用"
+                                  : "沿用原配置"
+                            }}</small>
+                          </template>
+                          <button
+                            class="text-button"
+                            :disabled="!apiReady"
+                            @click="networkRouteTarget = device"
+                          >
+                            {{
+                              user.role === "admin" ? "网络策略" : "网络详情"
+                            }}
+                          </button>
                         </td>
                         <td data-label="业务健康">
                           <HealthBadge
@@ -1507,6 +1561,13 @@ onBeforeUnmount(() => {
         :device="sshTarget"
         :user="user"
         @close="sshTarget = null"
+      />
+      <NetworkRoutePanel
+        v-if="networkRouteTarget && user"
+        :device="networkRouteTarget"
+        :admin="user.role === 'admin'"
+        @close="networkRouteTarget = null"
+        @changed="refresh()"
       />
       <DeviceNetworkPanel
         v-if="networkTarget && user"

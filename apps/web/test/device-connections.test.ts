@@ -193,6 +193,7 @@ it("configures and removes backup SSH on the existing Agent ID while preserving 
   await testButton().trigger("click");
   await flushPromises();
   expect(request).toHaveBeenLastCalledWith("/devices/device/connection/test", {
+    timeoutMs: 25000,
     method: "POST",
     body: { v: 1, revision: 2 },
   });

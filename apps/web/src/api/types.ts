@@ -20,7 +20,38 @@ export interface User {
   role_names?: string[];
   group_ids?: string[];
 }
+export interface NetworkPolicy {
+  mode: "vpn_preferred" | "private_only";
+  agent: { vpn_url: string; vpn_ip?: string; public_url: string | null } | null;
+  ssh: {
+    vpn_host: string;
+    vpn_port: number;
+    public_host: string | null;
+    public_port: number | null;
+  } | null;
+}
+export interface NetworkRouteObservation {
+  channel: "vpn" | "public" | "configured";
+  endpoint: string;
+  reason: string | null;
+  checked_at: number;
+  connected?: boolean;
+  easytier: {
+    state: "p2p" | "relay" | "not_detected" | "unknown";
+    latency_ms: number | null;
+  };
+}
+export interface DeviceNetworkRoute {
+  revision: number;
+  policy: NetworkPolicy | null;
+  agent_supported: boolean | null;
+  agent_applied: boolean;
+  ssh_active: boolean;
+  agent: NetworkRouteObservation | null;
+  ssh: NetworkRouteObservation | null;
+}
 export interface Device {
+  network_route?: DeviceNetworkRoute;
   ip_addresses?: string[];
   connection_kind?: "agent" | "ssh";
   device_groups?: { id: string; name: string }[];

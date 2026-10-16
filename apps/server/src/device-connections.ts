@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import ssh2 from "ssh2";
 import type { Store } from "./store.js";
+import type { registerNetworkRoutes, RouteChannel } from "./network-routes.js";
+import type { TargetTerminal } from "./ssh-target.js";
 import type { User } from "./types.js";
 import { Credentials } from "./credentials.js";
 import {
@@ -24,6 +26,7 @@ export function registerDeviceConnections(
   app: FastifyInstance,
   d: {
     store: Store;
+    routes: ReturnType<typeof registerNetworkRoutes>;
     admin(req: FastifyRequest): User;
     requireDevice(id: string): any;
     availableStorage(): void;
@@ -59,6 +62,36 @@ export function registerDeviceConnections(
       privateKey: credential.private_key,
       passphrase: credential.passphrase,
     };
+  }
+  function routeTargets(id: string) {
+    const config = target(id),
+      { revision, policy } = d.routes.current(id);
+    if (!policy)
+      return {
+        revision,
+        targets: [{ config, channel: "configured" as RouteChannel }],
+      };
+    if (!policy.ssh) fail(409, "SSH_NETWORK_ENDPOINT_REQUIRED");
+    const p = policy.ssh;
+    const list = [
+      {
+        config: { ...config, host: p.vpn_host, port: p.vpn_port },
+        channel: "vpn" as RouteChannel,
+      },
+    ];
+    if (policy.mode === "vpn_preferred" && p.public_host && p.public_port)
+      list.push({
+        config: { ...config, host: p.public_host, port: p.public_port },
+        channel: "public",
+      });
+    return { revision, targets: list };
+  }
+  function canFallback(reason: string) {
+    return [
+      "SSH_CONNECT_FAILED",
+      "SSH_CONNECT_TIMEOUT",
+      "SSH_TARGET_DISCONNECTED",
+    ].includes(reason);
   }
   function view(id: string) {
     const row = saved(id),
@@ -281,12 +314,29 @@ export function registerDeviceConnections(
     const revision = integer(b.revision, 1, Number.MAX_SAFE_INTEGER);
     if (saved(id)?.revision !== revision)
       fail(409, "CONNECTION_CHANGED_RELOAD");
-    const config = target(id);
+    const selected = routeTargets(id);
     d.availableStorage();
     d.store.audit("connection.tested", user.id, id, null, { revision });
     beginProbe(user);
     try {
-      const error = await targets.test(config);
+      let error: string | null = null;
+      for (const candidate of selected.targets) {
+        error = await targets.test(candidate.config);
+        if (d.routes.current(id).revision !== selected.revision)
+          fail(409, "NETWORK_ROUTE_CHANGED_RELOAD");
+        if (!error) {
+          await d.routes.sshObserved(
+            id,
+            selected.revision,
+            candidate.channel,
+            candidate.config.host,
+            candidate.config.port,
+            candidate.channel === "public" ? "VPN_UNREACHABLE" : null,
+          );
+          break;
+        }
+        if (!canFallback(error)) break;
+      }
       device(req);
       if (saved(id)?.revision !== revision)
         fail(409, "CONNECTION_CHANGED_RELOAD");
@@ -299,6 +349,9 @@ export function registerDeviceConnections(
   return {
     kind,
     hasSsh,
+    canSsh: (id: string) =>
+      hasSsh(id) &&
+      (!d.routes.current(id).policy || !!d.routes.current(id).policy?.ssh),
     status(id: string) {
       const row = saved(id);
       return {
@@ -316,18 +369,77 @@ export function registerDeviceConnections(
       rows: number,
       receive: (type: string, body: Record<string, any>) => void,
     ) {
-      const revision = saved(id)?.revision;
-      return targets.open(target(id), cols, rows, (type, body) => {
-        try {
-          if (type === "terminal.opened") checked(id, revision, null);
-          else if (type === "terminal.closed" && body.reason !== "SHELL_EXIT")
-            checked(id, revision, body.reason);
-        } catch {
-          receive("terminal.closed", { reason: "AUDIT_STORAGE_FAILURE" });
+      const revision = saved(id)?.revision,
+        selected = routeTargets(id);
+      let active: TargetTerminal | undefined,
+        stopped = false,
+        opened = false,
+        index = 0;
+      const start = () => {
+        if (stopped) return;
+        if (d.routes.current(id).revision !== selected.revision) {
+          receive("terminal.closed", {
+            reason: "NETWORK_ROUTE_CHANGED_RELOAD",
+          });
           return;
         }
-        receive(type, body);
-      });
+        const candidate = selected.targets[index]!;
+        active = targets.open(candidate.config, cols, rows, (type, body) => {
+          if (stopped) return;
+          if (
+            type === "terminal.closed" &&
+            !opened &&
+            canFallback(body.reason) &&
+            index + 1 < selected.targets.length
+          ) {
+            index++;
+            start();
+            return;
+          }
+          try {
+            if (type === "terminal.opened") {
+              opened = true;
+              checked(id, revision, null);
+              // Persist the selected path before allowing shell output to reach users.
+              d.store.audit("network.route_selected", null, id, null, {
+                backend: "ssh",
+                channel: candidate.channel,
+                endpoint: `${candidate.config.host}:${candidate.config.port}`,
+                reason: index ? "VPN_UNREACHABLE" : null,
+              });
+              void d.routes
+                .sshObserved(
+                  id,
+                  selected.revision,
+                  candidate.channel,
+                  candidate.config.host,
+                  candidate.config.port,
+                  index ? "VPN_UNREACHABLE" : null,
+                )
+                .catch(() => {});
+            } else if (
+              type === "terminal.closed" &&
+              body.reason !== "SHELL_EXIT"
+            )
+              checked(id, revision, body.reason);
+          } catch {
+            active?.close();
+            receive("terminal.closed", { reason: "AUDIT_STORAGE_FAILURE" });
+            return;
+          }
+          receive(type, body);
+        });
+      };
+      queueMicrotask(start);
+      return {
+        close() {
+          stopped = true;
+          active?.close();
+        },
+        send(type: string, body: Record<string, any>) {
+          return active?.send(type, body) ?? false;
+        },
+      };
     },
     close: () => targets.close(),
   };

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/network-route-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "policy": {
+      "anyOf": [
+        {
+          "$ref": "network-policy.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "agent_supported": {
+      "type": ["boolean", "null"]
+    },
+    "agent_applied": {
+      "type": "boolean"
+    },
+    "ssh_active": {
+      "type": "boolean"
+    },
+    "agent": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "channel": {
+              "enum": ["vpn", "public", "configured"]
+            },
+            "endpoint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "reason": {
+              "enum": [null, "VPN_UNREACHABLE", "VPN_RECOVERY_WAITING_IDLE"]
+            },
+            "checked_at": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "easytier": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "enum": ["p2p", "relay", "not_detected", "unknown"]
+                },
+                "latency_ms": {
+                  "type": ["number", "null"],
+                  "minimum": 0,
+                  "maximum": 3600000
+                }
+              },
+              "required": ["state", "latency_ms"]
+            },
+            "connected": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "channel",
+            "endpoint",
+            "reason",
+            "checked_at",
+            "easytier"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ssh": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "channel": {
+              "enum": ["vpn", "public", "configured"]
+            },
+            "endpoint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "reason": {
+              "enum": [null, "VPN_UNREACHABLE", "VPN_RECOVERY_WAITING_IDLE"]
+            },
+            "checked_at": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "easytier": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "enum": ["p2p", "relay", "not_detected", "unknown"]
+                },
+                "latency_ms": {
+                  "type": ["number", "null"],
+                  "minimum": 0,
+                  "maximum": 3600000
+                }
+              },
+              "required": ["state", "latency_ms"]
+            },
+            "connected": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "channel",
+            "endpoint",
+            "reason",
+            "checked_at",
+            "easytier"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "v",
+    "device_id",
+    "revision",
+    "policy",
+    "agent_supported",
+    "agent_applied",
+    "ssh_active",
+    "agent",
+    "ssh"
+  ]
+}

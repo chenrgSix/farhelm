@@ -9,6 +9,7 @@ pub mod journal;
 pub mod network;
 pub mod network_probes;
 pub mod protocol;
+pub mod routes;
 pub mod terminal;
 pub mod trust;
 pub mod upgrade;

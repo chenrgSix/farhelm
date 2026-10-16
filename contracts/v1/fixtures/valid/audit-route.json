@@ -1,0 +1,19 @@
+{
+  "id": 1,
+  "at": 1700000000000,
+  "actor_id": null,
+  "device_id": "device",
+  "task_id": null,
+  "action": "network.route_configured",
+  "detail": {
+    "revision": 1,
+    "policy": {
+      "mode": "private_only",
+      "agent": {
+        "vpn_url": "https://10.144.1.1:8443",
+        "public_url": null
+      },
+      "ssh": null
+    }
+  }
+}

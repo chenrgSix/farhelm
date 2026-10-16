@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "agent.route.config",
+  "body": {
+    "revision": 1,
+    "policy": {
+      "mode": "private_only",
+      "agent": {
+        "vpn_url": "https://10.144.1.1:8443",
+        "public_url": null
+      },
+      "ssh": null
+    }
+  }
+}

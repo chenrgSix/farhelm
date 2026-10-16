@@ -12,6 +12,7 @@ use url::Url;
 #[derive(Clone)]
 pub struct Config {
     pub server: Url,
+    pub connect_ip: Option<std::net::IpAddr>,
     pub state: PathBuf,
     pub ca_pem: Option<Vec<u8>>,
     pub enrollment_token: Option<String>,
@@ -98,6 +99,7 @@ impl Config {
         );
         Ok(Self {
             server,
+            connect_ip: None,
             state,
             ca_pem: env::var("FLEET_CA_CERT").ok().map(fs::read).transpose()?,
             enrollment_token: env::var("FLEET_ENROLLMENT_TOKEN").ok(),
@@ -184,8 +186,15 @@ impl Config {
         let mut b = reqwest::Client::builder()
             .use_rustls_tls()
             .https_only(true)
+            .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(15));
+        if let Some(ip) = self.connect_ip {
+            b = b.resolve(
+                self.server.host_str().context("missing TLS hostname")?,
+                std::net::SocketAddr::new(ip, self.server.port_or_known_default().unwrap_or(443)),
+            );
+        }
         if let Some(pem) = &self.ca_pem {
             b = b.tls_built_in_root_certs(false);
             for cert in reqwest::Certificate::from_pem_bundle(pem)? {
@@ -221,6 +230,7 @@ mod tests {
     use super::*;
     fn config(state: &Path) -> Config {
         Config {
+            connect_ip: None,
             server: Url::parse("https://localhost:8443").unwrap(),
             state: state.into(),
             ca_pem: None,

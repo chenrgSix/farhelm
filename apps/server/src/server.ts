@@ -47,6 +47,7 @@ import {
 import { registerTerminals } from "./terminal.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
+import { registerNetworkRoutes } from "./network-routes.js";
 import { registerNetworkProbes } from "./network-probes.js";
 import { registerAgentNetwork } from "./agent-network.js";
 import { registerHealth } from "./health.js";
@@ -95,6 +96,7 @@ interface Connection {
   trust: boolean;
   network: boolean;
   networkProbes: boolean;
+  route: boolean;
   upgrade?: UpgradeInfo;
   healthSession: string;
 }
@@ -508,7 +510,7 @@ export async function buildServer(config: ServerConfig) {
   }
   function dispatch(id: string, all = false) {
     const c = connections.get(id);
-    if (!c?.ready || !live(c)) return;
+    if (!c?.ready || !live(c) || !networkRoutes.allowed(id)) return;
     const rows = db
       .prepare(
         "SELECT * FROM tasks WHERE device_id=? AND status NOT IN ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','EXPIRED','UNKNOWN') ORDER BY created_at,id",
@@ -575,7 +577,7 @@ export async function buildServer(config: ServerConfig) {
     initialServerUrl: config.agentInstall?.publicUrl,
     agent: (id) => {
       const c = connections.get(id);
-      return c?.ready && live(c)
+      return c?.ready && live(c) && !networkRoutes.current(id).policy
         ? { supported: c.address, send: (type, body) => send(c, type, body) }
         : undefined;
     },
@@ -610,7 +612,27 @@ export async function buildServer(config: ServerConfig) {
         : undefined;
     },
   });
+  const networkRoutes = registerNetworkRoutes(app, {
+    store,
+    admin,
+    reader: (req) => permitted(req, "devices.read"),
+    requireScope,
+    requireDevice,
+    agent(id) {
+      const c = connections.get(id);
+      return c?.ready &&
+        live(c) &&
+        Date.now() - c.lastHeartbeat <= heartbeatTimeout
+        ? {
+            supported: c.route,
+            connectionId: c.healthSession,
+            send: (type, body) => send(c, type, body),
+          }
+        : undefined;
+    },
+  });
   const deviceConnections = registerDeviceConnections(app, {
+    routes: networkRoutes,
     store,
     admin,
     requireDevice,
@@ -680,6 +702,7 @@ export async function buildServer(config: ServerConfig) {
   });
   const terminals = registerTerminals(app, {
     connections: deviceConnections,
+    route: (id, backend) => networkRoutes.snapshot(id)[backend],
     store,
     operator: (req) => permitted(req, "terminal.connect"),
     userAuth,
@@ -701,6 +724,7 @@ export async function buildServer(config: ServerConfig) {
       if (
         !c?.ready ||
         !live(c) ||
+        !networkRoutes.allowed(id) ||
         Date.now() - c.lastHeartbeat > heartbeatTimeout
       )
         return undefined;
@@ -1119,7 +1143,10 @@ export async function buildServer(config: ServerConfig) {
           !!connections.get(d.id)?.ready &&
           live(connections.get(d.id)!) &&
           Date.now() - connections.get(d.id)!.lastHeartbeat <= heartbeatTimeout,
-        private_data_reachable: null,
+        private_data_reachable: networkRoutes.snapshot(d.id).agent?.connected
+          ? networkRoutes.snapshot(d.id).agent!.channel === "vpn"
+          : null,
+        network_route: networkRoutes.snapshot(d.id),
         business_healthy: health.summary(d.id),
         last_seen: d.last_seen,
         revoked_at: d.revoked_at,
@@ -1659,6 +1686,7 @@ export async function buildServer(config: ServerConfig) {
         trust: false,
         network: false,
         networkProbes: false,
+        route: false,
         healthSession: randomUUID(),
       };
       const old = connections.get(auth.id);
@@ -1706,6 +1734,7 @@ export async function buildServer(config: ServerConfig) {
                 )
               )
                 fail(400, "INVALID_CAPABILITIES");
+              c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.health = b.capabilities.includes("health.probes.v1");
               c.address = b.capabilities.includes("agent.address.v1");
@@ -1741,11 +1770,12 @@ export async function buildServer(config: ServerConfig) {
                 send(c, "agent.address.ready", {
                   server_instance: store.instance,
                 });
-                settings.sync.connected(
-                  c.deviceId,
-                  b.server_url,
-                  settings.current(),
-                );
+                if (!networkRoutes.current(c.deviceId).policy)
+                  settings.sync.connected(
+                    c.deviceId,
+                    b.server_url,
+                    settings.current(),
+                  );
               }
               if (c.networkProbes)
                 send(
@@ -1753,11 +1783,15 @@ export async function buildServer(config: ServerConfig) {
                   "agent.network.probe.config",
                   networkProbes.config(c.deviceId),
                 );
+              networkRoutes.deliver(c.deviceId);
               caSync.connected(c.deviceId);
               dispatch(c.deviceId, true);
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
             }
+          } else if (env.type === "agent.route.status") {
+            networkRoutes.receive(c.deviceId, b);
+            dispatch(c.deviceId);
           } else if (String(env.type).startsWith("agent.network.probe.")) {
             if (!c.ready || !c.networkProbes)
               fail(400, "NETWORK_PROBES_HELLO_REQUIRED");

@@ -4,9 +4,9 @@
 
 Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，支持可选 SSH 统一入口；不依赖 MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
-这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。现提供网页/SSH 交互终端、会话录制与回放；P2 完整验收和 P3 EasyTier 私网优先、公网回退仍有剩余工作。实际验证清单见 [测试报告](docs/test-report.md)和[终端验证](docs/terminal.md)。
+这是可在隔离 Linux 开发环境运行的 MVP，不是已经通过生产安全验收的发行版。现提供网页/SSH 交互终端、会话录制与回放；现已支持逐设备配置 [VPN 优先、公网备用或仅内网](docs/network-routes.md)，并采集实际 EasyTier P2P / 中继路径；P2/P3 完整生产验收仍有剩余工作。实际验证清单见 [测试报告](docs/test-report.md)和[终端验证](docs/terminal.md)。
 
-设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。EasyTier 私网可达仍未采集。
+设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。网络通道与 EasyTier 路径独立于业务健康显示，详见[网络策略](docs/network-routes.md)。
 
 Agent 自动采集本机网卡 IPv4 / IPv6，并在本地记录与平台断连的检测、恢复时间，恢复后补传。设备页「网络记录」可查看 IP 和中断历史；需要 Agent 0.2.2 或更新版本。详见[网络记录](docs/agent-network.md)。
 

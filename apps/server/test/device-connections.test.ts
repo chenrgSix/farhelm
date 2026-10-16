@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
+import { createServer as createTcpServer } from "node:net";
 import ssh2, {
   type ClientChannel,
   type ServerChannel,
@@ -986,6 +987,168 @@ test("unsupported or expired Agent falls back to SSH and pin mismatch is rejecte
     );
     const fallback = await f.web(f.admin, id);
     assert.equal((await fallback.wait("terminal.ready")).backend, "ssh");
+  } finally {
+    await f.close();
+  }
+});
+
+test("network policy prefers private SSH, falls back only on transport failure, forbids public in private-only and retains recording", async () => {
+  const f = await fixture();
+  try {
+    const routePath = `/devices/${f.id}/network-route`;
+    f.store.seedUser({
+      username: "route-user",
+      password: "connection-test-password1",
+      role: "ops",
+      deviceScope: [f.id],
+    });
+    f.store.seedUser({
+      username: "route-denied",
+      password: "connection-test-password1",
+      role: "ops",
+      deviceScope: [],
+    });
+    const user = await f.login("route-user"),
+      denied = await f.login("route-denied");
+    assert.equal(
+      (await f.api("GET", routePath, undefined, denied)).status,
+      403,
+    );
+    const policy = {
+      mode: "vpn_preferred",
+      agent: null,
+      ssh: {
+        vpn_host: "127.0.0.1",
+        vpn_port: f.ssh.port,
+        public_host: "127.0.0.2",
+        public_port: f.ssh.port,
+      },
+    };
+    assert.equal(
+      (await f.api("PUT", routePath, { v: 1, revision: 0, policy }, user))
+        .status,
+      403,
+    );
+    assert.equal(
+      (await f.api("PUT", routePath, { v: 1, revision: 0, policy })).status,
+      200,
+    );
+    const primary = await f.web(user);
+    await primary.wait("terminal.ready");
+    assert.equal(
+      (await f.api("PUT", routePath, { v: 1, revision: 1, policy })).status,
+      409,
+    );
+    primary.send("terminal.input", {
+      data: Buffer.from("output\n").toString("base64"),
+    });
+    await until(() => primary.output().includes("TARGET_OUTPUT"));
+    await f.api(
+      "POST",
+      `/terminal-sessions/${primary.id}/close`,
+      { v: 1 },
+      user,
+    );
+    const unused = createTcpServer();
+    await new Promise<void>((r) => unused.listen(0, "127.0.0.1", r));
+    const unusedPort = (unused.address() as any).port;
+    await new Promise<void>((r) => unused.close(() => r()));
+    const reversed = {
+      ...policy,
+      ssh: {
+        ...policy.ssh,
+        vpn_host: "127.0.0.1",
+        vpn_port: unusedPort,
+        public_host: "127.0.0.1",
+      },
+    };
+    assert.equal(
+      (await f.api("PUT", routePath, { v: 1, revision: 1, policy: reversed }))
+        .status,
+      200,
+    );
+    const fallback = await f.web(user);
+    await fallback.wait("terminal.ready");
+    await until(() =>
+      f.store.db
+        .prepare(
+          "SELECT 1 FROM audit WHERE device_id=? AND action='network.route_selected' AND detail_json LIKE '%public%'",
+        )
+        .get(f.id),
+    );
+    fallback.send("terminal.input", {
+      data: Buffer.from("output\n").toString("base64"),
+    });
+    await until(() => fallback.output().includes("TARGET_OUTPUT"));
+    await f.api(
+      "POST",
+      `/terminal-sessions/${fallback.id}/close`,
+      { v: 1 },
+      user,
+    );
+    const recording = (
+      await f.api(
+        "GET",
+        `/terminal-sessions/${fallback.id}/recording`,
+        undefined,
+        user,
+      )
+    ).body;
+    assert.ok(
+      recording.events.some(
+        (e: any) =>
+          e.kind === "output" &&
+          Buffer.from(e.data.data, "base64")
+            .toString()
+            .includes("TARGET_OUTPUT"),
+      ),
+    );
+    const before = f.authentications();
+    assert.equal(
+      (
+        await f.api("PUT", routePath, {
+          v: 1,
+          revision: 2,
+          policy: {
+            ...reversed,
+            mode: "private_only",
+            ssh: { ...reversed.ssh, public_host: null, public_port: null },
+          },
+        })
+      ).status,
+      200,
+    );
+    const blocked = await f.web(user);
+    await blocked.wait("terminal.closed");
+    assert.equal(
+      f.authentications(),
+      before,
+      "private-only must not contact the public SSH endpoint",
+    );
+    assert.equal(
+      (await f.api("PUT", routePath, { v: 1, revision: 3, policy })).status,
+      200,
+    );
+    const gateway = await f.gateway(`admin:${f.id}`);
+    await until(() => gateway.output().includes("TARGET_SSH_READY"));
+    gateway.stream.write("exit\n");
+    await until(() =>
+      f.store.db
+        .prepare(
+          "SELECT 1 FROM terminal_sessions WHERE device_id=? AND transport='ssh' AND ended_at IS NOT NULL",
+        )
+        .get(f.id),
+    );
+    const mismatch = { ...f.ssh, fingerprint: "SHA256:" + "B".repeat(43) };
+    assert.equal(
+      (await f.api("PUT", f.path, { v: 1, revision: 1, ssh: mismatch })).status,
+      200,
+    );
+    const bad = await f.web(user);
+    assert.equal(
+      (await bad.wait("terminal.closed")).reason,
+      "SSH_HOST_KEY_MISMATCH",
+    );
   } finally {
     await f.close();
   }

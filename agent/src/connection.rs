@@ -41,11 +41,25 @@ pub async fn run(
     let running_hash = upgrade::current_hash()?;
     let mut network = Monitor::start(journal.clone())?;
     loop {
-        let selected = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
-        let http = selected.http_client()?;
-        let tls = selected.tls_config()?;
+        let route = crate::routes::Settings::load(&journal)?;
+        let base = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
         let (contact, mut observed) = tokio::sync::watch::channel(None);
         let attempt = async {
+            let mut chosen = None;
+            for (candidate, channel) in route.candidates(&base)? {
+                if channel == "configured"
+                    || probe_candidate(&candidate, &journal, identity.clone())
+                        .await
+                        .is_ok()
+                {
+                    chosen = Some((candidate, channel));
+                    break;
+                }
+            }
+            let (selected, channel) = chosen
+                .ok_or_else(|| anyhow::anyhow!("no permitted platform route is reachable"))?;
+            let http = selected.http_client()?;
+            let tls = selected.tls_config()?;
             let access = identity.authenticate(&http, &selected, &journal).await?;
             session(
                 &selected,
@@ -58,6 +72,8 @@ pub async fn run(
                 &mut network,
                 contact,
                 &probes,
+                &route,
+                channel,
             )
             .await
         };
@@ -128,15 +144,30 @@ async fn connect(
     ws_config.max_frame_size = Some(MAX_FRAME);
     ws_config.max_write_buffer_size = 128 * 1024;
     ws_config.write_buffer_size = 0;
-    let (socket, _) = tokio::time::timeout(
-        Duration::from_secs(15),
-        connect_async_tls_with_config(
-            request,
-            Some(ws_config),
-            false,
-            Some(Connector::Rustls(tls)),
-        ),
-    )
+    let (socket, _) = tokio::time::timeout(Duration::from_secs(15), async {
+        if let Some(ip) = cfg.connect_ip {
+            let stream = tokio::net::TcpStream::connect((
+                ip,
+                cfg.server.port_or_known_default().unwrap_or(443),
+            ))
+            .await?;
+            tokio_tungstenite::client_async_tls_with_config(
+                request,
+                stream,
+                Some(ws_config),
+                Some(Connector::Rustls(tls)),
+            )
+            .await
+        } else {
+            connect_async_tls_with_config(
+                request,
+                Some(ws_config),
+                false,
+                Some(Connector::Rustls(tls)),
+            )
+            .await
+        }
+    })
     .await??;
     Ok(socket)
 }
@@ -155,6 +186,17 @@ async fn ready(socket: &mut Socket, journal: &Journal) -> Result<()> {
         "platform identity mismatch"
     );
     Ok(())
+}
+async fn probe_candidate(cfg: &Config, journal: &Journal, identity: Arc<Identity>) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let http = cfg.http_client()?;
+        let access = identity.authenticate(&http, cfg, journal).await?;
+        let mut socket = connect(cfg, &access, cfg.tls_config()?, "/agent/address-probe").await?;
+        ready(&mut socket, journal).await?;
+        let _ = socket.close(None).await;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await?
 }
 async fn probe(
     cfg: Config,
@@ -183,6 +225,8 @@ async fn session(
     network: &mut Monitor,
     contact: tokio::sync::watch::Sender<Option<tokio::time::Instant>>,
     probes: &crate::network_probes::Probes,
+    route: &crate::routes::Settings,
+    channel: &str,
 ) -> Result<SessionEnd> {
     let mut access = access.clone();
     let mut http = http.clone();
@@ -192,7 +236,7 @@ async fn session(
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
             )?
             .into(),
         ))
@@ -210,7 +254,9 @@ async fn session(
     }
     let mut downloads = tokio::task::JoinSet::<(UpgradeSpec, Result<()>)>::new();
     let mut address = AddressState::load(cfg, journal)?;
-    address.confirmed(cfg, journal)?;
+    if route.policy.is_none() {
+        address.confirmed(cfg, journal)?;
+    }
     if let Some(receipt) = &address.receipt {
         socket
             .send(Message::Text(
@@ -224,6 +270,15 @@ async fn session(
     let mut ping = tokio::time::interval(Duration::from_secs(5));
     let mut pending_ping: Option<Vec<u8>> = None;
     let mut inventory = tokio::time::interval(Duration::from_secs(30));
+    let mut route_pending = false;
+    let mut vpn_successes = 0u8;
+    let mut route_checks = tokio::task::JoinSet::<(serde_json::Value, bool)>::new();
+    let mut route_status = json!({"revision":route.revision,"channel":channel,"endpoint":cfg.server.origin().ascii_serialization(),"reason":if channel=="public"{Some("VPN_UNREACHABLE")}else{None},"easytier":{"state":"unknown","latency_ms":null}});
+    socket
+        .send(Message::Text(
+            envelope("agent.route.status", &route_status)?.into(),
+        ))
+        .await?;
     let mut reported_probe = 0;
     let mut network_events = tokio::time::interval(Duration::from_secs(1));
     let mut outbox = tokio::time::interval(Duration::from_millis(250));
@@ -247,7 +302,26 @@ async fn session(
                 pending_ping=Some(bytes.clone());
                 socket.send(Message::Ping(bytes.into())).await?;
             }
+            Some(checked)=route_checks.join_next(), if !route_checks.is_empty()=>{
+                let (easytier,vpn_ok)=checked?;
+                route_status["easytier"]=easytier;
+                if channel=="public" {
+                    vpn_successes=if vpn_ok{vpn_successes.saturating_add(1)}else{0};
+                    if vpn_successes>=3 {route_pending=true;route_status["reason"]=json!("VPN_RECOVERY_WAITING_IDLE");}
+                }
+                socket.send(Message::Text(envelope("agent.route.status",&route_status)?.into())).await?;
+            }
             _=inventory.tick()=>{
+                if route_checks.is_empty() {
+                    let cfg=cfg.clone();let journal=journal.clone();let identity=identity.clone();let route=route.clone();let on_public=channel=="public";
+                    route_checks.spawn(async move {
+                        let target=cfg.connect_ip.map(|ip|ip.to_string()).unwrap_or_else(||cfg.server.host_str().unwrap_or("").trim_matches(['[',']']).to_owned());
+                        let et=crate::routes::easytier(&target).await;
+                        let ok=if on_public {
+                            if let Ok(candidates)=route.candidates(&cfg) {probe_candidate(&candidates[0].0,&journal,identity).await.is_ok()}else{false}
+                        }else{false};(et,ok)
+                    });
+                }
                 match network::addresses() {
                     Ok(addresses)=>{
                         let truncated=addresses.len()>128;
@@ -333,7 +407,10 @@ async fn session(
                         }
                     }
                 }
-                if address.pending.is_some() && address_probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
+                if route_pending && downloads.is_empty() && renewal.is_empty() && terminals.is_idle() && terminal_events.is_empty() && journal.upgrade_idle()? {
+                    network.planned()?;let _=socket.close(None).await;return Ok(SessionEnd::AddressChange);
+                }
+                if route.policy.is_none() && address.pending.is_some() && address_probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
                     network.planned()?;
                     let _=socket.close(None).await;
                     return Ok(SessionEnd::AddressChange);
@@ -356,6 +433,12 @@ async fn session(
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.route.config"=>{
+                                let next:crate::routes::Settings=serde_json::from_value(envelope.body)?;
+                                let saved=crate::routes::Settings::load(journal)?;
+                                if next.revision>saved.revision {next.save(journal)?;route_pending=true;}
+                                else if next==*route {socket.send(Message::Text(crate::protocol::envelope("agent.route.status",&route_status)?.into())).await?;}
+                            }
                             "agent.network.probe.config"=>{
                                 let config:crate::network_probes::Settings=serde_json::from_value(envelope.body)?;
                                 let revision=probes.configure(config)?;
@@ -401,6 +484,7 @@ async fn session(
                                 } else { socket.send(Message::Text(crate::protocol::envelope("agent.trust.result",receipt)?.into())).await?; }
                             }
                             "agent.address.update"=>{
+                                if crate::routes::Settings::load(journal)?.policy.is_some() {continue;}
                                 let update:AddressUpdate=serde_json::from_value(envelope.body)?;update.validate()?;
                                 if let Some(receipt)=&address.receipt {
                                     if receipt.request_id==update.request_id {

@@ -102,7 +102,10 @@
         "deployment.applied",
         "deployment.rolled_back",
         "access.password_changed",
-        "user.password_change_failed"
+        "user.password_change_failed",
+        "network.route_configured",
+        "network.route_changed",
+        "network.route_selected"
       ]
     },
     "detail": {
@@ -941,6 +944,161 @@
             }
           },
           "required": ["revision", "code"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "policy": {
+              "anyOf": [
+                {
+                  "$ref": "network-policy.schema.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["revision", "policy"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "enum": ["agent", "ssh"]
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "channel": {
+              "enum": ["vpn", "public", "configured"]
+            },
+            "endpoint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["backend", "revision", "channel", "endpoint", "reason"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "const": "ssh"
+            },
+            "channel": {
+              "enum": ["vpn", "public", "configured"]
+            },
+            "endpoint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["backend", "channel", "endpoint", "reason"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "network_route": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "channel": {
+                      "enum": ["vpn", "public", "configured"]
+                    },
+                    "endpoint": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    },
+                    "reason": {
+                      "enum": [
+                        null,
+                        "VPN_UNREACHABLE",
+                        "VPN_RECOVERY_WAITING_IDLE"
+                      ]
+                    },
+                    "checked_at": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "easytier": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "state": {
+                          "enum": ["p2p", "relay", "not_detected", "unknown"]
+                        },
+                        "latency_ms": {
+                          "type": ["number", "null"],
+                          "minimum": 0,
+                          "maximum": 3600000
+                        }
+                      },
+                      "required": ["state", "latency_ms"]
+                    },
+                    "connected": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "channel",
+                    "endpoint",
+                    "reason",
+                    "checked_at",
+                    "easytier"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["session_id"]
         }
       ]
     },
@@ -1402,6 +1560,64 @@
             "properties": {
               "session_id": {
                 "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "network_route": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "channel": {
+                        "enum": ["vpn", "public", "configured"]
+                      },
+                      "endpoint": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "reason": {
+                        "enum": [
+                          null,
+                          "VPN_UNREACHABLE",
+                          "VPN_RECOVERY_WAITING_IDLE"
+                        ]
+                      },
+                      "checked_at": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "easytier": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "state": {
+                            "enum": ["p2p", "relay", "not_detected", "unknown"]
+                          },
+                          "latency_ms": {
+                            "type": ["number", "null"],
+                            "minimum": 0,
+                            "maximum": 3600000
+                          }
+                        },
+                        "required": ["state", "latency_ms"]
+                      },
+                      "connected": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "endpoint",
+                      "reason",
+                      "checked_at",
+                      "easytier"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": ["session_id"]
@@ -2438,6 +2654,132 @@
         "properties": {
           "detail": {
             "$ref": "common.schema.json#/$defs/empty"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "network.route_configured"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "policy": {
+                "anyOf": [
+                  {
+                    "$ref": "network-policy.schema.json"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["revision", "policy"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "network.route_changed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "backend": {
+                "enum": ["agent", "ssh"]
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "channel": {
+                "enum": ["vpn", "public", "configured"]
+              },
+              "endpoint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["backend", "revision", "channel", "endpoint", "reason"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "network.route_selected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "backend": {
+                "const": "ssh"
+              },
+              "channel": {
+                "enum": ["vpn", "public", "configured"]
+              },
+              "endpoint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["backend", "channel", "endpoint", "reason"]
           }
         }
       }

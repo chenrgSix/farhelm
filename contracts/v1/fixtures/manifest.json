@@ -1523,5 +1523,40 @@
     "path": "invalid/password-change-seven.json",
     "schema": "password-change.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/network-policy-private.json",
+    "schema": "network-policy.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-route-update.json",
+    "schema": "network-route-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/network-route-response.json",
+    "schema": "network-route-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent.route.config.json",
+    "schema": "agent-route-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent.route.status.json",
+    "schema": "agent-route-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/network-private-with-public.json",
+    "schema": "network-policy.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/audit-route.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

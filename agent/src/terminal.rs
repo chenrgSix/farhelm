@@ -443,6 +443,7 @@ mod tests {
     async fn real_pty_keeps_cwd_resizes_supports_unicode_and_ctrl_c() {
         let temp = tempfile::tempdir().unwrap();
         let cfg = Config {
+            connect_ip: None,
             server: url::Url::parse("https://localhost:8443").unwrap(),
             state: temp.path().into(),
             ca_pem: None,
@@ -526,6 +527,7 @@ mod tests {
     async fn explicit_terminal_opt_in_allows_existing_sudo_policy() {
         let temp = tempfile::tempdir().unwrap();
         let cfg = Config {
+            connect_ip: None,
             server: url::Url::parse("https://localhost:8443").unwrap(),
             state: temp.path().into(),
             ca_pem: None,

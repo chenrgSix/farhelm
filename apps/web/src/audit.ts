@@ -2,6 +2,9 @@ import type { AuditEntry } from "./api/types";
 import { formatTime, statusLabels } from "./model";
 
 export const auditActionLabels: Record<string, string> = {
+  "network.route_configured": "修改设备网络策略",
+  "network.route_changed": "网络通道状态变化",
+  "network.route_selected": "选择终端网络通道",
   "user.bootstrap": "初始化账号",
   "user.login": "账号登录",
   "user.login_failed": "登录失败",
@@ -62,6 +65,10 @@ export const auditActionLabels: Record<string, string> = {
   "user.password_change_failed": "本人改密验证失败",
 };
 const labels: Record<string, string> = {
+  channel: "网络通道",
+  endpoint: "连接地址",
+  policy: "网络策略",
+  network_route: "实际连接路径",
   action: "操作类型",
   argv: "命令参数",
   cwd: "工作目录",

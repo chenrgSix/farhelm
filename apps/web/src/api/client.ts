@@ -13,6 +13,7 @@ type RequestOptions = {
   idempotencyKey?: string;
   binary?: File;
   manifest?: unknown;
+  timeoutMs?: number;
 };
 
 /** No localStorage, cookies, URL tokens, or automatic mutation retries. */
@@ -108,7 +109,9 @@ export class ApiClient {
         credentials: "omit",
         cache: "no-store",
         redirect: "error",
-        signal: AbortSignal.timeout(options.binary ? 120_000 : 15_000),
+        signal: AbortSignal.timeout(
+          options.timeoutMs ?? (options.binary ? 120_000 : 15_000),
+        ),
       });
     } catch {
       throw new ApiError(

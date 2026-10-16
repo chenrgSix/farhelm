@@ -485,6 +485,7 @@ mod execution_tests {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir(d.path().join("artifacts")).unwrap();
         let cfg = Config {
+            connect_ip: None,
             server: url::Url::parse("https://localhost:8443").unwrap(),
             state: d.path().into(),
             ca_pem: None,

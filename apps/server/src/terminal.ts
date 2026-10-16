@@ -50,9 +50,11 @@ interface Dependencies {
   availableStorage(): void;
   requireAvailable?(id: string): void;
   requireConnect?(): void;
+  route?(id: string, backend: "agent" | "ssh"): unknown;
   connections: {
     kind(id: string): "agent" | "ssh";
     hasSsh(id: string): boolean;
+    canSsh?(id: string): boolean;
     open(
       id: string,
       cols: number,
@@ -200,7 +202,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   function backend(deviceId: string): "agent" | "ssh" | null {
     if (d.connections.kind(deviceId) === "ssh") return "ssh";
     if (d.agent(deviceId)?.terminal) return "agent";
-    return d.connections.hasSsh(deviceId) ? "ssh" : null;
+    return (d.connections.canSsh?.(deviceId) ?? d.connections.hasSsh(deviceId))
+      ? "ssh"
+      : null;
   }
   function create(
     user: User,
@@ -473,6 +477,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
             "UPDATE terminal_sessions SET status='OPEN' WHERE id=?",
           ).run(s.id);
           store.audit("terminal.opened", s.actorId, s.deviceId, null, {
+            network_route: d.route?.(s.deviceId, s.backend) ?? null,
             session_id: s.id,
           });
         });

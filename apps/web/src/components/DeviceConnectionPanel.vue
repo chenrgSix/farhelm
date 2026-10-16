@@ -168,7 +168,11 @@ async function testConnection() {
   try {
     const result = await api.request<DeviceConnection & { ok: boolean }>(
       path.value + "/test",
-      { method: "POST", body: { v: 1, revision: state.value.revision } },
+      {
+        method: "POST",
+        body: { v: 1, revision: state.value.revision },
+        timeoutMs: 25000,
+      },
     );
     if (disposed) return;
     apply(result);
