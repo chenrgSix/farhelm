@@ -11,3 +11,5 @@ dist/
 *.crt
 .env
 .idea/
+
+/source-manifest.json
