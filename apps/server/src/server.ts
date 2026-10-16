@@ -38,7 +38,7 @@ import { registerDeviceConnections } from "./device-connections.js";
 import { registerAgentReleases, legacyArtifacts } from "./agent-releases.js";
 import { registerAgentInstall } from "./agent-install.js";
 import { registerSettings } from "./settings.js";
-import { managedCertificate } from "./certificate-files.js";
+import { certificateMatches, managedCertificate } from "./certificate-files.js";
 import { CertificateManager, registerCertificates } from "./certificates.js";
 import { registerAgentUpgrades, type UpgradeInfo } from "./agent-upgrades.js";
 import {
@@ -142,20 +142,21 @@ export async function buildServer(config: ServerConfig) {
     throw new Error(
       "ACME mode requires Agents to use public trust roots; remove the private Agent CA setting",
     );
-  const managed = config.acme ? managedCertificate(config.dataDir) : undefined;
+  if (config.certificateTest && !config.testMode)
+    throw new Error("Certificate test options require isolated test mode");
+  const managed = managedCertificate(config.dataDir);
   const identity = (cert: string | Buffer, key: string | Buffer) => ({
     certificate: new X509Certificate(cert),
     context: createSecureContext({ cert, key, minVersion: "TLSv1.2" }),
   });
-  const bootstrapIdentity = config.acme
-    ? identity(readPem(config.tlsCert), readPem(config.tlsKey))
-    : undefined;
+  const bootstrapIdentity = identity(
+    readPem(config.tlsCert),
+    readPem(config.tlsKey),
+  );
   let activeIdentity = managed
     ? identity(managed.cert, managed.key)
     : undefined;
-  const retired = config.acme
-    ? managedCertificate(config.dataDir, "retired.json")
-    : undefined;
+  const retired = managedCertificate(config.dataDir, "retired.json");
   let retiredIdentity = retired
     ? identity(retired.cert, retired.key)
     : undefined;
@@ -165,23 +166,14 @@ export async function buildServer(config: ServerConfig) {
       key: managed?.key ?? readPem(config.tlsKey),
       cert: managed?.cert ?? readPem(config.tlsCert),
       minVersion: "TLSv1.2",
-      ...(config.acme
-        ? {
-            SNICallback: (name, callback) => {
-              const selected = [
-                activeIdentity,
-                retiredIdentity,
-                bootstrapIdentity,
-              ].find((item) =>
-                item?.certificate.checkHost(name, {
-                  subject: "never",
-                  wildcards: false,
-                }),
-              );
-              callback(null, selected?.context);
-            },
-          }
-        : {}),
+      SNICallback: (name, callback) => {
+        const selected =
+          activeIdentity &&
+          [activeIdentity, retiredIdentity, bootstrapIdentity].find(
+            (item) => item && certificateMatches(item.certificate, name),
+          );
+        callback(null, selected?.context);
+      },
     },
     bodyLimit: MAX_FRAME,
     requestTimeout: 30000,
@@ -206,6 +198,7 @@ export async function buildServer(config: ServerConfig) {
   app.addHook("onListen", async () => {
     if (
       !config.acme &&
+      !managed &&
       typeof config.tlsCert === "string" &&
       !config.tlsCert.includes("-----BEGIN ") &&
       typeof config.tlsKey === "string" &&
@@ -421,7 +414,10 @@ export async function buildServer(config: ServerConfig) {
   const certificates = new CertificateManager({
     store,
     config: config.acme,
+    privateAvailable: !!config.webDist,
+    privateLeafLifetimeMs: config.certificateTest?.privateLeafLifetimeMs,
     initial: managed,
+    retired,
     fallback: () => readPem(config.tlsCert),
     warn: (message) => app.log.warn(message),
     activate: (bundle) => {
@@ -435,6 +431,8 @@ export async function buildServer(config: ServerConfig) {
         retiredIdentity = activeIdentity;
       activeIdentity = next;
       activeDomain = bundle.domain;
+      tlsWatcher?.close();
+      tlsWatcher = undefined;
     },
   });
   registerCertificates(app, certificates, admin);
@@ -464,6 +462,7 @@ export async function buildServer(config: ServerConfig) {
     admin,
     rate,
     serverUrl: () => settings.current().platform_server_url,
+    ca: (url, fallback) => certificates.agentCA(url, fallback),
     online: (id) => !!connections.get(id)?.ready && live(connections.get(id)!),
   });
   const upgrades = registerAgentUpgrades(app, {

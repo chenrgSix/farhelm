@@ -10,12 +10,15 @@ import {
 import { join } from "node:path";
 import { isIP } from "node:net";
 import { domainToASCII } from "node:url";
+import { X509Certificate } from "node:crypto";
+import { PrivateAuthority, privateCertificateHost } from "./private-ca.js";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
 import { fail, integer, keys, object, str, version } from "./util.js";
 import { acmeIssuer, CertificateError, type IssueCertificate } from "./acme.js";
 import {
   certificateInfo,
+  certificateMatches,
   privateFile,
   validateCertificate,
   type CertificateBundle,
@@ -29,6 +32,7 @@ export type AcmeConfig = {
   testDirectoryUrl?: string;
 };
 type Row = {
+  mode: "acme" | "private";
   revision: number;
   domain: string;
   email: string;
@@ -43,6 +47,7 @@ type Row = {
   failures: number;
 };
 const empty: Row = {
+  mode: "acme",
   revision: 0,
   domain: "",
   email: "",
@@ -57,6 +62,13 @@ const empty: Row = {
   failures: 0,
 };
 export const certificateErrors: Record<string, string> = {
+  PRIVATE_CA_NOT_PREPARED: "请先创建并下载内网 CA，完成浏览器信任后再启用。",
+  PRIVATE_CA_UNAVAILABLE:
+    "内网 CA 文件缺失或损坏，请从备份恢复；平台不会自动更换 CA。",
+  PRIVATE_CA_EXPIRED:
+    "内网 CA 已过期、尚未生效或即将到期，请安排 CA 信任迁移。",
+  PRIVATE_CERTIFICATE_FAILED:
+    "内网证书签发失败，已保留当前证书，请检查平台存储和系统时间。",
   ACME_RATE_LIMITED: "证书机构限制了申请频率，请等待下次重试时间。",
   ACME_DNS_FAILED:
     "域名解析验证失败，请检查域名的 A / AAAA 记录是否指向此平台。",
@@ -91,6 +103,8 @@ export function certificateDomain(value: unknown) {
 }
 export class CertificateManager {
   private active?: CertificateBundle;
+  private retired?: CertificateBundle;
+  private authority: PrivateAuthority;
   private closed = false;
   private listener?: Server;
   private ready = false;
@@ -106,7 +120,10 @@ export class CertificateManager {
     private d: {
       store: Store;
       config?: AcmeConfig;
+      privateAvailable?: boolean;
+      privateLeafLifetimeMs?: number;
       initial?: CertificateBundle;
+      retired?: CertificateBundle;
       fallback: () => string | Buffer;
       activate: (bundle: CertificateBundle) => void;
       issue?: IssueCertificate;
@@ -115,8 +132,10 @@ export class CertificateManager {
     },
   ) {
     this.active = d.initial;
+    this.retired = d.retired;
     this.issue = d.issue ?? acmeIssuer(d.config?.testDirectoryUrl);
     this.now = d.now ?? Date.now;
+    this.authority = new PrivateAuthority(d.store, this.now);
   }
   current(): Row {
     return (
@@ -125,15 +144,33 @@ export class CertificateManager {
         .get() as Row | undefined) ?? { ...empty }
     );
   }
+  private available(mode: Row["mode"]) {
+    return mode === "private" ? !!this.d.privateAvailable : !!this.d.config;
+  }
+  private matches(row: Row) {
+    return (
+      this.active?.domain === row.domain &&
+      (this.active.mode ?? "acme") === row.mode
+    );
+  }
   snapshot() {
     const row = this.current();
     const cert = certificateInfo(this.active?.cert ?? this.d.fallback());
-    const matching = this.active?.domain === row.domain;
-    const available = !!this.d.config;
+    const matching = this.matches(row);
+    const available = this.available(row.mode);
+    let ca = null,
+      caError: string | null = null;
+    try {
+      ca = this.authority.info();
+    } catch {
+      caError = "PRIVATE_CA_UNAVAILABLE";
+    }
     const error =
-      available && row.enabled && !this.ready
+      available && row.mode === "acme" && row.enabled && !this.ready
         ? "ACME_HTTP_UNAVAILABLE"
-        : (this.schedulerError ?? row.last_error);
+        : (this.schedulerError ??
+          (row.mode === "private" ? caError : null) ??
+          row.last_error);
     const status = !available
       ? "external"
       : !row.enabled
@@ -151,6 +188,10 @@ export class CertificateManager {
                 : "pending";
     return {
       v: 1,
+      mode: row.mode,
+      acme_available: !!this.d.config,
+      private_ca_available: !!this.d.privateAvailable,
+      private_ca: ca,
       revision: row.revision,
       domain: row.domain,
       email: row.email,
@@ -186,26 +227,45 @@ export class CertificateManager {
   save(body: unknown, actor: string) {
     const b = object(body);
     version(b);
-    keys(b, ["v", "revision", "domain", "email", "enabled", "tos_agreed"]);
+    keys(b, [
+      "v",
+      "revision",
+      "domain",
+      "email",
+      "enabled",
+      "tos_agreed",
+      "mode",
+    ]);
+    const mode = b.mode ?? "acme";
+    if (mode !== "acme" && mode !== "private")
+      fail(400, "INVALID_CERTIFICATE_MODE");
     const revision = integer(b.revision, 0, Number.MAX_SAFE_INTEGER - 1);
     if (typeof b.enabled !== "boolean" || typeof b.tos_agreed !== "boolean")
       fail(400, "INVALID_BODY");
-    const domain = certificateDomain(b.domain),
-      email = str(b.email, 3, 254).trim();
+    const domain =
+        mode === "private"
+          ? privateCertificateHost(b.domain)
+          : certificateDomain(b.domain),
+      email = str(b.email, 0, 254).trim();
     if (
+      mode === "acme" &&
       !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,63}$/.test(
         email,
       )
     )
       fail(400, "INVALID_CERTIFICATE_EMAIL");
-    if (b.enabled && !b.tos_agreed) fail(400, "CERTIFICATE_TOS_REQUIRED");
-    if (b.enabled && !this.d.config)
+    if (mode === "acme" && b.enabled && !b.tos_agreed)
+      fail(400, "CERTIFICATE_TOS_REQUIRED");
+    if (b.enabled && !this.available(mode))
       fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
+    if (b.enabled && mode === "private" && !this.authority.info())
+      fail(409, "PRIVATE_CA_NOT_PREPARED");
     const saved = this.d.store.transaction(() => {
       const row = this.current();
       if (revision !== row.revision) fail(409, "CERTIFICATE_REVISION_CONFLICT");
       if (this.job && b.enabled) fail(409, "CERTIFICATE_BUSY");
       if (
+        row.mode === mode &&
         row.domain === domain &&
         row.email === email &&
         !!row.enabled === b.enabled &&
@@ -222,10 +282,10 @@ export class CertificateManager {
       this.d.store.db
         .prepare(
           `INSERT INTO certificate_settings
-        (id,revision,domain,email,enabled,tos_agreed,updated_at,next_attempt_at)
-        VALUES(1,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
+        (id,revision,domain,email,enabled,tos_agreed,updated_at,next_attempt_at,mode)
+        VALUES(1,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
         domain=excluded.domain,email=excluded.email,enabled=excluded.enabled,tos_agreed=excluded.tos_agreed,
-        updated_at=excluded.updated_at,next_attempt_at=excluded.next_attempt_at,last_error=NULL,failures=0`,
+        updated_at=excluded.updated_at,next_attempt_at=excluded.next_attempt_at,mode=excluded.mode,last_error=NULL,failures=0`,
         )
         .run(
           revision + 1,
@@ -235,10 +295,12 @@ export class CertificateManager {
           Number(b.tos_agreed),
           this.now(),
           next,
+          mode,
         );
       this.d.store.audit("certificate.configured", actor, null, null, {
         revision: revision + 1,
         domain,
+        mode,
         enabled: b.enabled,
       });
       return true;
@@ -254,7 +316,7 @@ export class CertificateManager {
     const row = this.current();
     if (integer(b.revision, 1, Number.MAX_SAFE_INTEGER) !== row.revision)
       fail(409, "CERTIFICATE_REVISION_CONFLICT");
-    if (!this.d.config || !row.enabled)
+    if (!this.available(row.mode) || !row.enabled)
       fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
     if (this.job) return this.snapshot();
     if (
@@ -275,6 +337,44 @@ export class CertificateManager {
     });
     this.schedule();
     return this.snapshot();
+  }
+  async prepare(body: unknown, actor: string) {
+    const b = object(body);
+    version(b);
+    keys(b, ["v", "revision"]);
+    const row = this.current();
+    if (integer(b.revision, 1, Number.MAX_SAFE_INTEGER) !== row.revision)
+      fail(409, "CERTIFICATE_REVISION_CONFLICT");
+    if (!this.d.privateAvailable || row.mode !== "private" || this.closed)
+      fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
+    await this.authority.prepare(actor);
+    return this.snapshot();
+  }
+  downloadCA() {
+    const ca = this.authority.read();
+    if (!ca) fail(404, "PRIVATE_CA_NOT_PREPARED");
+    return {
+      v: 1,
+      certificate_pem: ca.cert,
+      fingerprint: certificateInfo(ca.cert).fingerprint,
+    };
+  }
+  agentCA(url: string, fallback: string) {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    const bundle = [this.active, this.retired].find(
+      (item) =>
+        item && certificateMatches(new X509Certificate(item.cert), host),
+    );
+    if (bundle && bundle.mode !== "private") return "";
+    const cert = bundle
+      ? new X509Certificate(bundle.cert)
+      : new X509Certificate(this.d.fallback());
+    if (!certificateMatches(cert, host)) return fallback;
+    const ca = this.authority.read();
+    if (ca && cert.verify(new X509Certificate(ca.cert).publicKey))
+      return ca.cert;
+    if (bundle?.mode === "private") fail(503, "PRIVATE_CA_UNAVAILABLE");
+    return fallback;
   }
   private schedule() {
     setImmediate(() => {
@@ -342,27 +442,30 @@ export class CertificateManager {
     return this.starting;
   }
   async start() {
-    if (!this.d.config) return;
+    if (!this.d.config && !this.d.privateAvailable) return;
     await this.listen();
     this.timer = setInterval(() => this.schedule(), 60000);
     this.timer.unref();
     this.schedule();
   }
   async tick() {
-    if (this.closed || !this.d.config || this.job) return;
-    await this.listen();
-    if (this.closed || !this.ready || this.job) return;
+    if (this.closed || this.job) return;
+    const before = this.current();
+    if (!this.available(before.mode)) return;
+    if (before.mode === "acme") await this.listen();
+    if (this.closed || (before.mode === "acme" && !this.ready) || this.job)
+      return;
     const row = this.current(),
       now = this.now();
     if (
       !row.enabled ||
-      !row.tos_agreed ||
+      (row.mode === "acme" && !row.tos_agreed) ||
       (row.next_attempt_at ?? 0) > now ||
       (row.retry_after ?? 0) > now
     )
       return;
-    if (this.active?.domain === row.domain) {
-      const info = certificateInfo(this.active.cert);
+    if (this.matches(row)) {
+      const info = certificateInfo(this.active!.cert);
       if (info.renew_at > now) {
         this.d.store.db
           .prepare(
@@ -395,26 +498,32 @@ export class CertificateManager {
     try {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
-      phase = "ACME_REQUEST_FAILED";
-      const result = await this.issue({
-        domain: row.domain,
-        email: row.email,
-        directory,
-        signal,
-        challenge: (token, authorization) => {
-          if (!current()) throw new Error("Cancelled");
-          if (!/^[A-Za-z0-9_-]{1,128}$/.test(token))
-            throw new Error("Invalid challenge token");
-          if (authorization === null) this.challenges.delete(token);
-          else if (/^[A-Za-z0-9_.-]{1,1024}$/.test(authorization))
-            this.challenges.set(token, authorization);
-          else throw new Error("Invalid challenge authorization");
-        },
-      });
+      phase =
+        row.mode === "private"
+          ? "PRIVATE_CERTIFICATE_FAILED"
+          : "ACME_REQUEST_FAILED";
+      const result =
+        row.mode === "private"
+          ? await this.authority.issue(row.domain, this.d.privateLeafLifetimeMs)
+          : await this.issue({
+              domain: row.domain,
+              email: row.email,
+              directory,
+              signal,
+              challenge: (token, authorization) => {
+                if (!current()) throw new Error("Cancelled");
+                if (!/^[A-Za-z0-9_-]{1,128}$/.test(token))
+                  throw new Error("Invalid challenge token");
+                if (authorization === null) this.challenges.delete(token);
+                else if (/^[A-Za-z0-9_.-]{1,1024}$/.test(authorization))
+                  this.challenges.set(token, authorization);
+                else throw new Error("Invalid challenge authorization");
+              },
+            });
       if (!current()) return;
       phase = "ACME_INVALID_CERTIFICATE";
       const bundle = validateCertificate(
-        { ...result, domain: row.domain },
+        { ...result, domain: row.domain, mode: row.mode },
         this.now(),
       );
       phase = "ACME_STORAGE_FAILED";
@@ -436,6 +545,8 @@ export class CertificateManager {
         else unlinkSync(path);
         throw error;
       }
+      if (this.active && this.active.domain !== bundle.domain)
+        this.retired = this.active;
       this.active = bundle;
       const info = certificateInfo(bundle.cert);
       this.d.store.transaction(() => {
@@ -489,6 +600,7 @@ export class CertificateManager {
     clearInterval(this.timer);
     this.controller?.abort();
     await this.job;
+    await this.authority.close();
     await this.starting;
     this.challenges.clear();
     if (this.listener?.listening) {
@@ -515,6 +627,14 @@ export function registerCertificates(
   app.post("/api/v1/settings/certificate/check", async (req) =>
     manager.request(req.body, admin(req).id),
   );
+  app.post("/api/v1/settings/certificate/ca", async (req) =>
+    manager.prepare(req.body, admin(req).id),
+  );
+  app.get("/api/v1/settings/certificate/ca", async (req, reply) => {
+    admin(req);
+    reply.header("Cache-Control", "no-store");
+    return manager.downloadCA();
+  });
   app.addHook("onListen", () => manager.start());
   app.addHook("onClose", () => manager.close());
 }

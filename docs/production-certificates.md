@@ -1,5 +1,7 @@
 # 正式环境自动管理 HTTPS 证书
 
+本页说明公网 Let’s Encrypt 模式。完全内网 / 离线环境现已支持 [平台私有 CA 自动签发与续签](private-certificates.md)，同样在系统设置配置，网页与 Agent 共用统一入口。
+
 管理员在「系统设置 → HTTPS 证书」配置平台域名、联系邮箱，阅读并勾选 Let’s Encrypt 服务条款，然后启用「自动申请和续签证书」并保存。平台异步申请证书；页面每 5 秒刷新申请状态、签发机构、完整到期时间、下次检查 / 重试时间和失败原因，关闭网页不影响续签。
 
 支持单个公网域名（含 IDN 转换）、Let’s Encrypt 正式环境和 HTTP-01 验证。域名 A / AAAA 记录都应指向平台，公网 **80 端口**必须能访问验证服务，**443 端口**提供 HTTPS。只开放 443、仅内网可解析的域名、IP 地址和通配符暂不支持自动签发。验证要求见 [Let’s Encrypt HTTP-01 文档](https://letsencrypt.org/docs/challenge-types/#http-01-challenge)。请先核对 DNS、防火墙和端口映射，再启用申请；没有可用 IPv6 入口时不要保留 AAAA 记录。

@@ -26,5 +26,9 @@
     "managed": true,
     "domain": "fleet.example.com",
     "expired": false
-  }
+  },
+  "mode": "acme",
+  "acme_available": true,
+  "private_ca_available": true,
+  "private_ca": null
 }

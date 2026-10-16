@@ -9,6 +9,10 @@ afterEach(() => {
 const initial = {
   v: 1,
   revision: 0,
+  mode: "acme",
+  acme_available: true,
+  private_ca_available: true,
+  private_ca: null,
   domain: "",
   email: "",
   enabled: false,
@@ -60,6 +64,7 @@ it("shows expiry, obtains consent and saves domain configuration exactly once", 
   const body = {
     v: 1,
     revision: 0,
+    mode: "acme",
     domain: "fleet.example.com",
     email: "ops@example.com",
     enabled: true,
@@ -120,6 +125,7 @@ it("external TLS is labeled accurately and cannot enable managed issuance", asyn
   vi.spyOn(api, "request").mockResolvedValue({
     ...initial,
     available: false,
+    acme_available: false,
     status: "external",
     challenge_port: null,
     challenge_ready: false,
@@ -162,5 +168,82 @@ it("ignores a stale status poll that resolves after a successful save", async ()
     w.get<HTMLInputElement>('[name="certificate-domain"]').element.value,
   ).toBe("fleet.example.com");
   expect(w.find('[role="alert"]').exists()).toBe(false);
+  w.unmount();
+});
+it("private mode requires preparing a CA before activation and does not ask for public CA consent", async () => {
+  const saved = {
+    ...initial,
+    revision: 1,
+    mode: "private",
+    acme_available: false,
+    domain: "farhelm.internal",
+    available: true,
+  };
+  const ca = {
+    subject: "CN=Farhelm Private CA",
+    fingerprint: "AB:".repeat(31) + "AB",
+    valid_from: 1700000000000,
+    expires_at: 2000000000000,
+    expired: false,
+    expiring: false,
+  };
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce({
+      ...initial,
+      acme_available: false,
+      available: false,
+    })
+    .mockResolvedValueOnce(saved)
+    .mockResolvedValueOnce({ ...saved, private_ca: ca });
+  const w = mount(CertificateSettingsPanel);
+  await flushPromises();
+  await w.get('[name="certificate-mode"]').setValue("private");
+  await w.get('[name="certificate-domain"]').setValue("farhelm.internal");
+  expect(w.find('[name="certificate-email"]').exists()).toBe(false);
+  expect(w.find('[name="certificate-terms"]').exists()).toBe(false);
+  expect(
+    w.get('[name="certificate-enabled"]').attributes("disabled"),
+  ).toBeDefined();
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls[1]![1]?.body).toMatchObject({
+    mode: "private",
+    domain: "farhelm.internal",
+    enabled: false,
+    email: "",
+    tos_agreed: false,
+  });
+  await w
+    .findAll("button")
+    .find((b) => b.text() === "创建内网 CA")!
+    .trigger("click");
+  await flushPromises();
+  expect(request.mock.calls[2]).toEqual([
+    "/settings/certificate/ca",
+    { method: "POST", body: { v: 1, revision: 1 } },
+  ]);
+  expect(w.get('[data-testid="ca-fingerprint"]').text()).toBe(ca.fingerprint);
+  expect(
+    w.get('[name="certificate-enabled"]').attributes("disabled"),
+  ).toBeUndefined();
+  await w.get('[name="certificate-enabled"]').setValue(true);
+  expect(w.get('button[type="submit"]').attributes("disabled")).toBeUndefined();
+  expect(w.text()).toContain("新 Agent 安装命令自动携带 CA");
+  expect(w.text()).not.toContain("HTTP 验证入口");
+  w.unmount();
+});
+it("changing certificate mode stops automatic activation until the new mode is saved", async () => {
+  vi.spyOn(api, "request").mockResolvedValue({
+    ...initial,
+    enabled: true,
+    tos_agreed: true,
+  });
+  const w = mount(CertificateSettingsPanel);
+  await flushPromises();
+  await w.get('[name="certificate-mode"]').setValue("private");
+  expect(
+    w.get<HTMLInputElement>('[name="certificate-enabled"]').element.checked,
+  ).toBe(false);
   w.unmount();
 });

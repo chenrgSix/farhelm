@@ -45,6 +45,7 @@ export interface ServerConfig {
   webDist?: string;
   consoleOrigin?: string;
   acme?: import("./certificates.js").AcmeConfig;
+  certificateTest?: { privateLeafLifetimeMs: number };
   agentInstall?: { distDir: string; publicUrl: string; caCert?: string };
   ssh?: {
     host: string;

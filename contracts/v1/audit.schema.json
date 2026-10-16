@@ -94,7 +94,8 @@
         "certificate.configured",
         "certificate.check_requested",
         "certificate.issued",
-        "certificate.failed"
+        "certificate.failed",
+        "certificate.ca_created"
       ]
     },
     "detail": {
@@ -742,6 +743,9 @@
             },
             "enabled": {
               "type": "boolean"
+            },
+            "mode": {
+              "enum": ["acme", "private"]
             }
           },
           "required": ["revision", "domain", "enabled"]
@@ -798,6 +802,17 @@
             }
           },
           "required": ["revision", "code"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+            }
+          },
+          "required": ["fingerprint"]
         }
       ]
     }
@@ -1921,6 +1936,9 @@
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "mode": {
+                "enum": ["acme", "private"]
               }
             },
             "required": ["revision", "domain", "enabled"]
@@ -2016,6 +2034,30 @@
               }
             },
             "required": ["revision", "code"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "certificate.ca_created"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fingerprint": {
+                "type": "string",
+                "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+              }
+            },
+            "required": ["fingerprint"]
           }
         }
       }

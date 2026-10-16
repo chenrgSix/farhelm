@@ -102,3 +102,5 @@ FLEET_TEST_RENEW_TLS=1 FLEET_CREDENTIALS_FILE=.dev/admin-credentials.json \
 ```
 
 该测试会显式续签当前开发证书，确认前后端均呈现新证书、原终端继续输出且录制完整，再启动全新浏览器进程验证登录和新的 Agent 终端。测试始终保留 TLS 校验。
+
+纯内网私有化部署使用 [平台私有 CA](private-certificates.md)，由服务端同时提供网页、API 和 Agent 接入。首次信任根 CA 后，服务端自动续签并热加载，新 Agent 安装自动携带 CA，无需公网验证。

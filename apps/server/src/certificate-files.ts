@@ -1,4 +1,5 @@
 import { X509Certificate, createPrivateKey, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import { createSecureContext } from "node:tls";
 import {
   closeSync,
@@ -12,7 +13,17 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-export type CertificateBundle = { cert: string; key: string; domain: string };
+export type CertificateBundle = {
+  cert: string;
+  key: string;
+  domain: string;
+  mode?: "acme" | "private";
+};
+export function certificateMatches(cert: X509Certificate, host: string) {
+  return !!(isIP(host)
+    ? cert.checkIP(host)
+    : cert.checkHost(host, { subject: "never", wildcards: false }));
+}
 export function privateFile(path: string, content: string) {
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
@@ -62,8 +73,7 @@ export function validateCertificate(bundle: CertificateBundle, now?: number) {
     leaf.ca ||
     (leaf.keyUsage && !leaf.keyUsage.includes("1.3.6.1.5.5.7.3.1")) ||
     !leaf.checkPrivateKey(createPrivateKey(bundle.key)) ||
-    leaf.checkHost(bundle.domain, { subject: "never", wildcards: false }) !==
-      bundle.domain
+    !certificateMatches(leaf, bundle.domain)
   )
     throw new Error("Invalid certificate identity or private key");
   const chain =

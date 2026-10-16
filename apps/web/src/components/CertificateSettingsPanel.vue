@@ -15,6 +15,17 @@ const formatTime = (value: number) =>
 type State = {
   v: 1;
   revision: number;
+  mode: "acme" | "private";
+  acme_available: boolean;
+  private_ca_available: boolean;
+  private_ca: {
+    subject: string;
+    fingerprint: string;
+    valid_from: number;
+    expires_at: number;
+    expired: boolean;
+    expiring: boolean;
+  } | null;
   domain: string;
   email: string;
   enabled: boolean;
@@ -50,6 +61,12 @@ type State = {
   };
 };
 const state = ref<State>();
+const mode = ref<"acme" | "private">("acme");
+const available = computed(() =>
+  mode.value === "private"
+    ? state.value?.private_ca_available
+    : state.value?.acme_available,
+);
 const domain = ref(""),
   email = ref("");
 const enabled = ref(false),
@@ -80,7 +97,8 @@ const issuing = computed(
 const dirty = computed(
   () =>
     !!state.value &&
-    (domain.value !== state.value.domain ||
+    (mode.value !== state.value.mode ||
+      domain.value !== state.value.domain ||
       email.value !== state.value.email ||
       enabled.value !== state.value.enabled ||
       terms.value !== state.value.tos_agreed),
@@ -98,6 +116,7 @@ const canCheck = computed(
 function adopt(result: State) {
   state.value = result;
   revision.value = result.revision;
+  mode.value = result.mode;
   domain.value = result.domain;
   email.value = result.email;
   enabled.value = result.enabled;
@@ -111,6 +130,10 @@ function explain(e: unknown) {
       "配置已被其他管理员修改，请重新加载后再编辑。",
     INVALID_CERTIFICATE_DOMAIN:
       "请输入公网域名，例如 fleet.example.com，不包含 https://、端口或路径；暂不支持通配符和 IP。",
+    INVALID_PRIVATE_CERTIFICATE_HOST:
+      "请输入内网域名或 IP，不包含 https://、端口、路径或通配符。IPv6 不带方括号。",
+    PRIVATE_CA_NOT_PREPARED: "请先创建并下载内网 CA，完成浏览器信任后再启用。",
+    PRIVATE_CA_UNAVAILABLE: "内网 CA 文件缺失或损坏，请从备份恢复。",
     INVALID_CERTIFICATE_EMAIL: "请输入有效的联系邮箱。",
     CERTIFICATE_TOS_REQUIRED: "启用前请阅读并同意 Let’s Encrypt 服务条款。",
     CERTIFICATE_MANAGEMENT_UNAVAILABLE:
@@ -152,6 +175,7 @@ async function save() {
       body: {
         v: 1,
         revision: revision.value,
+        mode: mode.value,
         domain: domain.value.trim(),
         email: email.value.trim(),
         enabled: enabled.value,
@@ -169,6 +193,58 @@ async function save() {
   } finally {
     if (!disposed) busy.value = false;
   }
+}
+async function prepareCA() {
+  if (busy.value || dirty.value || conflict.value) return;
+  busy.value = true;
+  error.value = "";
+  message.value = "";
+  ++generation;
+  try {
+    const result = await api.request<State>("/settings/certificate/ca", {
+      method: "POST",
+      body: { v: 1, revision: revision.value },
+    });
+    if (!disposed) {
+      adopt(result);
+      message.value = "CA 已创建。请下载并在管理电脑上信任，然后启用自动签发。";
+    }
+  } catch (e) {
+    if (!disposed) error.value = explain(e);
+  } finally {
+    if (!disposed) busy.value = false;
+  }
+}
+async function downloadCA() {
+  if (busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    const result = await api.request<{
+      certificate_pem: string;
+      fingerprint: string;
+    }>("/settings/certificate/ca");
+    if (disposed) return;
+    if (result.fingerprint !== state.value?.private_ca?.fingerprint)
+      throw new Error("CA 指纹已变化，请重新加载配置并核对。");
+    const url = URL.createObjectURL(
+      new Blob([result.certificate_pem], { type: "application/x-pem-file" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "farhelm-private-ca.crt";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    if (!disposed) error.value = explain(e);
+  } finally {
+    if (!disposed) busy.value = false;
+  }
+}
+function changeMode() {
+  enabled.value = false;
+  terms.value = false;
+  message.value = "";
 }
 async function check() {
   if (!canCheck.value) return;
@@ -230,7 +306,7 @@ onBeforeUnmount(() => {
     <div class="panel-heading">
       <div>
         <h2 id="certificate-title">HTTPS 证书</h2>
-        <p class="muted">正式域名自动申请与续签 · Let’s Encrypt</p>
+        <p class="muted">统一 HTTPS 入口 · 公网证书 / 内网私有 CA</p>
       </div>
       <span
         v-if="state"
@@ -244,7 +320,7 @@ onBeforeUnmount(() => {
       {{ message }}
     </p>
     <template v-if="state">
-      <div v-if="!state.available" class="notice">
+      <div v-if="!available" class="notice">
         当前部署使用外部管理的 HTTPS 入口。可先保存域名；部署时启用 Farhelm
         证书托管后再打开自动申请。 下方显示服务端证书，独立 Nginx / Vite
         入口的证书由该入口管理。
@@ -252,16 +328,28 @@ onBeforeUnmount(() => {
       <form @submit.prevent="save">
         <fieldset :disabled="busy">
           <label
-            >平台域名<input
+            >证书模式
+            <select v-model="mode" name="certificate-mode" @change="changeMode">
+              <option value="acme">公网证书（Let’s Encrypt）</option>
+              <option value="private">纯内网（平台私有 CA）</option>
+            </select>
+          </label>
+          <label
+            >{{ mode === "private" ? "统一入口域名或 IP" : "平台域名"
+            }}<input
               v-model="domain"
               name="certificate-domain"
               required
               maxlength="253"
-              placeholder="fleet.example.com"
+              :placeholder="
+                mode === 'private'
+                  ? 'farhelm.internal 或 192.168.1.10'
+                  : 'fleet.example.com'
+              "
               autocomplete="off"
               spellcheck="false"
           /></label>
-          <label
+          <label v-if="mode === 'acme'"
             >联系邮箱<input
               v-model="email"
               name="certificate-email"
@@ -276,10 +364,12 @@ onBeforeUnmount(() => {
               v-model="enabled"
               name="certificate-enabled"
               type="checkbox"
-              :disabled="!state.available && !enabled"
+              :disabled="
+                !available || (mode === 'private' && !state.private_ca)
+              "
             />自动申请和续签证书</label
           >
-          <label class="check"
+          <label v-if="mode === 'acme'" class="check"
             ><input
               v-model="terms"
               name="certificate-terms"
@@ -292,9 +382,15 @@ onBeforeUnmount(() => {
               >Let’s Encrypt 服务条款</a
             >，允许将域名和联系邮箱提交给证书机构</label
           >
-          <p class="field-hint">
+          <p v-if="mode === 'acme'" class="field-hint">
             域名的 A / AAAA 记录需指向平台，公网 80 端口用于域名验证，443
             端口提供网页和 Agent 接入。当前支持单个公网域名，暂不支持通配符。
+          </p>
+          <p v-if="mode === 'private'" class="field-hint">
+            无需公网和互联网连接。先保存配置、创建并下载
+            CA，在管理电脑上信任后，再启用自动签发。 网页、API 和 Agent 共用该
+            HTTPS 入口；内网 DNS 或 hosts 需指向平台。 新 Agent 安装命令自动携带
+            CA，已有 Agent 更换 CA 时需先迁移信任配置。
           </p>
           <p class="field-hint">
             证书签发后自动热加载，已有终端连接继续运行。更换域名前，请保留原入口直到
@@ -309,7 +405,7 @@ onBeforeUnmount(() => {
                 conflict ||
                 !dirty ||
                 (issuing && enabled) ||
-                (enabled && !terms)
+                (enabled && mode === 'acme' && !terms)
               "
             >
               {{ busy ? "处理中…" : "保存证书设置" }}
@@ -325,6 +421,70 @@ onBeforeUnmount(() => {
           </div>
         </fieldset>
       </form>
+      <div v-if="mode === 'private'" class="private-ca-info">
+        <p v-if="!state.private_ca" class="field-hint">
+          保存内网配置后创建本平台专用 CA。CA 私钥仅保存在服务端。
+        </p>
+        <button
+          v-if="!state.private_ca"
+          class="button secondary"
+          type="button"
+          :disabled="
+            busy || conflict || dirty || state.mode !== 'private' || !available
+          "
+          @click="prepareCA"
+        >
+          创建内网 CA
+        </button>
+        <template v-else>
+          <button
+            class="button secondary"
+            type="button"
+            :disabled="busy"
+            @click="downloadCA"
+          >
+            下载 CA 证书
+          </button>
+          <dl class="certificate-details">
+            <div>
+              <dt>内网 CA</dt>
+              <dd>{{ state.private_ca.subject }}</dd>
+            </div>
+            <div>
+              <dt>CA 指纹（SHA-256）</dt>
+              <dd data-testid="ca-fingerprint">
+                {{ state.private_ca.fingerprint }}
+              </dd>
+            </div>
+            <div>
+              <dt>CA 有效期至</dt>
+              <dd>{{ formatTime(state.private_ca.expires_at) }}</dd>
+            </div>
+          </dl>
+          <p v-if="state.private_ca.expiring" class="notice danger">
+            CA 已临近到期或过期，请安排 CA
+            更换和客户端信任迁移。平台不会自动更换根 CA。
+          </p>
+          <details>
+            <summary>首次信任与统一入口说明</summary>
+            <p class="field-hint">
+              从当前可信管理入口下载 CA 并核对指纹。macOS
+              导入钥匙串并设为信任；Windows 导入“受信任的根证书颁发机构”；Linux
+              导入系统或浏览器的信任库。企业可统一下发。只信任
+              CA，无需单独信任每次续签的服务端证书。
+            </p>
+            <p class="field-hint">
+              CA 有效期 10 年，服务端证书每次签发最长 90 天、提前约 30
+              天自动续签。根 CA 到期或丢失需要迁移信任，请备份平台数据目录。
+            </p>
+            <p class="field-hint">
+              信任完成后启用自动签发，使用配置的域名或 IP 访问平台；在 Agent
+              接入设置保存该统一地址。独立 Vite / Nginx HTTPS
+              入口不会因本设置自动更换证书。
+            </p>
+          </details>
+        </template>
+      </div>
       <div v-if="state.last_error" class="notice danger" role="alert">
         {{ state.last_error.message }} 申请失败不会替换当前证书。
       </div>
@@ -375,7 +535,7 @@ onBeforeUnmount(() => {
           <dt>可手动重试时间</dt>
           <dd>{{ formatTime(state.retry_allowed_at) }}</dd>
         </div>
-        <div v-if="state.available">
+        <div v-if="state.available && state.mode === 'acme'">
           <dt>HTTP 验证入口</dt>
           <dd>
             {{
@@ -432,6 +592,7 @@ label {
   font-size: 13px;
   font-weight: 600;
 }
+select,
 input:not([type="checkbox"]) {
   width: 100%;
   box-sizing: border-box;
@@ -447,6 +608,14 @@ input:not([type="checkbox"]) {
 .check input {
   width: auto;
   margin: 0;
+}
+.private-ca-info {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+summary {
+  cursor: pointer;
 }
 .certificate-actions {
   display: flex;

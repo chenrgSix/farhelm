@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/certificate-ca.schema.json",
+  "title": "Farhelm v1 private CA download",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "certificate_pem": {
+      "type": "string",
+      "maxLength": 16384
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+    }
+  },
+  "required": ["v", "certificate_pem", "fingerprint"]
+}

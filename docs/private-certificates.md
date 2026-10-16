@@ -1,0 +1,62 @@
+# 纯内网统一入口与自动证书
+
+Farhelm 可在完全离线的内网创建本平台专用 CA，在「系统设置 → HTTPS 证书」选择「纯内网（平台私有 CA）」后，为指定域名或 IP 自动签发、续签 HTTPS 服务端证书。网页、API、Agent 的 HTTPS/WSS 共用一个入口和证书，不需要单独部署前端证书，也不需要公网域名、互联网连接或 HTTP 80 端口。
+
+## 部署入口
+
+先构建 `apps/server`、`apps/web`；服务端使用 Node 24+。设置 `FLEET_WEB_DIST` 指向构建后的 `apps/web/dist`，由 Farhelm 直接提供网页和 API。示例见 [内网环境配置](../deploy/server/private.env.example)、[systemd 服务](../deploy/server/farhelm.service)。系统设置的内网托管能力仅在已配置静态网页目录时开放。
+
+可以直接对内网开放 Farhelm 的 HTTPS 8443 端口，访问 `https://farhelm.internal:8443`。需要标准 443 时，可使用 [Nginx TCP 转发示例](../deploy/nginx/farhelm-private.conf)，由 Farhelm 终止 TLS；Nginx 无需读取证书或在续签时 reload。内网 DNS / hosts 负责把域名指向该服务器。IP 入口也支持 IPv4、IPv6，表单中 IPv6 不加方括号，访问 URL 加方括号。
+
+独立 Vite / Nginx HTTPS 入口的证书不会自动随本功能更新。正式内网部署应按上述方式统一入口，而不是把前端地址指向一个仍独立终止 TLS 的服务。SSH 网关的主机密钥另行管理，不使用 HTTPS CA。
+
+## 首次初始化：只信任一份 CA
+
+新部署没有受信 HTTPS 入口时，在服务器上先运行：
+
+```sh
+node scripts/init-private-tls.mjs /var/lib/farhelm
+```
+
+脚本需要已构建的服务端；应以 Farhelm 服务账号运行，或将生成目录的所有权交给该账号。它创建持久 CA 和用于 SSH 隧道的 `localhost` 初始化证书，输出 CA 公共证书路径、SHA-256 指纹及 TLS 配置路径。重复运行保留 CA 和已有证书；缺失、损坏或不匹配的身份文件不会被静默覆盖。
+
+通过已有可信 SSH / 运维渠道，把 `/var/lib/farhelm/bootstrap-tls/ca.crt` 复制到管理员电脑，并核对指纹。此文件只有 CA 公共证书；不要分发 `certificates/private-ca.json`，其中含 CA 私钥。
+
+- macOS：把 CA 导入钥匙串，并按组织规范设为 SSL 信任。
+- Windows：导入「受信任的根证书颁发机构」，也可用域策略统一下发。
+- Linux：导入系统或所用浏览器的信任库；使用独立证书库的浏览器需单独导入。
+
+启动平台后，建立 `ssh -L 8443:127.0.0.1:8443 your-server`，通过 `https://localhost:8443` 登录。初始化证书与后续正式内网证书由同一持久 CA 签发，客户端已信任此 CA 后，无需第二次信任。此初始化入口仅用于配置，生产 Agent 地址不要填 localhost。
+
+已有受信管理入口的部署，可以直接在系统设置创建并下载 CA，无需运行初始化脚本；切换前完成新 CA 的信任配置。
+
+## 系统设置流程
+
+1. 进入「HTTPS 证书」，选择「纯内网（平台私有 CA）」，填写统一入口域名或 IP，保存。无需联系邮箱及外部证书机构条款。
+2. 如果还没有 CA，点击「创建内网 CA」，再下载 CA 并核对指纹，完成管理员电脑的首次信任。使用初始化脚本的部署会直接显示同一 CA。
+3. 启用「自动申请和续签证书」并保存。页面自动显示申请状态、签发机构、服务端到期时间、续签计划、CA 指纹和 CA 到期时间。
+4. 用配置的域名或 IP 打开统一 HTTPS 入口。在「Agent 接入设置」保存该入口地址，之后生成 Agent 安装命令。证书设置不会提前改写正在使用的 Agent 地址。
+
+安装命令会把该入口当前使用的私有 CA 嵌入引导命令，curl 使用 `--cacert` 校验下载，安装完成后 Agent 使用 `/var/lib/farhelm-agent/ca.crt` 校验 HTTPS/WSS。无需在目标服务器单独手动复制 CA，也不会关闭 TLS 校验或把 CA 加入整个目标服务器的系统信任库。CA 私钥不会进入安装命令或接口响应。
+
+安装命令保存生成时的地址和 CA 快照。更换 CA / 入口后应重新生成命令。已有 Agent 如果原先信任另一份 CA，必须先迁移其信任配置；仅同步地址不能让它自动信任新 CA。日常服务端证书续签保持 CA 不变，不需要改 Agent 配置。
+
+## 自动续签与恢复
+
+平台 CA 有效期为 10 年，CA 私钥以 ECDSA P-384 生成；服务端使用新的 ECDSA P-256 私钥，证书有效期最长 90 天，含精确域名 / IP SAN、serverAuth 用途，不能签发下级 CA。签发使用 Node 原生 WebCrypto 和固定版本 [@peculiar/x509](https://github.com/PeculiarVentures/x509)，不调用外部网络或系统 openssl。
+
+服务端每分钟检查，通常在剩余约 30 天时续签。文件原子写入后热加载，新 TLS 握手使用新证书，已有 HTTPS/WSS 终端连接继续运行。证书设置并发修改有版本检查；同一时间只运行一个签发任务。失败保留当前证书并退避重试，页面显示原因；关闭网页不影响后台续签。
+
+CA **不会自动换根**：快到期时显示提示，剩余不足一天时停止签发。根 CA 到期或损坏必须由管理员恢复备份或安排新 CA 的信任迁移，不能承诺永久无需信任更新。服务端证书不会超出 CA 的有效期。
+
+平台数据目录必须持久化并安全备份，包含 SQLite、`certificates/private-ca.json`、`certificates/active.json` 及备份证书。目录权限 0700、私钥文件 0600；同一个数据目录只运行一个实例。数据库记录 CA 指纹，CA 文件丢失时不会重新生成另一套密钥。数据目录包含签发能力，应仅由平台服务账号及受信运维人员访问。
+
+模式切换或改域名不会自动使现有 Agent 信任另一份 CA。旧管理入口 / 前一个域名可在原证书有效期内继续使用；只为当前配置的入口续签，迁移应在旧证书到期前完成。停机期间不续签，重启会补检查；关闭自动续签后仍加载最后一份证书。
+
+## 验证
+
+- `npm --prefix apps/server test`：离线签发、DNS/IP 身份、续签保留 CA、激活失败回滚、根 CA 损坏与到期、权限及安装命令的 CA 快照。
+- `npm run test:certificates:private`：实际执行生成的安装命令安装 Linux Agent，验证统一入口、完整 TLS 校验、后台定时续签、原终端及录制、Agent 新握手和重启持久化。使用隔离 Docker 容器和临时数据，测试证书缩短至 80 秒，生产配置不接受这个测试选项。
+- `npm run test:certificates:private:browser`：真实浏览器操作设置和下载 CA，核对指纹、申请状态及移动端布局；使用已受信任的 `.dev/tls` 初始化入口，或通过 `FLEET_TEST_TLS_DIR` 指定。不会修改系统信任，不会忽略浏览器 TLS 错误；新根 CA 的具体分发和系统信任仍需在部署环境验证。
+
+运行上述集成测试前构建前后端，提供 `.dev/agent-dist/farhelm-agent-linux-aarch64`、`farhelm-agent-build:arm64` Docker 镜像及 Playwright 浏览器。私有模式与公网 ACME 的测试相互独立。

@@ -1,0 +1,41 @@
+{
+  "v": 1,
+  "revision": 1,
+  "domain": "fleet.example.com",
+  "email": "ops@example.com",
+  "enabled": true,
+  "tos_agreed": true,
+  "updated_at": 1700000000000,
+  "available": true,
+  "challenge_port": null,
+  "challenge_ready": false,
+  "status": "valid",
+  "last_error": null,
+  "last_attempt_at": 1700000000000,
+  "last_success_at": 1700000000000,
+  "next_attempt_at": 1705184000000,
+  "retry_allowed_at": 1700000300000,
+  "certificate": {
+    "subject": "CN=fleet.example.com",
+    "issuer": "CN=Example CA",
+    "domains": "DNS:fleet.example.com",
+    "valid_from": 1700000000000,
+    "expires_at": 1707776000000,
+    "fingerprint": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB",
+    "renew_at": 1705184000000,
+    "managed": true,
+    "domain": "fleet.example.com",
+    "expired": false
+  },
+  "mode": "private",
+  "acme_available": false,
+  "private_ca_available": true,
+  "private_ca": {
+    "subject": "CN=Farhelm Private CA",
+    "fingerprint": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB",
+    "valid_from": 1700000000000,
+    "expires_at": 1707776000000,
+    "expired": false,
+    "expiring": false
+  }
+}

@@ -204,6 +204,60 @@
         "domain",
         "expired"
       ]
+    },
+    "mode": {
+      "enum": ["acme", "private"]
+    },
+    "acme_available": {
+      "type": "boolean"
+    },
+    "private_ca_available": {
+      "type": "boolean"
+    },
+    "private_ca": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "subject": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+            },
+            "valid_from": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expires_at": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expired": {
+              "type": "boolean"
+            },
+            "expiring": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "subject",
+            "fingerprint",
+            "valid_from",
+            "expires_at",
+            "expired",
+            "expiring"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -223,6 +277,10 @@
     "last_success_at",
     "next_attempt_at",
     "retry_allowed_at",
-    "certificate"
+    "certificate",
+    "mode",
+    "acme_available",
+    "private_ca_available",
+    "private_ca"
   ]
 }

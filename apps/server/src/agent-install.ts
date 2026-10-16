@@ -38,6 +38,7 @@ export function registerAgentInstall(
     rate: RateLimiter;
     online: (id: string) => boolean;
     serverUrl: () => string;
+    ca?: (url: string, fallback: string) => string;
     releases: ReleaseCatalog;
     artifact: (arch: string) => Artifact | undefined;
   },
@@ -155,7 +156,7 @@ export function registerAgentInstall(
       v: 1,
       server_url: d.serverUrl() ? serverOrigin() : "",
       architectures: Object.keys(available()),
-      private_ca: !!ca,
+      private_ca: !!(d.serverUrl() ? (d.ca?.(serverOrigin(), ca) ?? ca) : ca),
     };
   });
   app.post("/api/v1/agent-installations", async (req) => {
@@ -202,7 +203,7 @@ export function registerAgentInstall(
       run_user: runUser,
       start_mode: mode,
       allow_sudo: b.allow_sudo ?? false,
-      ca,
+      ca: d.ca?.(serverOrigin(), ca) ?? ca,
       artifacts,
     };
     const expires =

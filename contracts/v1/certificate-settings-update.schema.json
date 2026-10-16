@@ -26,6 +26,9 @@
     },
     "tos_agreed": {
       "type": "boolean"
+    },
+    "mode": {
+      "enum": ["acme", "private"]
     }
   },
   "required": ["v", "revision", "domain", "email", "enabled", "tos_agreed"]
