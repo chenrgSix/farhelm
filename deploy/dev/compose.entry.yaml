@@ -1,0 +1,16 @@
+# Local unified HTTPS entry. The Farhelm backend owns TLS and serves apps/web/dist.
+# Stop the separate Vite listener on 5173 before starting this entry.
+services:
+  entry:
+    image: nginx:stable-alpine
+    container_name: farhelm-entry
+    restart: unless-stopped
+    entrypoint: ["nginx"]
+    command: ["-g", "daemon off;"]
+    ports:
+      - "127.0.0.1:5173:443"
+    volumes:
+      - ./nginx-unified.conf:/etc/nginx/nginx.conf:ro
+    read_only: true
+    tmpfs:
+      - /tmp
