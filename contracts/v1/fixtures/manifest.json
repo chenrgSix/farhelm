@@ -1308,5 +1308,50 @@
     "path": "invalid/certificate-unknown-mode.json",
     "schema": "certificate-settings-update.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/agent-ca-update.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-ca-result.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/agent-ca-result-secret.json",
+    "schema": "envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/agent-ca-failed-without-reason.json",
+    "schema": "envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/agent-ca-hello.json",
+    "schema": "envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/agent-ca-duplicate-roots.json",
+    "schema": "envelope.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/agent-ca-sync.json",
+    "schema": "agent-ca-sync.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-certificate.ca_sync_requested.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-certificate.agent_ca_synced.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

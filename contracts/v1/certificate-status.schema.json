@@ -258,6 +258,9 @@
           "type": "null"
         }
       ]
+    },
+    "activation_ready": {
+      "type": "boolean"
     }
   },
   "required": [
@@ -281,6 +284,7 @@
     "mode",
     "acme_available",
     "private_ca_available",
-    "private_ca"
+    "private_ca",
+    "activation_ready"
   ]
 }

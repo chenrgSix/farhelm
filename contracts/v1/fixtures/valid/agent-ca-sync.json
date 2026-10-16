@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "revision": 1,
+  "fingerprint": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB",
+  "all_ready": false,
+  "devices": [
+    {
+      "device_id": "dev-1",
+      "name": "Linux",
+      "online": false,
+      "supported": true,
+      "status": "pending",
+      "reason": null,
+      "updated_at": 1700000000000
+    }
+  ]
+}

@@ -35,7 +35,8 @@
     "test:platform-entry": "FLEET_TEST_FRONTEND_PROXY=vite FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs && FLEET_TEST_FRONTEND_PROXY=nginx FLEET_TEST_SSH_AGENT_INSTALL=1 node tests/e2e/ssh-target.mjs",
     "test:acme": "node tests/e2e/acme.mjs",
     "test:certificates:private": "node tests/e2e/private-certificates.mjs",
-    "test:certificates:private:browser": "node tests/e2e/private-certificates-browser.mjs"
+    "test:certificates:private:browser": "node tests/e2e/private-certificates-browser.mjs",
+    "test:certificates:ca-sync": "node tests/e2e/agent-ca-sync.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

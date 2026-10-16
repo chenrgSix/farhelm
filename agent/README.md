@@ -50,7 +50,7 @@ Commands receive only PATH=/usr/bin:/bin, LANG=C.UTF-8 and LC_ALL=C.UTF-8, and n
 - TTL is checked before start. Cancellation and timeout terminate the verified process group with TERM, a 200 ms grace, KILL, and wait/reap. Linux subreaper mode helps reap ordinary descendants
 - Ordinary process groups do not contain deliberate `setsid` or double-fork escapes. Every executed result therefore says cleanup=unconfirmed. Forced timeout/cancellation and uncertain outcomes are UNKNOWN with a specific reason and audit_complete=false; normal exit success/failure can have complete captured streams without claiming containment
 - Raw HTTPS artifacts are verified/uploaded before finished is sent; server ACK is required before deleting an outbox row. Transfer does not block heartbeat or cancellation handling. Files and task tombstones are retained; automatic spool/tombstone GC is deliberately absent until a retention policy is defined
-- TLS certificate and hostname validation are always enabled. A configured CA is the only trust source; no insecure fallback exists. Authorization tokens use headers, never URLs
+- TLS certificate and hostname validation are always enabled. A configured CA remains trusted; platform CA sync can append verified anchors to the private state directory without changing system trust. No insecure fallback exists. Authorization tokens use headers, never URLs
 - Short-lived access tokens renew before expiry. WSS reconnection uses bounded exponential backoff plus jitter, preserving the same device identity and replaying the ordered durable outbox
 
 ## Test-only crash points
@@ -66,3 +66,5 @@ Supported points: `after_enroll_response`, `after_accept`, `after_running`, `aft
 - `after_finish`: result/outbox is committed; restart replays it without executing again
 
 Shared cross-language fixtures live in `../contracts/v1/fixtures`. Rust tests cover RFC 8032 signing, canonical task hashes, challenge context binding, journal/ACK dedupe, single-instance locking, environment clearing, real dual-stream/nonzero execution, bounded capture, timeout/fork cleanup, storage refusal and crash recovery. The repository's `tests/e2e` exercises the actual binary against the HTTPS/WSS server. These local tests do not validate a real public NAT path, a production host configuration, or strong escaped-descendant containment.
+
+Agent 0.2.4 supports additive CA synchronization (`agent.trust.v1`) over the authenticated control channel. See [private certificates](../docs/private-certificates.md#已有-agent先同步-ca再切换证书).

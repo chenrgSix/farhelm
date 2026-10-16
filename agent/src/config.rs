@@ -168,6 +168,11 @@ impl Config {
         } else {
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         }
+        for pem in crate::trust::roots(&self.state)? {
+            for cert in rustls_pemfile::certs(&mut pem.as_bytes()) {
+                roots.add(cert?)?;
+            }
+        }
         ensure!(!roots.is_empty(), "no trust anchors");
         Ok(Arc::new(
             rustls::ClientConfig::builder()
@@ -184,6 +189,11 @@ impl Config {
         if let Some(pem) = &self.ca_pem {
             b = b.tls_built_in_root_certs(false);
             for cert in reqwest::Certificate::from_pem_bundle(pem)? {
+                b = b.add_root_certificate(cert);
+            }
+        }
+        for pem in crate::trust::roots(&self.state)? {
+            for cert in reqwest::Certificate::from_pem_bundle(pem.as_bytes())? {
                 b = b.add_root_certificate(cert);
             }
         }

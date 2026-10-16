@@ -188,6 +188,22 @@ export class Store {
         ),
       );
     }
+    if (
+      !this.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_ca_sync'",
+        )
+        .get()
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL("../migrations/019_agent_ca_sync.sql", import.meta.url),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

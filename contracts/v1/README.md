@@ -90,3 +90,9 @@ if (!validate('commands', body)) console.error(validate.errors);
 Names can be a short name, filename, or exact schema `$id`. Validators do not coerce inputs, insert defaults, or remove unknown fields. AJV strict validation is enabled; only its fixed-tuple warning is disabled because argv intentionally has one executable followed by variable arguments.
 
 `tests/contracts/generate-contracts.py` is the schema source generator. `tests/contracts/generate-fixtures.mjs` deterministically regenerates public fixtures. After changing either source, regenerate and run the suite; changes to canonical/signing vectors require coordinated Rust/TypeScript review.
+
+## Agent CA trust rollout
+
+Agent 0.2.4 advertises `agent.trust.v1` and optional `trusted_ca_fingerprints` in `agent.hello`. The authenticated control channel carries `agent.trust.update` (request UUID, configuration revision, SHA-256 fingerprint, CA public PEM, prospective server chain, server name) and `agent.trust.result` (`applied` or a bounded failure reason). These frames are part of `envelope.schema.json`.
+
+Admin-only GET / POST `/api/v1/settings/certificate/agent-sync` return `agent-ca-sync`; POST uses the `{v, revision}` shape of `certificate-check`. A revision/fingerprint/request match is required for a receipt. `applied` means certificate-chain/hostname validation, durable additive storage and runtime trust reload have completed. Existing private trust is preserved. Late/stale responses cannot authorize another rollout; reconnect reports the trust anchors actually loaded. `certificate-status.activation_ready` includes the server-side cutover guard. Same-CA renewal for the same entry does not need a new fleet rollout. See [private certificate operations](../../docs/private-certificates.md).

@@ -1,0 +1,90 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "fingerprint": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "all_ready": {
+      "type": "boolean"
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": ["ready", "pending", "checking", "failed", "unsupported"]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CERTIFICATE_INVALID",
+                  "PERSIST_FAILED",
+                  "CONFIG_FAILED",
+                  "TIMEOUT"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "$ref": "common.schema.json#/$defs/timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "device_id",
+          "name",
+          "online",
+          "supported",
+          "status",
+          "reason",
+          "updated_at"
+        ]
+      }
+    }
+  },
+  "required": ["v", "revision", "fingerprint", "all_ready", "devices"],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-ca-sync.schema.json",
+  "title": "Farhelm Agent CA synchronization status"
+}

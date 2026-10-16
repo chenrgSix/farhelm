@@ -48,6 +48,15 @@
                 }
               },
               "required": ["arch", "sha256"]
+            },
+            "trusted_ca_fingerprints": {
+              "type": "array",
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+              }
             }
           },
           "required": ["agent_version"]
@@ -244,6 +253,144 @@
     },
     {
       "$ref": "network-probe-envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.trust.update"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "request_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+            },
+            "ca_pem": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "proof_pem": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32768
+            },
+            "server_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            }
+          },
+          "required": [
+            "request_id",
+            "revision",
+            "fingerprint",
+            "ca_pem",
+            "proof_pem",
+            "server_name"
+          ]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.trust.result"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "request_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+            },
+            "status": {
+              "enum": ["applied", "failed"]
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "CERTIFICATE_INVALID",
+                    "PERSIST_FAILED",
+                    "CONFIG_FAILED"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "request_id",
+            "revision",
+            "fingerprint",
+            "status",
+            "reason"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "applied"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "CERTIFICATE_INVALID",
+                      "PERSIST_FAILED",
+                      "CONFIG_FAILED"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": ["v", "type", "body"]
     }
   ],
   "description": "Enumerated v1 WSS frames; 65536-byte UTF-8 limit before parsing. Only single-use terminal.attach tickets and in-place agent.reauth credentials appear in authenticated flows; never place tokens in URLs or logs."

@@ -36,13 +36,14 @@ pub async fn run(
     probes: crate::network_probes::Probes,
 ) -> Result<i32> {
     let identity = Arc::new(identity);
-    let http = cfg.http_client()?;
-    let tls = cfg.tls_config()?;
+
     let mut failures = 0u32;
     let running_hash = upgrade::current_hash()?;
     let mut network = Monitor::start(journal.clone())?;
     loop {
         let selected = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
+        let http = selected.http_client()?;
+        let tls = selected.tls_config()?;
         let (contact, mut observed) = tokio::sync::watch::channel(None);
         let attempt = async {
             let access = identity.authenticate(&http, &selected, &journal).await?;
@@ -184,12 +185,14 @@ async fn session(
     probes: &crate::network_probes::Probes,
 ) -> Result<SessionEnd> {
     let mut access = access.clone();
+    let mut http = http.clone();
+    let mut trust_receipt: Option<crate::trust::Receipt> = None;
     let mut socket = connect(cfg, &access, tls, "/agent/ws").await?;
     socket
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash}}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
             )?
             .into(),
         ))
@@ -313,6 +316,13 @@ async fn session(
             Some(body)=health_events.recv()=>{socket.send(Message::Text(envelope("health.result",body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
             _=outbox.tick(), if uploads.is_empty()=>{
+                if trust_receipt.is_some() {
+                    // Wait for HTTP work using the previous client to finish before
+                    // authorizing a cutover; PTYs continue to run throughout.
+                    if downloads.is_empty() && renewal.is_empty() && address_probes.is_empty() {
+                        socket.send(Message::Text(envelope("agent.trust.result",trust_receipt.take().unwrap())?.into())).await?;
+                    } else { continue; }
+                }
                 if upgrade::supervised() && downloads.is_empty() && terminals.is_idle() && terminal_events.is_empty() && journal.upgrade_idle()? {
                     if let Some(mut state)=UpgradeState::load(journal)? {
                         if state.status=="WAITING_IDLE" {
@@ -374,6 +384,21 @@ async fn session(
                                     let cfg=cfg.clone();let http=http.clone();let access=access.clone();
                                     downloads.spawn(async move {let result=tokio::time::timeout(Duration::from_secs(120),upgrade::download(&cfg,&http,&access,&spec)).await.map_err(anyhow::Error::from).and_then(|x|x);(spec,result)});
                                 }
+                            }
+                            "agent.trust.update"=>{
+                                let update:crate::trust::Update=serde_json::from_value(envelope.body)?;
+                                let reason = if update.validate().is_err() { Some("CERTIFICATE_INVALID") }
+                                    else if update.apply(cfg).is_err() { Some("PERSIST_FAILED") }
+                                    else { None };
+                                let receipt = crate::trust::Receipt::new(&update,reason);
+                                if reason.is_none() {
+                                    // Persist first, then replace the HTTP client. Future WSS
+                                    // handshakes also reload the additive trust on reconnect.
+                                    match cfg.http_client().and_then(|client| {cfg.tls_config()?; Ok(client)}) {
+                                        Ok(client) => { http=client; trust_receipt=Some(receipt); }
+                                        Err(_) => { socket.send(Message::Text(crate::protocol::envelope("agent.trust.result",crate::trust::Receipt::new(&update,Some("CONFIG_FAILED")))?.into())).await?; }
+                                    }
+                                } else { socket.send(Message::Text(crate::protocol::envelope("agent.trust.result",receipt)?.into())).await?; }
                             }
                             "agent.address.update"=>{
                                 let update:AddressUpdate=serde_json::from_value(envelope.body)?;update.validate()?;

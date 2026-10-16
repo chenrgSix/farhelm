@@ -30,5 +30,6 @@
   "mode": "acme",
   "acme_available": true,
   "private_ca_available": true,
-  "private_ca": null
+  "private_ca": null,
+  "activation_ready": false
 }

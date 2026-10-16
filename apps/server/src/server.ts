@@ -39,6 +39,7 @@ import { registerAgentReleases, legacyArtifacts } from "./agent-releases.js";
 import { registerAgentInstall } from "./agent-install.js";
 import { registerSettings } from "./settings.js";
 import { certificateMatches, managedCertificate } from "./certificate-files.js";
+import { agentCASync, registerAgentCASync } from "./agent-ca.js";
 import { CertificateManager, registerCertificates } from "./certificates.js";
 import { registerAgentUpgrades, type UpgradeInfo } from "./agent-upgrades.js";
 import {
@@ -75,6 +76,7 @@ interface Connection {
   terminal: boolean;
   health: boolean;
   address: boolean;
+  trust: boolean;
   network: boolean;
   networkProbes: boolean;
   upgrade?: UpgradeInfo;
@@ -411,11 +413,18 @@ export async function buildServer(config: ServerConfig) {
       if (row.cancel_requested) send(c, "task.cancel", { task_id: row.id });
     }
   }
+  const caSync = agentCASync(store, (id) => {
+    const c = connections.get(id);
+    return c?.ready && live(c)
+      ? { supported: c.trust, send: (type, body) => send(c, type, body) }
+      : undefined;
+  });
   const certificates = new CertificateManager({
     store,
     config: config.acme,
     privateAvailable: !!config.webDist,
     privateLeafLifetimeMs: config.certificateTest?.privateLeafLifetimeMs,
+    agentsReady: caSync.allReady,
     initial: managed,
     retired,
     fallback: () => readPem(config.tlsCert),
@@ -436,6 +445,7 @@ export async function buildServer(config: ServerConfig) {
     },
   });
   registerCertificates(app, certificates, admin);
+  registerAgentCASync(app, certificates, caSync, admin);
   const settings = registerSettings(app, {
     store,
     admin,
@@ -1531,6 +1541,7 @@ export async function buildServer(config: ServerConfig) {
         terminal: false,
         health: false,
         address: false,
+        trust: false,
         network: false,
         networkProbes: false,
         healthSession: randomUUID(),
@@ -1564,7 +1575,13 @@ export async function buildServer(config: ServerConfig) {
             String(env.type).startsWith("terminal.") ? 12000 : 1200,
           );
           if (env.type === "agent.hello" || env.type === "agent.heartbeat") {
-            keys(b, ["agent_version", "capabilities", "server_url", "runtime"]);
+            keys(b, [
+              "agent_version",
+              "capabilities",
+              "server_url",
+              "runtime",
+              "trusted_ca_fingerprints",
+            ]);
             if (b.capabilities !== undefined) {
               if (
                 !Array.isArray(b.capabilities) ||
@@ -1577,6 +1594,7 @@ export async function buildServer(config: ServerConfig) {
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.health = b.capabilities.includes("health.probes.v1");
               c.address = b.capabilities.includes("agent.address.v1");
+              c.trust = b.capabilities.includes("agent.trust.v1");
               c.network = b.capabilities.includes("agent.network.v1");
               c.networkProbes = b.capabilities.includes(
                 "agent.network.probes.v1",
@@ -1595,6 +1613,7 @@ export async function buildServer(config: ServerConfig) {
                     b.capabilities.includes("agent.upgrade.v1"),
                 );
                 installations.activate(c.deviceId);
+                caSync.remember(c.deviceId, c.trust, b.trusted_ca_fingerprints);
               }
               c.lastHeartbeat = Date.now();
               db.prepare(
@@ -1619,6 +1638,7 @@ export async function buildServer(config: ServerConfig) {
                   "agent.network.probe.config",
                   networkProbes.config(c.deviceId),
                 );
+              caSync.connected(c.deviceId);
               dispatch(c.deviceId, true);
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
@@ -1647,6 +1667,9 @@ export async function buildServer(config: ServerConfig) {
           } else if (env.type === "agent.upgrade.result") {
             if (!c.ready || !c.upgrade?.supported) fail(400, "HELLO_REQUIRED");
             upgrades.result(c.deviceId, b);
+          } else if (env.type === "agent.trust.result") {
+            if (!c.ready || !c.trust) fail(400, "HELLO_REQUIRED");
+            caSync.result(c.deviceId, b);
           } else if (env.type === "agent.address.result") {
             if (!c.ready || !c.address) fail(400, "HELLO_REQUIRED");
             settings.sync.result(c.deviceId, b);
@@ -1754,6 +1777,7 @@ export async function buildServer(config: ServerConfig) {
       ++ticks;
       terminals.tick();
       settings.sync.flush();
+      caSync.flush();
       upgrades.tick();
       for (const c of connections.values()) {
         if (!live(c) || now - c.lastHeartbeat > heartbeatTimeout) {

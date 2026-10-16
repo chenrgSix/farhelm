@@ -13,6 +13,7 @@ const initial = {
   acme_available: true,
   private_ca_available: true,
   private_ca: null,
+  activation_ready: false,
   domain: "",
   email: "",
   enabled: false,
@@ -50,7 +51,9 @@ it("shows expiry, obtains consent and saves domain configuration exactly once", 
           resolve = r;
         }),
     );
-  const w = mount(CertificateSettingsPanel);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
   await flushPromises();
   expect(w.get('[data-testid="certificate-expiry"]').text()).not.toBe("");
   await w.get('[name="certificate-domain"]').setValue("fleet.example.com");
@@ -90,7 +93,9 @@ it("polls issuance status without overwriting a draft and stops polling on unmou
       status: "error",
       last_error: { code: "ACME_DNS_FAILED", message: "域名解析验证失败" },
     });
-  const w = mount(CertificateSettingsPanel);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
   await flushPromises();
   await w.get('[name="certificate-domain"]').setValue("unsaved.example.com");
   await vi.advanceTimersByTimeAsync(5000);
@@ -109,7 +114,9 @@ it("preserves a stale draft and requires reload after a conflict", async () => {
     .spyOn(api, "request")
     .mockResolvedValueOnce(initial)
     .mockRejectedValueOnce(new ApiError("CERTIFICATE_REVISION_CONFLICT", 409));
-  const w = mount(CertificateSettingsPanel);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
   await flushPromises();
   await w.get('[name="certificate-domain"]').setValue("fleet.example.com");
   await w.get('[name="certificate-email"]').setValue("ops@example.com");
@@ -130,7 +137,9 @@ it("external TLS is labeled accurately and cannot enable managed issuance", asyn
     challenge_port: null,
     challenge_ready: false,
   });
-  const w = mount(CertificateSettingsPanel);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
   await flushPromises();
   expect(w.text()).toContain("下方显示服务端证书");
   expect(
@@ -155,7 +164,9 @@ it("ignores a stale status poll that resolves after a successful save", async ()
       email: "ops@example.com",
       revision: 1,
     });
-  const w = mount(CertificateSettingsPanel);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
   await flushPromises();
   await vi.advanceTimersByTimeAsync(5000);
   await w.get('[name="certificate-domain"]').setValue("fleet.example.com");
@@ -195,8 +206,14 @@ it("private mode requires preparing a CA before activation and does not ask for 
       available: false,
     })
     .mockResolvedValueOnce(saved)
-    .mockResolvedValueOnce({ ...saved, private_ca: ca });
-  const w = mount(CertificateSettingsPanel);
+    .mockResolvedValueOnce({
+      ...saved,
+      private_ca: ca,
+      activation_ready: true,
+    });
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
   await flushPromises();
   await w.get('[name="certificate-mode"]').setValue("private");
   await w.get('[name="certificate-domain"]').setValue("farhelm.internal");
@@ -239,7 +256,9 @@ it("changing certificate mode stops automatic activation until the new mode is s
     enabled: true,
     tos_agreed: true,
   });
-  const w = mount(CertificateSettingsPanel);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
   await flushPromises();
   await w.get('[name="certificate-mode"]').setValue("private");
   expect(

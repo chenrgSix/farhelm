@@ -95,7 +95,9 @@
         "certificate.check_requested",
         "certificate.issued",
         "certificate.failed",
-        "certificate.ca_created"
+        "certificate.ca_created",
+        "certificate.ca_sync_requested",
+        "certificate.agent_ca_synced"
       ]
     },
     "detail": {
@@ -813,6 +815,50 @@
             }
           },
           "required": ["fingerprint"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+            }
+          },
+          "required": ["revision", "fingerprint"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+            },
+            "status": {
+              "enum": ["applied", "failed"]
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "CERTIFICATE_INVALID",
+                    "PERSIST_FAILED",
+                    "CONFIG_FAILED"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["fingerprint", "status", "reason"]
         }
       ]
     }
@@ -2058,6 +2104,76 @@
               }
             },
             "required": ["fingerprint"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "certificate.ca_sync_requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "fingerprint": {
+                "type": "string",
+                "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+              }
+            },
+            "required": ["revision", "fingerprint"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "certificate.agent_ca_synced"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fingerprint": {
+                "type": "string",
+                "pattern": "^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$"
+              },
+              "status": {
+                "enum": ["applied", "failed"]
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "CERTIFICATE_INVALID",
+                      "PERSIST_FAILED",
+                      "CONFIG_FAILED"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["fingerprint", "status", "reason"]
           }
         }
       }

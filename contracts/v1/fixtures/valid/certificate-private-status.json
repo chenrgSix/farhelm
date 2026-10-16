@@ -37,5 +37,6 @@
     "expires_at": 1707776000000,
     "expired": false,
     "expiring": false
-  }
+  },
+  "activation_ready": true
 }

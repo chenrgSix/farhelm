@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import AgentCASyncPanel from "./AgentCASyncPanel.vue";
 import { api, ApiError } from "../api/client";
 const formatTime = (value: number) =>
   new Intl.DateTimeFormat("zh-CN", {
@@ -18,6 +19,7 @@ type State = {
   mode: "acme" | "private";
   acme_available: boolean;
   private_ca_available: boolean;
+  activation_ready: boolean;
   private_ca: {
     subject: string;
     fingerprint: string;
@@ -132,6 +134,8 @@ function explain(e: unknown) {
       "请输入公网域名，例如 fleet.example.com，不包含 https://、端口或路径；暂不支持通配符和 IP。",
     INVALID_PRIVATE_CERTIFICATE_HOST:
       "请输入内网域名或 IP，不包含 https://、端口、路径或通配符。IPv6 不带方括号。",
+    AGENT_CA_SYNC_INCOMPLETE:
+      "已有 Agent 尚未全部确认信任新 CA。请先在下方完成 CA 同步；旧版 Agent 需先升级。",
     PRIVATE_CA_NOT_PREPARED: "请先创建并下载内网 CA，完成浏览器信任后再启用。",
     PRIVATE_CA_UNAVAILABLE: "内网 CA 文件缺失或损坏，请从备份恢复。",
     INVALID_CERTIFICATE_EMAIL: "请输入有效的联系邮箱。",
@@ -365,7 +369,9 @@ onBeforeUnmount(() => {
               name="certificate-enabled"
               type="checkbox"
               :disabled="
-                !available || (mode === 'private' && !state.private_ca)
+                !available ||
+                (mode === 'private' &&
+                  (!state.private_ca || !state.activation_ready))
               "
             />自动申请和续签证书</label
           >
@@ -390,7 +396,7 @@ onBeforeUnmount(() => {
             无需公网和互联网连接。先保存配置、创建并下载
             CA，在管理电脑上信任后，再启用自动签发。 网页、API 和 Agent 共用该
             HTTPS 入口；内网 DNS 或 hosts 需指向平台。 新 Agent 安装命令自动携带
-            CA，已有 Agent 更换 CA 时需先迁移信任配置。
+            CA，已有 Agent 请先在下方一键同步 CA，全部就绪后再切换证书。
           </p>
           <p class="field-hint">
             证书签发后自动热加载，已有终端连接继续运行。更换域名前，请保留原入口直到
@@ -465,6 +471,11 @@ onBeforeUnmount(() => {
             CA 已临近到期或过期，请安排 CA
             更换和客户端信任迁移。平台不会自动更换根 CA。
           </p>
+          <AgentCASyncPanel
+            :revision="state.revision"
+            :fingerprint="state.private_ca.fingerprint"
+            :disabled="busy || dirty || conflict || state.mode !== 'private'"
+          />
           <details>
             <summary>首次信任与统一入口说明</summary>
             <p class="field-hint">

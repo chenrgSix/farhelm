@@ -10,6 +10,7 @@ pub mod network;
 pub mod network_probes;
 pub mod protocol;
 pub mod terminal;
+pub mod trust;
 pub mod upgrade;
 
 pub fn now_ms() -> i64 {

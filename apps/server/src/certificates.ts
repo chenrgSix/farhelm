@@ -62,6 +62,8 @@ const empty: Row = {
   failures: 0,
 };
 export const certificateErrors: Record<string, string> = {
+  AGENT_CA_SYNC_INCOMPLETE:
+    "已有 Agent 尚未全部确认信任新 CA，请先完成 CA 同步；旧版 Agent 需先升级。",
   PRIVATE_CA_NOT_PREPARED: "请先创建并下载内网 CA，完成浏览器信任后再启用。",
   PRIVATE_CA_UNAVAILABLE:
     "内网 CA 文件缺失或损坏，请从备份恢复；平台不会自动更换 CA。",
@@ -129,6 +131,7 @@ export class CertificateManager {
       issue?: IssueCertificate;
       now?: () => number;
       warn?: (message: string) => void;
+      agentsReady?: (fingerprint: string) => boolean;
     },
   ) {
     this.active = d.initial;
@@ -192,6 +195,7 @@ export class CertificateManager {
       acme_available: !!this.d.config,
       private_ca_available: !!this.d.privateAvailable,
       private_ca: ca,
+      activation_ready: !!ca && !caError && this.safeToActivate(),
       revision: row.revision,
       domain: row.domain,
       email: row.email,
@@ -260,6 +264,8 @@ export class CertificateManager {
       fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
     if (b.enabled && mode === "private" && !this.authority.info())
       fail(409, "PRIVATE_CA_NOT_PREPARED");
+    if (b.enabled && mode === "private" && !this.safeToActivate(domain))
+      fail(409, "AGENT_CA_SYNC_INCOMPLETE");
     const saved = this.d.store.transaction(() => {
       const row = this.current();
       if (revision !== row.revision) fail(409, "CERTIFICATE_REVISION_CONFLICT");
@@ -357,6 +363,40 @@ export class CertificateManager {
       v: 1,
       certificate_pem: ca.cert,
       fingerprint: certificateInfo(ca.cert).fingerprint,
+    };
+  }
+  private safeToActivate(domain = this.current().domain) {
+    const ca = this.authority.read();
+    if (!ca) return false;
+    const root = new X509Certificate(ca.cert),
+      serving = [this.active, this.retired].find(
+        (bundle) =>
+          bundle &&
+          certificateMatches(new X509Certificate(bundle.cert), domain),
+      ),
+      current = new X509Certificate(serving?.cert ?? this.d.fallback());
+    // Only bypass for the CA currently serving this hostname. A retired or
+    // bootstrap hostname may still be using a different CA.
+    return (
+      (current.checkIssued(root) && current.verify(root.publicKey)) ||
+      (this.d.agentsReady?.(root.fingerprint256) ?? true)
+    );
+  }
+  async trustProof(revision: number) {
+    const row = this.current();
+    if (row.revision !== revision) fail(409, "CERTIFICATE_REVISION_CONFLICT");
+    if (row.mode !== "private" || !this.d.privateAvailable)
+      fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
+    const ca = this.downloadCA();
+    const proof = await this.authority.issue(row.domain);
+    if (this.closed || this.current().revision !== revision)
+      fail(409, "CERTIFICATE_REVISION_CONFLICT");
+    return {
+      revision,
+      fingerprint: ca.fingerprint,
+      ca_pem: ca.certificate_pem,
+      proof_pem: proof.cert,
+      server_name: row.domain,
     };
   }
   agentCA(url: string, fallback: string) {
@@ -526,6 +566,8 @@ export class CertificateManager {
         { ...result, domain: row.domain, mode: row.mode },
         this.now(),
       );
+      if (row.mode === "private" && !this.safeToActivate())
+        throw new CertificateError("AGENT_CA_SYNC_INCOMPLETE");
       phase = "ACME_STORAGE_FAILED";
       const path = join(directory, "active.json");
       const previous = existsSync(path)
@@ -573,7 +615,10 @@ export class CertificateManager {
       const retryAfter =
         error instanceof CertificateError ? error.retryAfter : null;
       const next = Math.max(
-        this.now() + Math.min(24, 2 ** (failures - 1)) * HOUR,
+        this.now() +
+          (code === "AGENT_CA_SYNC_INCOMPLETE"
+            ? 60000
+            : Math.min(24, 2 ** (failures - 1)) * HOUR),
         retryAfter ??
           (code === "ACME_RATE_LIMITED" ? this.now() + 24 * HOUR : 0),
       );

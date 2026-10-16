@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "agent.hello",
+  "body": {
+    "agent_version": "0.2.4",
+    "capabilities": ["agent.trust.v1"],
+    "trusted_ca_fingerprints": [
+      "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
+    ]
+  }
+}
