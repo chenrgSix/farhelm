@@ -143,6 +143,8 @@ function explain(e: unknown) {
     CERTIFICATE_MANAGEMENT_UNAVAILABLE:
       "当前部署未启用 Farhelm 证书托管，请按部署说明接通 HTTP 验证和 HTTPS 入口。",
     CERTIFICATE_BUSY: "证书申请正在进行，请等待完成；仍可关闭自动申请。",
+    PRIVATE_CERTIFICATE_RENEWAL_UNAVAILABLE:
+      "立即续签仅适用于当前已托管的内网证书。",
     CERTIFICATE_RETRY_LATER: "申请过于频繁，请等待页面显示的重试时间。",
   };
   if (
@@ -250,20 +252,25 @@ function changeMode() {
   terms.value = false;
   message.value = "";
 }
-async function check() {
-  if (!canCheck.value) return;
+async function check(renewNow = false) {
+  if (!canCheck.value || (renewNow && state.value?.mode !== "private")) return;
   busy.value = true;
   error.value = "";
   message.value = "";
   ++generation;
   try {
-    const result = await api.request<State>("/settings/certificate/check", {
-      method: "POST",
-      body: { v: 1, revision: revision.value },
-    });
+    const result = await api.request<State>(
+      `/settings/certificate/${renewNow ? "renew" : "check"}`,
+      {
+        method: "POST",
+        body: { v: 1, revision: revision.value },
+      },
+    );
     if (!disposed) {
       state.value = result;
-      message.value = "已安排检查；证书未到续签时间时继续使用当前证书。";
+      message.value = renewNow
+        ? "已安排立即续签，使用同一 CA 签发并热加载，结果自动刷新。"
+        : "已安排检查；证书未到续签时间时继续使用当前证书。";
     }
   } catch (e) {
     if (!disposed) error.value = explain(e);
@@ -420,9 +427,22 @@ onBeforeUnmount(() => {
               class="button secondary"
               type="button"
               :disabled="!canCheck"
-              @click="check"
+              @click="check(false)"
             >
               立即检查 / 重试
+            </button>
+            <button
+              v-if="
+                mode === 'private' &&
+                state.certificate.managed &&
+                state.certificate.domain === state.domain
+              "
+              class="button secondary"
+              type="button"
+              :disabled="!canCheck"
+              @click="check(true)"
+            >
+              立即续签
             </button>
           </div>
         </fieldset>

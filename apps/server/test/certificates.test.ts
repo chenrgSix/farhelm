@@ -202,6 +202,10 @@ test("issuance restricts challenges, deduplicates jobs, persists privately and s
   const dataDir = f.store.dataDir;
   try {
     f.manager.save(config, f.actor);
+    assert.throws(
+      () => f.manager.request({ v: 1, revision: 1 }, f.actor, true),
+      /PRIVATE_CERTIFICATE_RENEWAL_UNAVAILABLE/,
+    );
     await until(() => calls === 1);
     assert.equal(f.manager.snapshot().status, "issuing");
     assert.deepEqual(

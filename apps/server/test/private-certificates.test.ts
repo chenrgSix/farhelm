@@ -304,6 +304,17 @@ test("private certificate APIs are admin-only and installers capture the active 
           password: config.adminPassword,
         })
       ).json().access_token;
+      assert.equal(
+        (
+          await api(
+            "POST",
+            "/settings/certificate/renew",
+            { v: 1, revision: 1 },
+            token,
+          )
+        ).statusCode,
+        403,
+      );
       for (const method of ["GET", "POST"])
         assert.equal(
           (
@@ -397,5 +408,76 @@ test("private certificate APIs are admin-only and installers capture the active 
     );
   } finally {
     await server.close();
+  }
+});
+
+test("manual private renewal keeps the CA, enforces cooldown, and preserves the certificate on failure", async () => {
+  const f = await fixture();
+  try {
+    f.manager.save(draft, f.actor);
+    await f.manager.prepare({ v: 1, revision: 1 }, f.actor);
+    assert.throws(
+      () => f.manager.request({ v: 1, revision: 1 }, f.actor, true),
+      /CERTIFICATE_MANAGEMENT_UNAVAILABLE/,
+    );
+    f.manager.save({ ...draft, revision: 1, enabled: true }, f.actor);
+    await until(() => f.manager.snapshot().status === "valid");
+    const first = f.active(),
+      ca = f.manager.downloadCA();
+    assert.throws(
+      () => f.manager.request({ v: 1, revision: 1 }, f.actor, true),
+      /CERTIFICATE_REVISION_CONFLICT/,
+    );
+    assert.throws(
+      () => f.manager.request({ v: 1, revision: 2 }, f.actor, true),
+      /CERTIFICATE_RETRY_LATER/,
+    );
+    f.time(f.manager.snapshot().retry_allowed_at! + 1000);
+    f.manager.request({ v: 1, revision: 2 }, f.actor);
+    await f.manager.tick();
+    assert.equal(
+      f.active().cert,
+      first.cert,
+      "ordinary check must not renew early",
+    );
+    f.manager.request({ v: 1, revision: 2 }, f.actor, true);
+    f.manager.request({ v: 1, revision: 2 }, f.actor, true);
+    await until(() => f.active().cert !== first.cert);
+    const renewed = f.active();
+    assert.notEqual(renewed.key, first.key);
+    assert.deepEqual(f.manager.downloadCA(), ca);
+    assert.ok(
+      new X509Certificate(renewed.cert).verify(
+        new X509Certificate(ca.certificate_pem).publicKey,
+      ),
+    );
+    assert.equal(managedCertificate(f.store.dataDir)!.cert, renewed.cert);
+    assert.equal(
+      f.store.db
+        .prepare(
+          "SELECT COUNT(*) n FROM audit WHERE action='certificate.renew_requested' AND actor_id=?",
+        )
+        .get(f.actor)!.n,
+      1,
+    );
+    await until(() => f.manager.snapshot().status === "valid");
+    assert.throws(
+      () => f.manager.request({ v: 1, revision: 2 }, f.actor, true),
+      /CERTIFICATE_RETRY_LATER/,
+    );
+    f.time(f.manager.snapshot().retry_allowed_at! + 1000);
+    f.fail();
+    f.manager.request({ v: 1, revision: 2 }, f.actor, true);
+    await until(() => f.manager.snapshot().status === "error");
+    assert.equal(f.active().cert, renewed.cert);
+    assert.equal(managedCertificate(f.store.dataDir)!.cert, renewed.cert);
+    const failedAt = f.manager.snapshot().last_attempt_at;
+    f.time(f.manager.snapshot().next_attempt_at! + 1000);
+    await f.manager.tick();
+    assert.ok(f.manager.snapshot().last_attempt_at! > failedAt!);
+    assert.equal(f.manager.snapshot().status, "error");
+    assert.equal(f.active().cert, renewed.cert);
+  } finally {
+    await f.close();
   }
 });

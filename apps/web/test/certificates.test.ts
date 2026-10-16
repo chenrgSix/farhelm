@@ -56,6 +56,7 @@ it("shows expiry, obtains consent and saves domain configuration exactly once", 
   });
   await flushPromises();
   expect(w.get('[data-testid="certificate-expiry"]').text()).not.toBe("");
+  expect(w.findAll("button").some((b) => b.text() === "立即续签")).toBe(false);
   await w.get('[name="certificate-domain"]').setValue("fleet.example.com");
   await w.get('[name="certificate-email"]').setValue("ops@example.com");
   await w.get('[name="certificate-enabled"]').setValue(true);
@@ -264,5 +265,51 @@ it("changing certificate mode stops automatic activation until the new mode is s
   expect(
     w.get<HTMLInputElement>('[name="certificate-enabled"]').element.checked,
   ).toBe(false);
+  w.unmount();
+});
+
+it("manual private renewal uses its own action, blocks duplicate clicks and respects cooldown and drafts", async () => {
+  const state = {
+    ...initial,
+    mode: "private",
+    revision: 2,
+    enabled: true,
+    status: "valid",
+    domain: "farhelm.internal",
+    certificate: {
+      ...initial.certificate,
+      managed: true,
+      domain: "farhelm.internal",
+    },
+  };
+  let finish!: (value: unknown) => void;
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce(state)
+    .mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          finish = r;
+        }),
+    );
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
+  await flushPromises();
+  const renew = () => w.findAll("button").find((b) => b.text() === "立即续签")!;
+  await w.get('[name="certificate-domain"]').setValue("changed.internal");
+  expect(renew().attributes("disabled")).toBeDefined();
+  await w.get('[name="certificate-domain"]').setValue("farhelm.internal");
+  await renew().trigger("click");
+  await renew().trigger("click");
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request.mock.calls[1]).toEqual([
+    "/settings/certificate/renew",
+    { method: "POST", body: { v: 1, revision: 2 } },
+  ]);
+  finish({ ...state, retry_allowed_at: Date.now() + 300000 });
+  await flushPromises();
+  expect(renew().attributes("disabled")).toBeDefined();
+  expect(w.get('[role="status"]').text()).toContain("同一 CA");
   w.unmount();
 });

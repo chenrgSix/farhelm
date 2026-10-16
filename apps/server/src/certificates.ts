@@ -113,6 +113,7 @@ export class CertificateManager {
   private starting?: Promise<void>;
   private timer?: NodeJS.Timeout;
   private job?: Promise<void>;
+  private renewalRevision?: number;
   private controller?: AbortController;
   private challenges = new Map<string, string>();
   private issue: IssueCertificate;
@@ -311,11 +312,12 @@ export class CertificateManager {
       });
       return true;
     });
+    if (saved) this.renewalRevision = undefined;
     if (saved && !b.enabled) this.controller?.abort();
     this.schedule();
     return this.snapshot();
   }
-  request(body: unknown, actor: string) {
+  request(body: unknown, actor: string, renewNow = false) {
     const b = object(body);
     version(b);
     keys(b, ["v", "revision"]);
@@ -324,7 +326,10 @@ export class CertificateManager {
       fail(409, "CERTIFICATE_REVISION_CONFLICT");
     if (!this.available(row.mode) || !row.enabled)
       fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
-    if (this.job) return this.snapshot();
+    if (renewNow && (row.mode !== "private" || !this.matches(row)))
+      fail(409, "PRIVATE_CERTIFICATE_RENEWAL_UNAVAILABLE");
+    if (this.job || (renewNow && this.renewalRevision === row.revision))
+      return this.snapshot();
     if (
       this.now() <
       Math.max(
@@ -337,10 +342,17 @@ export class CertificateManager {
       this.d.store.db
         .prepare("UPDATE certificate_settings SET next_attempt_at=? WHERE id=1")
         .run(this.now());
-      this.d.store.audit("certificate.check_requested", actor, null, null, {
-        revision: row.revision,
-      });
+      this.d.store.audit(
+        renewNow
+          ? "certificate.renew_requested"
+          : "certificate.check_requested",
+        actor,
+        null,
+        null,
+        { revision: row.revision },
+      );
     });
+    if (renewNow) this.renewalRevision = row.revision;
     this.schedule();
     return this.snapshot();
   }
@@ -504,7 +516,7 @@ export class CertificateManager {
       (row.retry_after ?? 0) > now
     )
       return;
-    if (this.matches(row)) {
+    if (this.matches(row) && this.renewalRevision !== row.revision) {
       const info = certificateInfo(this.active!.cert);
       if (info.renew_at > now) {
         this.d.store.db
@@ -590,6 +602,7 @@ export class CertificateManager {
       if (this.active && this.active.domain !== bundle.domain)
         this.retired = this.active;
       this.active = bundle;
+      this.renewalRevision = undefined;
       const info = certificateInfo(bundle.cert);
       this.d.store.transaction(() => {
         this.d.store.db
@@ -671,6 +684,9 @@ export function registerCertificates(
   );
   app.post("/api/v1/settings/certificate/check", async (req) =>
     manager.request(req.body, admin(req).id),
+  );
+  app.post("/api/v1/settings/certificate/renew", async (req) =>
+    manager.request(req.body, admin(req).id, true),
   );
   app.post("/api/v1/settings/certificate/ca", async (req) =>
     manager.prepare(req.body, admin(req).id),
