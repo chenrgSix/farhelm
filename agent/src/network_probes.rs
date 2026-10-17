@@ -46,7 +46,9 @@ impl Settings {
             ensure!(
                 !target.is_empty()
                     && target.len() <= 512
-                    && !target.chars().any(|c| c.is_whitespace() || c.is_control()),
+                    && !target
+                        .chars()
+                        .any(|c| c.is_whitespace() || c.is_control() || c == '\u{feff}'),
                 "invalid probe target"
             );
             let u = Url::parse(target)?;
@@ -188,6 +190,26 @@ impl Probes {
             self.wake();
         }
         Ok(next.revision)
+    }
+    // A bad optional probe configuration must never tear down the control channel.
+    pub fn configure_message(&self, body: serde_json::Value) -> Result<String> {
+        let revision = body
+            .get("revision")
+            .and_then(|v| v.as_u64())
+            .filter(|v| *v <= 9_007_199_254_740_991);
+        let result = serde_json::from_value::<Settings>(body)
+            .map_err(anyhow::Error::from)
+            .and_then(|next| self.configure(next));
+        match result {
+            Ok(revision) => crate::protocol::envelope(
+                "agent.network.probe.configured",
+                serde_json::json!({"revision": revision}),
+            ),
+            Err(_) => crate::protocol::envelope(
+                "agent.network.probe.rejected",
+                serde_json::json!({"revision": revision, "code": "NETWORK_PROBE_CONFIG_REJECTED"}),
+            ),
+        }
     }
     pub async fn run(self, cfg: Config) -> Result<()> {
         let mut builder = reqwest::Client::builder()
@@ -347,6 +369,48 @@ mod tests {
         assert_eq!(j.network_probe_latest()?.unwrap().seq, 2);
         j.network_probe_ack(&first.sample_id, first.seq)?;
         assert!(j.network_probe_first()?.is_none());
+        Ok(())
+    }
+    #[test]
+    fn shared_unicode_limits_and_rejected_messages_preserve_valid_settings() -> Result<()> {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(
+            "../../contracts/v1/fixtures/network-probe-target-cases.json"
+        ))?;
+        for case in cases.as_array().unwrap() {
+            let config = Settings {
+                targets: vec![case["target"].as_str().unwrap().into()],
+                ..Default::default()
+            };
+            assert_eq!(
+                config.validate().is_ok(),
+                case["valid"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+        let t = tempfile::tempdir()?;
+        let p = Probes::new(Journal::open(&t.path().join("db"))?);
+        let valid = Settings {
+            revision: 1,
+            ..Default::default()
+        };
+        p.configure(valid.clone())?;
+        for bad in [
+            serde_json::json!({"revision": 2}),
+            serde_json::json!({"revision": 2, "enabled": false, "interval_secs": 30, "timeout_ms": 3000, "failure_threshold": 3, "targets": [format!("https://example.test/{}", "中".repeat(200))]}),
+        ] {
+            let reply: serde_json::Value = serde_json::from_str(&p.configure_message(bad)?)?;
+            assert_eq!(reply["type"], "agent.network.probe.rejected");
+            assert_eq!(p.settings()?, valid);
+        }
+        let updated = Settings {
+            revision: 2,
+            ..valid
+        };
+        let reply: serde_json::Value =
+            serde_json::from_str(&p.configure_message(serde_json::to_value(&updated)?)?)?;
+        assert_eq!(reply["type"], "agent.network.probe.configured");
+        assert_eq!(p.settings()?, updated);
         Ok(())
     }
     #[tokio::test]

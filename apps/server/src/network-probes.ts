@@ -63,7 +63,8 @@ export function validateProbeConfig(value: unknown): ProbeConfig {
       fail(400, "INVALID_NETWORK_PROBE_TARGET");
     }
     if (
-      /[\s\x00-\x1f\x7f]/.test(target) ||
+      Buffer.byteLength(target, "utf8") > 512 ||
+      /[\s\p{White_Space}\p{Cc}\p{Cs}]/u.test(target) ||
       !["http:", "https:", "tcp:"].includes(u.protocol) ||
       !u.hostname ||
       u.username ||
@@ -125,6 +126,10 @@ export function registerNetworkProbes(
   },
 ) {
   const db = d.store.db;
+  const rejections = new Map<
+    string,
+    { revision: number | null; connectionId: string }
+  >();
   function config(id: string, revision?: number): ProbeConfig {
     if (revision === 0) return { ...defaults };
     const row = (
@@ -143,6 +148,31 @@ export function registerNetworkProbes(
     if (!row && revision !== undefined)
       fail(400, "UNKNOWN_NETWORK_PROBE_REVISION");
     return row ? JSON.parse(row.config) : { ...defaults };
+  }
+  function configError(id: string): string | null {
+    const current = config(id);
+    try {
+      validateProbeConfig(current);
+    } catch {
+      return "INVALID_NETWORK_PROBE_CONFIG";
+    }
+    const rejection = rejections.get(id);
+    return rejection &&
+      rejection.connectionId === d.agent(id)?.connectionId &&
+      (rejection.revision === null || rejection.revision === current.revision)
+      ? "NETWORK_PROBE_CONFIG_REJECTED"
+      : null;
+  }
+  function deliver(id: string) {
+    const current = config(id),
+      agent = d.agent(id);
+    // Old persisted invalid settings must not disconnect older Agents on reconnect.
+    try {
+      validateProbeConfig(current);
+    } catch {
+      return;
+    }
+    if (agent?.supported) agent.send("agent.network.probe.config", current);
   }
   function view(id: string, before = MAX) {
     const current = config(id),
@@ -173,6 +203,7 @@ export function registerNetworkProbes(
     return {
       v: 1,
       config: current,
+      config_error: configError(id),
       applied_revision: applied?.revision ?? null,
       supported: !!agent?.supported,
       device_online: !!agent,
@@ -226,8 +257,8 @@ export function registerNetworkProbes(
         interval_secs: proposed.interval_secs,
       });
     });
-    const agent = d.agent(id);
-    if (agent?.supported) agent.send("agent.network.probe.config", proposed);
+    rejections.delete(id);
+    deliver(id);
     return view(id);
   });
   function validateReport(id: string, value: unknown) {
@@ -312,11 +343,23 @@ export function registerNetworkProbes(
   }
   return {
     config,
+    deliver,
+    rejected(id: string, value: unknown) {
+      const b = object(value);
+      keys(b, ["revision", "code"]);
+      const revision = b.revision === null ? null : integer(b.revision, 0, MAX);
+      if (b.code !== "NETWORK_PROBE_CONFIG_REJECTED")
+        fail(400, "INVALID_NETWORK_PROBE_REJECTION");
+      const agent = d.agent(id);
+      if (agent)
+        rejections.set(id, { revision, connectionId: agent.connectionId });
+    },
     applied(id: string, value: unknown) {
       const b = object(value);
       keys(b, ["revision"]);
       const revision = integer(b.revision, 0, MAX);
       config(id, revision);
+      rejections.delete(id);
       db.prepare(
         "INSERT INTO network_probe_applied(device_id,revision) VALUES(?,?) ON CONFLICT(device_id) DO UPDATE SET revision=MAX(revision,excluded.revision)",
       ).run(id, revision);

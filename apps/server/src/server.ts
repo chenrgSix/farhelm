@@ -1795,12 +1795,7 @@ export async function buildServer(config: ServerConfig) {
                     settings.current(),
                   );
               }
-              if (c.networkProbes)
-                send(
-                  c,
-                  "agent.network.probe.config",
-                  networkProbes.config(c.deviceId),
-                );
+              if (c.networkProbes) networkProbes.deliver(c.deviceId);
               networkRoutes.deliver(c.deviceId);
               caSync.connected(c.deviceId);
               dispatch(c.deviceId, true);
@@ -1815,6 +1810,8 @@ export async function buildServer(config: ServerConfig) {
               fail(400, "NETWORK_PROBES_HELLO_REQUIRED");
             if (env.type === "agent.network.probe.configured")
               networkProbes.applied(c.deviceId, b);
+            else if (env.type === "agent.network.probe.rejected")
+              networkProbes.rejected(c.deviceId, b);
             else if (env.type === "agent.network.probe.latest")
               networkProbes.latest(c.deviceId, b);
             else if (env.type === "agent.network.probe.event")

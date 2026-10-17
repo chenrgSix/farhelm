@@ -35,7 +35,8 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 512,
-        "pattern": "^(https?://[^\\s/@?#]+[^\\s#]*|tcp://[^\\s/@?#]+:[0-9]+/?)$"
+        "pattern": "^(https?://[^\\s/@?#]+[^\\s#]*|tcp://[^\\s/@?#]+:[0-9]+/?)$",
+        "description": "Runtime validation limits the original URL to 512 UTF-8 bytes and rejects whitespace/control characters."
       }
     }
   },

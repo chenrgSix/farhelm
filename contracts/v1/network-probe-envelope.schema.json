@@ -114,6 +114,41 @@
         }
       },
       "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.network.probe.rejected"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "code": {
+              "const": "NETWORK_PROBE_CONFIG_REJECTED"
+            }
+          },
+          "required": ["revision", "code"]
+        }
+      },
+      "required": ["v", "type", "body"]
     }
   ]
 }

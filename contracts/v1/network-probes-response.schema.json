@@ -149,6 +149,13 @@
           "type": "null"
         }
       ]
+    },
+    "config_error": {
+      "enum": [
+        null,
+        "INVALID_NETWORK_PROBE_CONFIG",
+        "NETWORK_PROBE_CONFIG_REJECTED"
+      ]
     }
   },
   "required": [

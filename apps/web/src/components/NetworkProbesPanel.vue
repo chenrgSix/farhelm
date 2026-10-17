@@ -139,6 +139,10 @@ onBeforeUnmount(() => {
     <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
     <p v-if="message" role="status" class="probe-message">{{ message }}</p>
     <template v-if="data">
+      <p v-if="data.config_error" class="error-banner" role="alert">
+        探测配置无效或被 Agent
+        拒绝，请修改探测地址或参数后重新保存。原有效配置保留，平台连接不受影响。
+      </p>
       <p class="probe-status">
         {{
           !data.config.enabled
@@ -156,7 +160,7 @@ onBeforeUnmount(() => {
         }}
         ·
         {{
-          data.applied_revision === data.config.revision
+          !data.config_error && data.applied_revision === data.config.revision
             ? "Agent 已确认配置"
             : "配置等待 Agent 确认"
         }}<span v-if="data.device_online && !data.supported">

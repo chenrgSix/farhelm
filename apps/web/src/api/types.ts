@@ -306,6 +306,7 @@ export interface NetworkProbeResponse {
   v: 1;
   config: NetworkProbeConfig;
   applied_revision: number | null;
+  config_error?: string | null;
   supported: boolean;
   device_online: boolean;
   result: NetworkProbeReport | null;

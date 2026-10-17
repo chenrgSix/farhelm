@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -8,7 +8,33 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { WebSocket } from "ws";
 import { buildServer } from "../src/server.js";
+import { validateProbeConfig } from "../src/network-probes.js";
 import { hash, token } from "../src/util.js";
+
+test("shared network probe target fixtures use UTF-8 byte limits", () => {
+  const cases = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../contracts/v1/fixtures/network-probe-target-cases.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  for (const item of cases) {
+    const validate = () =>
+      validateProbeConfig({
+        revision: 0,
+        enabled: false,
+        interval_secs: 30,
+        timeout_ms: 3000,
+        failure_threshold: 3,
+        targets: [item.target],
+      });
+    if (item.valid) assert.doesNotThrow(validate, item.name);
+    else assert.throws(validate, undefined, item.name);
+  }
+});
 
 test("network probe configs are scoped and versioned; offline evidence is immutable, replayable and never masquerades as fresh", async () => {
   const root = mkdtempSync(join(tmpdir(), "fleet-probes-"));
@@ -75,6 +101,13 @@ test("network probe configs are scoped and versioned; offline evidence is immuta
     assert.equal((await api("GET", undefined, reader)).statusCode, 200);
     for (const bad of [
       { ...config, targets: [config.targets[0]] },
+      {
+        ...config,
+        targets: [
+          "https://example.test/" + "中".repeat(200),
+          config.targets[0],
+        ],
+      },
       { ...config, interval_secs: 1 },
       { ...config, targets: ["https://u:p@host", config.targets[0]] },
       { ...config, targets: ["tcp://host:80/path", config.targets[0]] },
@@ -122,8 +155,19 @@ test("network probe configs are scoped and versioned; offline evidence is immuta
     await until(() => frames.length === 1);
     assert.equal(frames[0].type, "agent.network.probe.config");
     assert.equal(frames[0].body.revision, 1);
+    send("agent.network.probe.rejected", {
+      revision: 1,
+      code: "NETWORK_PROBE_CONFIG_REJECTED",
+    });
+    await until(
+      async () =>
+        (await api("GET")).json().config_error ===
+        "NETWORK_PROBE_CONFIG_REJECTED",
+    );
+    assert.equal(ws.readyState, WebSocket.OPEN);
     send("agent.network.probe.configured", { revision: 1 });
     await until(async () => (await api("GET")).json().applied_revision === 1);
+    assert.equal((await api("GET")).json().config_error, null);
     const report = {
       sample_id: randomUUID(),
       seq: 1,
@@ -219,16 +263,70 @@ test("network probe configs are scoped and versioned; offline evidence is immuta
       .prepare("SELECT * FROM audit WHERE action='network.probes_configured'")
       .all();
     assert.equal(audits.length, 2);
+    // Legacy bad values remain editable, but must never be resent to older Agents.
+    db.prepare(
+      "UPDATE network_probe_configs SET config=? WHERE device_id='device' AND revision=2",
+    ).run(
+      JSON.stringify({
+        ...config,
+        revision: 2,
+        targets: [
+          "https://example.test/" + "中".repeat(200),
+          config.targets[0],
+        ],
+      }),
+    );
+    const disconnected = once(ws, "close");
+    ws.terminate();
+    await disconnected;
+    frames.length = 0;
+    ws = new WebSocket(
+      `wss://localhost:${(s.app.server.address() as any).port}/agent/ws`,
+      {
+        ca: readFileSync(join(root, "tls/ca.crt")),
+        headers: { authorization: "Bearer " + access },
+      },
+    );
+    ws.on("message", (raw) => frames.push(JSON.parse(raw.toString())));
+    ws.on("error", () => {});
+    await once(ws, "open");
+    send("agent.hello", {
+      agent_version: "0.2.3",
+      capabilities: ["agent.network.probes.v1"],
+    });
+    await until(async () => (await api("GET")).json().supported);
+    assert.equal(
+      (await api("GET")).json().config_error,
+      "INVALID_NETWORK_PROBE_CONFIG",
+    );
+    assert.equal(frames.length, 0);
+    assert.equal(ws.readyState, WebSocket.OPEN);
+    assert.equal(
+      (
+        await api("PUT", {
+          v: 1,
+          config: { ...config, revision: 2, enabled: false, targets: [] },
+        })
+      ).statusCode,
+      200,
+    );
+    await until(() =>
+      frames.some(
+        (f) => f.type === "agent.network.probe.config" && f.body.revision === 3,
+      ),
+    );
+    assert.equal((await api("GET")).json().config_error, null);
     ws.terminate();
     await s.close();
     s = await buildServer(cfg);
     admin = await login("admin");
     const restored = (await api("GET")).json();
-    assert.equal(restored.config.revision, 2);
+    assert.equal(restored.config.revision, 3);
     assert.equal(restored.events.length, 3);
     assert.equal(restored.result_fresh, false);
   } finally {
     ws?.terminate();
     await s.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

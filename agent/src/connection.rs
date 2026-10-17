@@ -455,9 +455,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                                 else if next==*route {socket.send(Message::Text(crate::protocol::envelope("agent.route.status",&route_status)?.into())).await?;}
                             }
                             "agent.network.probe.config"=>{
-                                let config:crate::network_probes::Settings=serde_json::from_value(envelope.body)?;
-                                let revision=probes.configure(config)?;
-                                socket.send(Message::Text(crate::protocol::envelope("agent.network.probe.configured",json!({"revision":revision}))?.into())).await?;
+                                socket.send(Message::Text(probes.configure_message(envelope.body)?.into())).await?;
                             }
                             "agent.network.probe.ack"=>{
                                 #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{sample_id:String,seq:u64}

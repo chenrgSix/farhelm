@@ -330,3 +330,23 @@ test("public helper accepts names and reports errors without mutating inputs", (
   );
   assert.throws(() => validate("nonexistent", {}), /Unknown Farhelm v1 schema/);
 });
+
+test("network probe rejection is an explicit bounded response", () => {
+  const frame = {
+    v: 1,
+    type: "agent.network.probe.rejected",
+    body: { revision: 2, code: "NETWORK_PROBE_CONFIG_REJECTED" },
+  };
+  assertValid("network-probe-envelope", frame);
+  assertValid("network-probe-envelope", {
+    ...frame,
+    body: { ...frame.body, revision: null },
+  });
+  assert.equal(
+    validate("network-probe-envelope", {
+      ...frame,
+      body: { ...frame.body, code: "untrusted error" },
+    }),
+    false,
+  );
+});

@@ -133,3 +133,15 @@ it("ignores a stale polling response that arrives after a successful save", asyn
   w.unmount();
   vi.useRealTimers();
 });
+
+it("shows rejected configurations without claiming Agent confirmation", async () => {
+  vi.spyOn(api, "request").mockResolvedValue({
+    ...data,
+    config_error: "NETWORK_PROBE_CONFIG_REJECTED",
+  });
+  const w = mount(NetworkProbesPanel, { props: { device, user } });
+  await flushPromises();
+  expect(w.text()).toContain("探测配置无效或被 Agent 拒绝");
+  expect(w.text()).not.toContain("Agent 已确认配置");
+  w.unmount();
+});
