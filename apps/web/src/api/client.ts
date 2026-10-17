@@ -145,7 +145,9 @@ export class ApiClient {
         DEPLOYMENT_WEB_NOT_READY: "未找到网页文件，请先部署前端构建产物。",
         DEPLOYMENT_CONFIG_NOT_READY:
           "部署条件不满足，请检查监听配置；关闭全部网页与 Agent 通道时必须保留 SSH 入口。",
-        AGENT_HTTPS_REQUIRED: "Agent 接入需要 HTTPS，请调整网页协议。",
+        AGENT_HTTPS_REQUIRED: "Agent 请连接独立 HTTPS 入口；网页可使用 HTTP。",
+        AGENT_ENDPOINT_SYNC_REQUIRED:
+          "仍有 Agent 使用旧网页入口，请先在 Agent 接入设置中同步独立 HTTPS 地址。",
         CONFIRM_WEB_DISABLE_REQUIRED: "请先保存恢复命令并确认关闭网页管理。",
         INVALID_HISTORY_QUERY: "历史筛选条件无效，请核对时间范围和状态。",
         INVALID_HISTORY_CURSOR: "历史分页已失效，请返回首页重新查询。",

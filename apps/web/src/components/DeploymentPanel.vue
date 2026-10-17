@@ -16,6 +16,9 @@ type State = {
   last_error: string | null;
   active_terminals: number;
   https_ready: boolean;
+  agent_https_port?: number;
+  agents_on_web?: number;
+  web_reload_supported?: boolean;
   recovery_command: string;
 };
 const state = ref<State>();
@@ -40,11 +43,16 @@ const needsHttps = computed(
     form.value.device_access === "agent-ssh" ||
     (form.value.web_enabled && form.value.web_protocol === "https"),
 );
-const incompatible = computed(
+const migrationRequired = computed(
   () =>
     form.value.device_access === "agent-ssh" &&
-    form.value.web_enabled &&
-    form.value.web_protocol === "http",
+    (!form.value.web_enabled || form.value.web_protocol === "http") &&
+    !!state.value?.agents_on_web,
+);
+const needsRestart = computed(
+  () =>
+    form.value.device_access !== state.value?.settings.device_access ||
+    (form.value.web_protocol === "https" && !state.value?.web_reload_supported),
 );
 const remaining = computed(() =>
   state.value?.confirm_by
@@ -167,9 +175,7 @@ onBeforeUnmount(() => {
             >{{ state.entry_url }}</a
           >
         </p>
-        <p>
-          请在新入口登录并进入“系统设置”。确认前暂停新建终端；未确认会自动回退。
-        </p>
+        <p>请在新入口登录并进入“系统设置”确认；未确认会自动回退。</p>
         <button
           v-if="state?.state === 'awaiting_confirmation'"
           type="button"
@@ -218,13 +224,19 @@ onBeforeUnmount(() => {
           连接。开启网页管理后，可继续管理设备、账号权限、网页终端和会话录制。
         </p>
         <p v-if="form.web_protocol === 'http'">
-          HTTP 无需 HTTPS 证书，浏览器与平台之间的数据不加密；请在可信内网使用。
+          网页 HTTP 无需浏览器信任证书，网页通信不加密。
         </p>
-        <p v-if="incompatible" class="notice danger">
-          Agent 接入需要 HTTPS，请将网页协议改为 HTTPS，或选择仅 SSH。
+        <p v-if="state?.agent_https_port && form.device_access === 'agent-ssh'">
+          Agent 使用独立 HTTPS 入口（端口
+          {{ state.agent_https_port }}），不随网页协议切换；证书和 CA
+          继续由平台管理。
+        </p>
+        <p v-if="migrationRequired" class="notice danger">
+          仍有 {{ state?.agents_on_web }} 个 Agent 使用旧网页入口。请先在下方
+          Agent 接入设置中保存独立地址并同步，再切换 HTTP 或关闭网页。
         </p>
         <p
-          v-else-if="needsHttps && state && !state.https_ready"
+          v-if="needsHttps && state && !state.https_ready"
           class="notice danger"
         >
           当前没有可用的 HTTPS 证书。请先准备有效证书，再切换；不会关闭现有 HTTP
@@ -240,12 +252,14 @@ onBeforeUnmount(() => {
             type="checkbox"
           />我已保存本机恢复命令，确认关闭网页管理</label
         >
-        <p v-if="state?.active_terminals" class="notice">
+        <p v-if="state?.active_terminals && needsRestart" class="notice">
           当前有 {{ state.active_terminals }} 个活跃终端，请结束后刷新再切换。
         </p>
         <p class="muted">
-          应用时会重载服务，Agent 会重新连接。HTTP/HTTPS
-          切换后需在新入口登录确认；有外部反向代理时，代理协议也需要匹配。
+          网页设置单独应用，已有 Agent 和 SSH
+          会话继续运行；变更设备接入方式或首次加载证书时需要重载，请先结束活跃任务和终端。
+          HTTP/HTTPS 切换后在新入口登录确认；2
+          分钟内未确认会恢复原网页设置。有外部代理时，代理协议也需匹配。
         </p>
         <div class="actions">
           <button
@@ -253,9 +267,9 @@ onBeforeUnmount(() => {
             class="button primary"
             :disabled="
               !dirty ||
-              incompatible ||
+              migrationRequired ||
               (needsHttps && !state?.https_ready) ||
-              !!state?.active_terminals ||
+              (!!state?.active_terminals && needsRestart) ||
               (!form.web_enabled && !confirmedDisable)
             "
           >

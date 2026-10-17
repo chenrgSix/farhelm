@@ -60,10 +60,10 @@ it("shows independent settings and requires explicit acknowledgement before disa
   expect(wrapper.text()).toContain("重新开启网页请在平台服务器执行");
   expect(wrapper.get("code").text()).toContain("enable-web.js");
 });
-it("blocks Agent over HTTP and unavailable HTTPS certificates", async () => {
+it("requires an Agent certificate independently of the web protocol", async () => {
   await setup({ ...base, https_ready: false });
   await wrapper.get('[aria-label="设备接入方式"]').setValue("agent-ssh");
-  expect(wrapper.text()).toContain("Agent 接入需要 HTTPS");
+  expect(wrapper.text()).toContain("没有可用的 HTTPS 证书");
   expect(
     wrapper.get('button[type="submit"]').attributes("disabled"),
   ).toBeDefined();
@@ -153,4 +153,45 @@ it("keeps edits after a conflict and shows rollback after a failed trial", async
   expect(
     (wrapper.get('[aria-label="网页协议"]').element as HTMLSelectElement).value,
   ).toBe("http");
+});
+
+it("allows HTTP web with Agent HTTPS and active sessions when only the web listener changes", async () => {
+  const request = await setup({
+    ...base,
+    active_terminals: 2,
+    web_reload_supported: true,
+    agent_https_port: 8444,
+    settings: {
+      device_access: "agent-ssh",
+      web_enabled: true,
+      web_protocol: "https",
+    },
+  } as any);
+  await wrapper.get('[aria-label="网页协议"]').setValue("http");
+  expect(wrapper.text()).toContain("Agent 使用独立 HTTPS 入口");
+  expect(
+    wrapper.get('button[type="submit"]').attributes("disabled"),
+  ).toBeUndefined();
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls.at(-1)?.[1]?.body).toMatchObject({
+    settings: { device_access: "agent-ssh", web_protocol: "http" },
+  });
+});
+it("requires legacy Agent address migration before removing its HTTPS web entry", async () => {
+  await setup({
+    ...base,
+    web_reload_supported: true,
+    agents_on_web: 1,
+    settings: {
+      device_access: "agent-ssh",
+      web_enabled: true,
+      web_protocol: "https",
+    },
+  } as any);
+  await wrapper.get('[aria-label="网页协议"]').setValue("http");
+  expect(wrapper.text()).toContain("先在下方 Agent 接入设置");
+  expect(
+    wrapper.get('button[type="submit"]').attributes("disabled"),
+  ).toBeDefined();
 });

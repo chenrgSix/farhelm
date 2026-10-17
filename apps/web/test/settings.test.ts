@@ -359,3 +359,39 @@ it("extracts the HTTPS origin from pasted page links and rejects HTTP and embedd
   });
   wrapper.unmount();
 });
+
+it("derives the independent HTTPS Agent address from an HTTP management page", async () => {
+  vi.stubGlobal("location", new URL("http://192.168.1.20:8080/devices"));
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce({ ...initial, agent_https_port: 8444 })
+    .mockResolvedValueOnce({
+      ...initial,
+      revision: 1,
+      agent_https_port: 8444,
+      platform_server_url: "https://192.168.1.20:8444",
+    });
+  const wrapper = mount(SystemSettingsPanel, {
+    global: { stubs: { AgentAddressSyncPanel: true } },
+  });
+  await flushPromises();
+  const button = wrapper
+    .findAll("button")
+    .find((b) => b.text() === "使用独立 Agent 地址并同步")!;
+  expect(button.attributes("disabled")).toBeUndefined();
+  await button.trigger("click");
+  await flushPromises();
+  expect(request.mock.calls[1]).toEqual([
+    "/settings",
+    {
+      method: "PUT",
+      body: {
+        v: 1,
+        revision: 0,
+        platform_server_url: "https://192.168.1.20:8444",
+      },
+    },
+  ]);
+  expect(wrapper.text()).toContain("无需为了管理网页安装浏览器证书");
+  wrapper.unmount();
+});

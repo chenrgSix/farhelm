@@ -146,7 +146,7 @@ function explain(e: unknown) {
     PRIVATE_CA_NOT_PREPARED: "请先创建并下载内网 CA，完成浏览器信任后再启用。",
     PRIVATE_CA_UNAVAILABLE: "内网 CA 文件缺失或损坏，请从备份恢复。",
     INVALID_CERTIFICATE_CHALLENGE: "请选择 HTTP-01 或 TLS-ALPN-01 验证。",
-    ACME_TLS_UNAVAILABLE: "TLS 验证需要启用平台统一 HTTPS 入口。",
+    ACME_TLS_UNAVAILABLE: "TLS 验证需要启用平台的 Agent 或网页 HTTPS 入口。",
     INVALID_CERTIFICATE_EMAIL: "请输入有效的联系邮箱。",
     CERTIFICATE_TOS_REQUIRED: "启用前请阅读并同意 Let’s Encrypt 服务条款。",
     CERTIFICATE_MANAGEMENT_UNAVAILABLE:
@@ -327,7 +327,7 @@ onBeforeUnmount(() => {
     <div class="panel-heading">
       <div>
         <h2 id="certificate-title">HTTPS 证书</h2>
-        <p class="muted">统一 HTTPS 入口 · 公网证书 / 内网私有 CA</p>
+        <p class="muted">Agent HTTPS / 网页 HTTPS · 公网证书 / 内网私有 CA</p>
       </div>
       <span
         v-if="state"
@@ -356,7 +356,7 @@ onBeforeUnmount(() => {
             </select>
           </label>
           <label
-            >{{ mode === "private" ? "统一入口域名或 IP" : "平台域名或公网 IP"
+            >{{ mode === "private" ? "证书域名或 IP" : "平台域名或公网 IP"
             }}<input
               v-model="domain"
               name="certificate-domain"
@@ -424,8 +424,9 @@ onBeforeUnmount(() => {
               服务使用时，可将验证路径转发到平台的 HTTP 验证入口。
             </template>
             <template v-else>
-              无需开放 80。公网 443 需通过 TCP 转发直达平台 HTTPS 入口，保留
-              acme-tls/1 协议；普通 HTTPS 反向代理不能代替此验证。
+              无需开放 80。公网 443 需通过 TCP 转发直达平台 TLS
+              验证入口（见下方监听端口），保留 acme-tls/1 协议；普通 HTTPS
+              反向代理不能代替此验证。
             </template>
             平台内部可监听其他端口，但公网验证端口由证书机构固定为 80 或
             443，不能任意修改。
@@ -543,7 +544,7 @@ onBeforeUnmount(() => {
             :disabled="busy || dirty || conflict || state.mode !== 'private'"
           />
           <details>
-            <summary>首次信任与统一入口说明</summary>
+            <summary>首次信任与独立入口说明</summary>
             <p class="field-hint">
               从当前可信管理入口下载 CA 并核对指纹。macOS
               导入钥匙串并设为信任；Windows 导入“受信任的根证书颁发机构”；Linux
@@ -555,9 +556,10 @@ onBeforeUnmount(() => {
               天自动续签。根 CA 到期或丢失需要迁移信任，请备份平台数据目录。
             </p>
             <p class="field-hint">
-              信任完成后启用自动签发，使用配置的域名或 IP 访问平台；在 Agent
-              接入设置保存该统一地址。独立 Vite / Nginx HTTPS
-              入口不会因本设置自动更换证书。
+              网页选择 HTTPS 时需首次信任 CA；网页选择 HTTP
+              时无需浏览器信任。Agent 接入设置使用独立 HTTPS
+              地址，安装命令自动携带 CA，续签同时更新所有托管 HTTPS 入口。独立
+              Vite / Nginx HTTPS 入口不会因本设置自动更换证书。
             </p>
           </details>
         </template>

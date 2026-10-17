@@ -196,7 +196,7 @@ it("keeps web management in SSH-only mode and hides unavailable Agent and certif
   await navigate("系统设置");
   await flushPromises();
   expect(wrapper.text()).toContain("仅 SSH");
-  expect(wrapper.text()).toContain("HTTP 无需 HTTPS 证书");
+  expect(wrapper.text()).toContain("HTTP 无需浏览器信任证书");
   expect(
     request.mock.calls.some(
       ([path]) =>

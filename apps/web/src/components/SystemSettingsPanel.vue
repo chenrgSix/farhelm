@@ -9,6 +9,7 @@ type Settings = {
   revision: number;
   platform_server_url: string;
   updated_at: number | null;
+  agent_https_port?: number;
 };
 const emit = defineEmits<{ saved: [] }>();
 const settings = ref<Settings>();
@@ -19,6 +20,17 @@ const message = ref("");
 const conflict = ref(false);
 const pageOrigin = window.location.origin;
 const pageUsesHttps = window.location.protocol === "https:";
+const suggestedAddress = computed(() => {
+  const url = new URL(pageOrigin);
+  if (settings.value?.agent_https_port) {
+    url.protocol = "https:";
+    url.port = String(settings.value.agent_https_port);
+  }
+  return url.origin;
+});
+const canUseSuggestedAddress = computed(
+  () => pageUsesHttps || !!settings.value?.agent_https_port,
+);
 const normalizedUrl = computed(() => {
   try {
     return platformEntry(serverUrl.value);
@@ -41,8 +53,14 @@ function platformEntry(value: string) {
   return url.origin;
 }
 async function usePageAddress() {
-  if (busy.value || !pageUsesHttps || !settings.value || conflict.value) return;
-  serverUrl.value = pageOrigin;
+  if (
+    busy.value ||
+    !canUseSuggestedAddress.value ||
+    !settings.value ||
+    conflict.value
+  )
+    return;
+  serverUrl.value = suggestedAddress.value;
   await save(true);
 }
 let disposed = false;
@@ -126,10 +144,10 @@ async function save(syncUnchanged = false) {
       raw.includes("INVALID_PLATFORM_ADDRESS")
     ) {
       error.value =
-        "请输入有效的 HTTPS 平台网页地址，例如 https://fleet.example.com，不能包含账号或密码。";
+        "请输入有效的 Agent HTTPS 地址，例如 https://fleet.example.com，不能包含账号或密码。";
     } else if (raw.includes("PLATFORM_HTTPS_REQUIRED")) {
       error.value =
-        "Agent 需要 HTTPS 入口。请使用已启用 HTTPS 的平台网页地址，HTTP 开发地址不能用于 Agent 接入。";
+        "Agent 需要独立 HTTPS 入口；网页使用 HTTP 不影响 Agent。请填写 Agent 的 HTTPS 地址。";
     } else if (e instanceof ApiError && e.status === 0) {
       conflict.value = true;
       error.value = "保存结果尚未确认，请重新加载配置核对后再操作。";
@@ -152,7 +170,9 @@ onBeforeUnmount(() => {
     <div class="panel-heading">
       <div>
         <h2 id="platform-settings-title">Agent 接入设置</h2>
-        <p class="muted">网页控制台与 Agent 共用同一个对外入口</p>
+        <p class="muted">
+          网页管理与 Agent 使用独立入口；Agent 始终通过 HTTPS 连接
+        </p>
       </div>
     </div>
     <form @submit.prevent="save()">
@@ -161,7 +181,7 @@ onBeforeUnmount(() => {
       <p v-if="!settings && busy" class="muted">正在读取系统设置…</p>
       <fieldset v-if="settings" :disabled="busy">
         <label
-          >平台访问地址<input
+          >Agent HTTPS 地址<input
             v-model="serverUrl"
             type="url"
             required
@@ -175,17 +195,21 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="button secondary small"
-            :disabled="busy || conflict || !pageUsesHttps"
+            :disabled="busy || conflict || !canUseSuggestedAddress"
             @click="usePageAddress"
           >
-            使用当前网页地址并同步
+            {{
+              settings.agent_https_port
+                ? "使用独立 Agent 地址并同步"
+                : "使用当前网页地址并同步"
+            }}
           </button>
-          <span class="field-hint">{{ pageOrigin }}</span>
+          <span class="field-hint">{{ suggestedAddress }}</span>
         </div>
         <p class="field-hint">
-          直接粘贴浏览器中的 HTTPS
-          平台地址即可，自动保留域名和端口。网页服务需已接通 Agent
-          转发，目标服务器也需能够访问这个地址；添加 Agent 时自动带入。
+          自动使用当前网页的主机名和独立 Agent HTTPS
+          端口。请确保目标设备能访问该端口；有端口映射或反向代理时填写实际对外地址。
+          添加 Agent 时自动带入此地址和对应 CA，网页切换 HTTP 不会改动它。
         </p>
         <p
           v-if="normalizedUrl && normalizedUrl !== serverUrl.trim()"
@@ -194,8 +218,8 @@ onBeforeUnmount(() => {
           将使用：{{ normalizedUrl }}（已去除页面路径和参数）
         </p>
         <p v-if="!pageUsesHttps" class="notice settings-scope">
-          当前网页使用 HTTP，不能直接作为 Agent 入口。请填写已启用 HTTPS
-          的平台网页地址。
+          当前网页使用 HTTP，Agent 仍连接上方独立 HTTPS
+          地址；无需为了管理网页安装浏览器证书。
         </p>
         <div class="notice settings-scope">
           保存后立即用于新生成的安装命令，并自动同步到支持此功能的

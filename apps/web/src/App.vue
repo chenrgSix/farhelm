@@ -55,8 +55,9 @@ const agentEnabled = computed(
   () => user.value?.runtime?.device_access !== "ssh-only",
 );
 const httpsEnabled = computed(
-  () => user.value?.runtime?.web_protocol !== "http",
+  () => agentEnabled.value || user.value?.runtime?.web_protocol !== "http",
 );
+const pageUsesHttps = window.location.protocol === "https:";
 const username = ref("");
 const password = ref("");
 const loginBusy = ref(false);
@@ -619,7 +620,8 @@ onBeforeUnmount(() => {
           会话仅保留在当前页面内存中，刷新页面需重新登录。没有默认账号或公共密码
         </p>
         <div class="login-footer">
-          <span>HTTPS / WSS</span><span>身份与设备范围校验</span>
+          <span>{{ pageUsesHttps ? "HTTPS / WSS" : "HTTP / WS" }}</span
+          ><span>身份与设备范围校验</span>
         </div>
       </div>
     </main>

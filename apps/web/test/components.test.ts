@@ -315,7 +315,7 @@ describe("login and real-data-only console", () => {
       .find((b) => b.text().includes("系统设置"))!
       .trigger("click");
     await flushPromises();
-    expect(wrapper.find(".settings-panel").text()).toContain("平台访问地址");
+    expect(wrapper.find(".settings-panel").text()).toContain("Agent HTTPS 地址");
     await wrapper.get('[aria-label="退出登录"]').trigger("click");
     loggedInUser = { ...user, role: "business" };
     await login();
