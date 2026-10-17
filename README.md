@@ -1,6 +1,6 @@
 # Farhelm · 遥舵
 
-**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前预览版为 **v0.2.6**。
+**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前预览版为 **v0.2.7**。
 
 Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，支持可选 SSH 统一入口；不依赖 MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
