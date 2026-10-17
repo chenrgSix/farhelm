@@ -118,13 +118,13 @@ FLEET_WEB_PROTOCOL=http
 
 - 原生：保留 `/var/lib/farhelm`、`/etc/farhelm/server.env`；升级源码/程序时不要覆盖这些目录。
 - Compose：默认卷为 `farhelm_farhelm-data`（使用 `-p` 会改变项目前缀）。普通 `docker compose down` 保留卷；**`down -v` 会删除数据，不用于更新**。更新源码后 `docker compose up -d --build --wait` 会重建容器并继续使用原卷。
-- 备份时先停止平台，完整复制数据，完成后启动。不要只复制 SQLite 主文件而遗漏 WAL、录制、密钥和证书。
+- 备份时先停止平台，使用 `python3 scripts/backup.py /var/lib/farhelm /备份目录/新备份 --server-stopped`（在源码根目录执行），或完整备份停止后的数据卷。脚本会生成 SQLite 快照并保存 CA、证书、密钥、安装与运行配置，详细恢复步骤见[备份说明](runbooks/recovery.md)。
 - 软件升级/容器重建会重启进程并中断正在使用的终端；证书日常续签仍使用现有热加载机制。两者不可混同。
 - 当前不会自动清理已有录制和 Agent 发布版本；安装临时文件会清理，Docker 旧镜像/构建缓存按部署方策略清理，避免误删数据卷。
 
 ## 验证
 
-`npm run test:server:bootstrap` 检查首次初始化、初始密码策略、CA 与账号持久化、HTTP 无证书启动、异常目录保护和中断恢复。`npm run test:server:compose` 使用隔离 Compose 项目和真实 sshd 检查网页/API、SSH 入口、终端录制及容器重建后的持久化；会清理测试项目和临时卷，不接触默认部署。
+`npm run test:server:backup` 检查备份后重新初始化入口、HTTPS 启动、账号与历史录制、原 CA 签发能力及失败清理。`npm run test:server:bootstrap` 检查首次初始化、初始密码策略、CA 与账号持久化、HTTP 无证书启动、异常目录保护和中断恢复。`npm run test:server:compose` 使用隔离 Compose 项目和真实 sshd 检查网页/API、SSH 入口、终端录制及容器重建后的持久化；会清理测试项目和临时卷，不接触默认部署。
 
 原生安装可用 `npm run test:server:native` 在一次性 Debian systemd 容器中复现：下载 Node、非 root 构建、实际安装、重启自启、连接录制、重复安装不重启及缓存清理。该测试容器为运行 systemd 使用 privileged，仅用于隔离测试，正式 Compose 不使用 privileged。测试依赖本机 Node 24+、项目 npm 依赖和 `farhelm-sshd-test:local` 测试镜像（可从 `tests/e2e/ssh-target/Dockerfile` 构建）。
 

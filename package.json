@@ -47,6 +47,7 @@
     "test:password:browser": "node tests/e2e/password-change.mjs",
     "test:sessions:browser": "node tests/e2e/session-visibility.mjs",
     "test:server:bootstrap": "npm --prefix apps/server run build && node --test tests/deployment/bootstrap.test.mjs",
+    "test:server:backup": "npm --prefix apps/server run build && node --test tests/deployment/backup.test.mjs",
     "test:server:compose": "node tests/deployment/compose.mjs",
     "test:server:native": "bash tests/deployment/native.sh"
   },

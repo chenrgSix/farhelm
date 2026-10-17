@@ -20,9 +20,11 @@
 python3 scripts/backup.py .dev/server /path/to/new-backup --server-stopped
 ```
 
-脚本使用SQLite backup API，不复制活跃WAL文件，然后复制objects、已存在的 `credentials.key`（设备凭据加密密钥）和 `ssh_host_ed25519_key`（SSH 入口身份），并写SHA-256清单；数据库及私钥文件权限为0600。已有设备凭据但缺少加密密钥时拒绝备份。备份包含解密能力，必须受控保存，若另存加密密钥也应确保恢复时配回原密钥。--server-stopped是操作员确认，脚本不能验证所有外部写入者；本版本不宣称在线文件/数据库快照原子性。生产停服属于须另行获准的操作。
+脚本使用 SQLite backup API 生成数据库快照，不复制 WAL/SHM 等临时边车文件。其余数据目录内容完整保存，包括 `objects/`、`credentials.key`、`ssh_host_ed25519_key`、`certificates/`（CA、叶证书和 ACME 账号）、`ca.crt`、`installation.json`、`deployment.json` 及初始账号文件，并生成 SHA-256 清单。目录权限为 0700，所有文件为 0600。已有设备凭据或私有 CA 身份却缺少相应密钥时拒绝备份；符号链接和特殊文件也会报错，避免遗漏外部依赖。目标目录必须位于数据目录之外，只有全部完成后才生成目标，失败会清理临时副本。备份包含解密能力，必须受控保存，若另存加密密钥也应确保恢复时配回原密钥。--server-stopped是操作员确认，脚本不能验证所有外部写入者；本版本不宣称在线文件/数据库快照原子性。生产停服属于须另行获准的操作。
 
-恢复到全新目录，核对manifest每个文件，使用该目录启动独立服务，确认任务、事件、输出SHA和审计可读取。恢复后server_instance保持原值，Agent不会把新服务器冒认成原服务器。不同环境的管理员/会话/设备密钥数据为敏感数据，备份需受控保存，不上传到未知服务。
+原生部署还需单独保留 `/etc/farhelm/server.env`；Compose 保留 `deploy/.env`。如果使用数据目录以外的外部证书、Agent 包或环境文件，也必须单独保存。旧部署本来没有 `installation.json` 时，仍按原启动方式恢复，不能用新安装入口覆盖初始化。
+
+恢复到全新目录，核对 manifest 每个文件，使用该目录启动独立服务，确认任务、事件、输出 SHA 和审计可读取，再验证 HTTPS 的 CA 指纹、SSH 主机指纹和一条新终端录制。恢复后server_instance保持原值，Agent不会把新服务器冒认成原服务器。不同环境的管理员/会话/设备密钥数据为敏感数据，备份需受控保存，不上传到未知服务。
 
 ## 权限与身份
 
