@@ -568,6 +568,10 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       for (const s of [...sessions.values()])
         if (s.deviceId === deviceId) safeEnd(s, "AUTHORIZATION_EXPIRED");
     },
+    revokeUserSession(sessionHash: string) {
+      for (const s of [...sessions.values()])
+        if (s.userSession === sessionHash) safeEnd(s, "USER_LOGOUT");
+    },
     tick() {
       for (const s of [...sessions.values()]) {
         if (!authorized(s)) safeEnd(s, "AUTHORIZATION_EXPIRED");

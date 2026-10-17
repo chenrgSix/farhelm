@@ -113,6 +113,7 @@ role={'enum':['admin','ops','business','auditor']}
 audit_details={
     'user.bootstrap':obj({'username':{'type':'string','minLength':1,'maxLength':128},'role':role}),
     'user.login':common('empty'),
+    'user.logout':common('empty'),
     'user.login_failed':obj({'username_hash':common('sha256')}),
     'enrollment.created':obj({'expires_at':common('timestamp'),'name':nullable(common('name'))}),
     'device.enrolled':obj({'recovered':{'type':'boolean'}}),

@@ -107,7 +107,8 @@
         "network.route_changed",
         "network.route_selected",
         "network.platform_settings_updated",
-        "network.device_address_updated"
+        "network.device_address_updated",
+        "user.logout"
       ]
     },
     "detail": {
@@ -2847,6 +2848,22 @@
               }
             },
             "required": ["revision", "vpn_ip", "ssh_port"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "user.logout"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "$ref": "common.schema.json#/$defs/empty"
           }
         }
       }

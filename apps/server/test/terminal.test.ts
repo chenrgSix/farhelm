@@ -670,3 +670,71 @@ test("session lists, recordings and exports isolate owners unless cross-user aud
     await f.close();
   }
 });
+
+test("logout revokes only the current token, its active terminal and pending tickets", async () => {
+  const f = await fixture();
+  try {
+    const otherToken = await f.login("admin");
+    const active = await f.open();
+    const pending = await f.create();
+    assert.equal(pending.status, 200);
+    const other = await f.create(otherToken);
+    assert.equal(other.status, 200);
+    const otherBrowser = await f.attach(other.body);
+    const opening = await f.agent.wait("terminal.open");
+    assert.equal(opening.session_id, other.body.session_id);
+    f.agent.send("terminal.opened", { session_id: opening.session_id });
+    await otherBrowser.wait("terminal.ready");
+
+    assert.equal((await f.api("POST", "/api/v1/logout", { v: 1 })).status, 401);
+    assert.equal(
+      (await f.api("POST", "/api/v1/logout", { v: 1 }, f.admin)).status,
+      200,
+    );
+    assert.equal(
+      (await active.browser.wait("terminal.closed")).reason,
+      "USER_LOGOUT",
+    );
+    assert.equal((await f.agent.wait("terminal.close")).session_id, active.id);
+    const denied = await f.attach(pending.body);
+    await once(denied.ws, "close");
+    assert.equal(
+      (await f.api("GET", "/api/v1/me", undefined, f.admin)).status,
+      401,
+    );
+    assert.equal((await f.create()).status, 401);
+    assert.equal(
+      (await f.api("POST", "/api/v1/logout", { v: 1 }, f.admin)).status,
+      401,
+    );
+    assert.equal(
+      (await f.api("GET", "/api/v1/me", undefined, otherToken)).status,
+      200,
+    );
+    assert.equal(otherBrowser.ws.readyState, WebSocket.OPEN);
+    otherBrowser.send("terminal.input", {
+      data: Buffer.from("still-authorized\n").toString("base64"),
+    });
+    assert.equal(
+      (await f.agent.wait("terminal.input")).session_id,
+      opening.session_id,
+    );
+    for (const id of [active.id, pending.body.session_id]) {
+      const row = f.store.db
+        .prepare("SELECT ended_at,reason FROM terminal_sessions WHERE id=?")
+        .get(id) as any;
+      assert.ok(row.ended_at);
+      assert.equal(row.reason, "USER_LOGOUT");
+    }
+    const audits = f.store.db
+      .prepare(
+        "SELECT actor_id,detail_json FROM audit WHERE action='user.logout'",
+      )
+      .all();
+    assert.equal(audits.length, 1);
+    assert.ok(audits[0].actor_id);
+    assert.ok(!JSON.stringify(audits).includes(f.admin));
+  } finally {
+    await f.close();
+  }
+});

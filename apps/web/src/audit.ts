@@ -9,6 +9,7 @@ export const auditActionLabels: Record<string, string> = {
   "network.route_selected": "选择终端网络通道",
   "user.bootstrap": "初始化账号",
   "user.login": "账号登录",
+  "user.logout": "退出登录",
   "user.login_failed": "登录失败",
   "enrollment.created": "生成 Agent 安装凭据",
   "device.enrolled": "注册设备",
@@ -162,6 +163,7 @@ const values: Record<string, string> = {
   TERMINAL_OWNER_REQUIRED: "只能结束本人的会话",
   USER_DISCONNECTED: "用户主动断开",
   SHELL_EXIT: "Shell 正常退出",
+  USER_LOGOUT: "账号退出登录",
   SERVER_RESTART: "服务端重启",
   AGENT_DISCONNECTED: "Agent 断连",
   AUTHORIZATION_EXPIRED: "登录或权限已失效",
@@ -286,6 +288,7 @@ export function auditOutcome(entry: AuditEntry): string {
     return "失败 / 拒绝";
   if (entry.action === "deployment.rolled_back") return "已回滚";
   if (entry.action === "user.login") return "登录成功";
+  if (entry.action === "user.logout") return "当前登录会话已撤销";
   if (entry.action === "connection.tested") return "已发起测试";
   if (
     entry.action.startsWith("access.") ||

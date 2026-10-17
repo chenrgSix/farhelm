@@ -828,6 +828,21 @@ export async function buildServer(config: ServerConfig) {
     const user = passwordUser(b.username, b.password, req.ip);
     return { access_token: loginSession(user), user };
   });
+  app.post("/api/v1/logout", async (req) => {
+    const user = userAuth(req),
+      sessionHash = bearer(req),
+      b = object(req.body);
+    keys(b, ["v"]);
+    version(b);
+    store.transaction(() => {
+      db.prepare("DELETE FROM user_sessions WHERE token_hash=?").run(
+        sessionHash,
+      );
+      store.audit("user.logout", user.id, null, null);
+    });
+    terminals.revokeUserSession(sessionHash);
+    return { v: 1, ok: true };
+  });
   function sshUser(login: SshLogin) {
     const row = db
       .prepare(

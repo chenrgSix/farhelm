@@ -271,7 +271,22 @@ const isExecAllowed = computed(
   () => agentEnabled.value && canExecute(user.value),
 );
 
-function logout(message = "") {
+const logoutBusy = ref(false);
+async function logout() {
+  if (logoutBusy.value) return;
+  logoutBusy.value = true;
+  const generation = sessionGeneration;
+  try {
+    await api.request("/logout", { method: "POST", body: { v: 1 } });
+    if (generation === sessionGeneration) clearSession();
+  } catch {
+    if (generation === sessionGeneration)
+      error.value = "未能确认服务端注销，请重试退出登录。";
+  } finally {
+    logoutBusy.value = false;
+  }
+}
+function clearSession(message = "") {
   sessionGeneration++;
   taskGeneration++;
   api.setToken(null);
@@ -310,13 +325,15 @@ function logout(message = "") {
   if (refreshTimer) clearInterval(refreshTimer);
 }
 api.onUnauthorized = () =>
-  logout("登录已失效，请重新登录。若此前命令提交结果不明，请先核对任务中心");
+  clearSession(
+    "登录已失效，请重新登录。若此前命令提交结果不明，请先核对任务中心",
+  );
 function passwordChanged() {
-  logout();
+  clearSession();
   loginNotice.value = "密码修改成功，请使用新密码重新登录。";
 }
 function passwordUnconfirmed() {
-  logout(
+  clearSession(
     "未能确认密码是否已修改，请先尝试用新密码登录；若失败，再使用原密码。请勿重复提交修改请求。",
   );
 }
@@ -348,7 +365,7 @@ async function login() {
         if (!document.hidden && user.value) void refresh();
       }, 10_000);
   } catch (e) {
-    logout(e instanceof Error ? e.message : "登录失败");
+    clearSession(e instanceof Error ? e.message : "登录失败");
   } finally {
     password.value = "";
     loginBusy.value = false;
@@ -535,7 +552,7 @@ function deviceName(id: string) {
   return devices.value.find((d) => d.id === id)?.name ?? id;
 }
 onBeforeUnmount(() => {
-  logout();
+  clearSession();
   api.onUnauthorized = undefined;
 });
 </script>
@@ -661,6 +678,7 @@ onBeforeUnmount(() => {
           aria-label="退出登录"
           title="退出登录"
           @click="logout()"
+          :disabled="logoutBusy"
         >
           ↪
         </button>

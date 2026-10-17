@@ -204,3 +204,51 @@ it("keeps web management in SSH-only mode and hides unavailable Agent and certif
     ),
   ).toBe(false);
 });
+
+it("revokes the server session before clearing local state and prevents duplicate logout", async () => {
+  let finish!: (value: unknown) => void;
+  const request = mockApi((path) =>
+    path === "/logout"
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : undefined,
+  );
+  wrapper = mount(App);
+  await login();
+  await wrapper.get('[aria-label="退出登录"]').trigger("click");
+  expect(
+    wrapper.get('[aria-label="退出登录"]').attributes("disabled"),
+  ).toBeDefined();
+  expect(wrapper.find('input[name="username"]').exists()).toBe(false);
+  expect(request).toHaveBeenCalledWith("/logout", {
+    method: "POST",
+    body: { v: 1 },
+  });
+  finish({ v: 1, ok: true });
+  await flushPromises();
+  expect(wrapper.find('input[name="username"]').exists()).toBe(true);
+});
+
+it("failed logout stays signed in with a retry notice; unauthorized cleanup never calls logout", async () => {
+  let failed = true;
+  const request = mockApi((path) => {
+    if (path === "/logout" && failed) throw Error("offline");
+  });
+  wrapper = mount(App);
+  await login();
+  await wrapper.get('[aria-label="退出登录"]').trigger("click");
+  await flushPromises();
+  expect(wrapper.text()).toContain("未能确认服务端注销");
+  expect(wrapper.find('[aria-label="退出登录"]').exists()).toBe(true);
+  failed = false;
+  await wrapper.get('[aria-label="退出登录"]').trigger("click");
+  await flushPromises();
+  expect(wrapper.find('input[name="username"]').exists()).toBe(true);
+  await login();
+  request.mockClear();
+  api.onUnauthorized?.();
+  await flushPromises();
+  expect(wrapper.find('input[name="username"]').exists()).toBe(true);
+  expect(request.mock.calls.some(([path]) => path === "/logout")).toBe(false);
+});
