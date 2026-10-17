@@ -376,8 +376,8 @@ export async function buildServer(config: ServerConfig) {
     return payload;
   });
   app.addHook("onRequest", async (req) => {
-    rate.check("global", 10000);
     rate.check("http:" + req.ip, 1000);
+    rate.check("global", 10000);
     if (req.url.length > 4096) fail(414, "URL_TOO_LONG");
   });
   app.addContentTypeParser(
@@ -794,11 +794,12 @@ export async function buildServer(config: ServerConfig) {
     server_instance: store.instance,
   }));
   function passwordUser(username: string, password: string, ip: string) {
-    rate.check("login-global", 100);
-    rate.check("login-ip:" + ip, 20);
     str(username, 1, 128);
     str(password, 1, 1024);
+    rate.check("login-ip:" + ip, 20);
     rate.check("login-user:" + hash(username), 10);
+    // Only requests eligible for password verification consume shared capacity.
+    rate.check("login-global", 100);
     const row = db
       .prepare("SELECT * FROM users WHERE username=?")
       .get(username) as any;
