@@ -1,17 +1,11 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { createRequire } from "node:module";
 import { isIP } from "node:net";
 import {
   createChallengeCertificate,
   type AcmeChallengeType,
 } from "./acme-tls.js";
 import { orderCertificate } from "./acme-order.js";
-// Import only the pinned client's native-crypto implementation. Its legacy
-// forge entry point is not loaded or used for certificate verification.
-const require = createRequire(import.meta.url);
-const Client: typeof import("acme-client").Client = require("acme-client/src/client");
-const crypto: typeof import("acme-client").crypto = require("acme-client/src/crypto");
-const axios: typeof import("acme-client").axios = require("acme-client/src/axios");
+import { Client, crypto, axios } from "./acme-native.js";
 
 const port = parentPort!;
 const {

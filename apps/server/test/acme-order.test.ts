@@ -7,7 +7,7 @@ import {
 } from "@peculiar/x509";
 import { orderCertificate } from "../src/acme-order.js";
 const require = createRequire(import.meta.url);
-const crypto: typeof import("acme-client").crypto = require("acme-client/src/crypto");
+import { Client, crypto, axios } from "../src/acme-native.js";
 
 function fixture(host: string, type = "ip", valid = false) {
   const calls: unknown[] = [];
@@ -172,5 +172,15 @@ test("TLS-ALPN selects the configured challenge and cleans it after failure", as
       "tls-alpn-01",
     ),
     /Unsupported ACME challenge/,
+  );
+});
+
+test("native ACME runtime generates CSRs without loading legacy node-forge", async () => {
+  const key = await crypto.createPrivateEcdsaKey();
+  await crypto.createCsr({ altNames: ["fleet.example.com"] }, key);
+  assert.equal(typeof Client, "function");
+  assert.equal(typeof axios.request, "function");
+  assert.ok(
+    !Object.keys(require.cache).some((path) => path.includes("/node-forge/")),
   );
 });
