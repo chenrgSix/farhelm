@@ -1,5 +1,7 @@
 # 网页与 Agent 共用平台入口
 
+新部署使用[一键安装或 Docker Compose](server-deployment.md)，Farhelm 直接提供网页、API 和 HTTPS，无需独立前端代理。本文保留已有外部代理和本地开发入口的配置说明。
+
 「系统设置 → 平台访问地址」填写的是目标服务器可访问的 **HTTPS 平台入口**，可以直接使用浏览器中的网页地址。它既可以是同时提供网页和 API 的 Farhelm 服务，也可以是转发到 Farhelm 的前端 Web 服务。用户无需填写后端内部地址或端口。
 
 例如网页位于 `https://fleet.example.com/devices?group=prod`，粘贴后会提示并保存 `https://fleet.example.com`。HTTPS 页面也可点击「使用当前网页地址并同步」，一键保存当前网页的域名和端口，并自动发起 Agent 地址同步，无需再次点击「保存设置」。地址不变时重试未完成的同步；正在校验、已保存和已切换的 Agent 不会重复迁移。保存成功仅表示配置已持久化，实际同步结果请查看下方逐设备状态；保存冲突或结果不确定时须先重新加载配置。设备安装表单自动带入该值。后台接口的字段名仍为 `platform_server_url`，继续接受规范化的 HTTPS origin，原有配置兼容。
@@ -12,7 +14,7 @@
 
 ## 独立前端 Web 服务
 
-仓库提供 [Nginx 配置](../deploy/nginx/farhelm.conf)，放入 Nginx 的 `http {}` 配置范围。修改域名、证书、静态目录及后端连接地址：
+已有 Nginx 部署可使用 [可选配置](../deploy/examples/nginx/farhelm.conf)，放入 Nginx 的 `http {}` 配置范围。修改域名、证书、静态目录及后端连接地址：
 
 - `server_name`：前端的对外域名；`ssl_certificate` / `ssl_certificate_key`：覆盖该域名的证书链和密钥。
 - `root`：构建后的 `apps/web/dist`。

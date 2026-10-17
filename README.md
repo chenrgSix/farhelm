@@ -18,7 +18,7 @@ Agent 0.2.3 起可在设备「网络记录」中配置多个网络探测地址�
 
 平台将 **设备仅用 SSH** 与 **关闭网页管理** 独立配置：设置 `FLEET_DEVICE_ACCESS=ssh-only`、`FLEET_WEB_ENABLED=1`、`FLEET_WEB_PROTOCOL=http` 即可使用无需证书的 HTTP 网页，管理设备、账号权限和录制，并保留网页终端及 SSH 入口。只有显式设置 `FLEET_WEB_ENABLED=0` 才关闭网页。SSH 主机密钥自动生成并持久保存，详见 [SSH 接入与网页管理](docs/ssh-only.md)。
 
-服务端支持 [Linux 一键安装与 Docker Compose 部署](docs/server-deployment.md)，两种方式均包含前端、持久化数据和自动启动配置。
+服务端支持 [Linux 一键安装与 Docker Compose 部署](docs/server-deployment.md)，两种方式均直接提供前端、API 和 HTTPS，无需 Nginx。Compose 配置位于 [deploy/compose.yml](deploy/compose.yml)，在 `deploy/` 目录启动，包含持久化数据和自动启动配置。
 
 ## 项目名称与兼容性
 
@@ -132,7 +132,7 @@ FLEET_ADMIN_USER=admin FLEET_ADMIN_PASSWORD='你的本地密码' npm run test:te
 
 未经用户另行授权，不部署真实设备、不重启生产服务、不改系统账号/权限。正式域名、SSO/MFA、权限配置管理、保留策略、加密/外部防篡改审计、强进程隔离、规模压测与依赖许可证审查仍是上线前工作。项目发布许可证由用户决定；当前源码不包含对外发布授权。
 
-正式环境可在「系统设置 → HTTPS 证书」配置域名或公网 IPv4 / IPv6 和邮箱，启用 Let’s Encrypt 自动申请及续签，并查看状态、到期时间、计划续签时间和失败重试计划。公网 IP 自动使用短期证书，续签热加载保留 Agent 和终端连接。支持 Farhelm 直接提供 HTTPS 或 Nginx TCP 转发入口，详见[正式证书部署](docs/production-certificates.md)。
+正式环境可在「系统设置 → HTTPS 证书」配置域名或公网 IPv4 / IPv6 和邮箱，启用 Let’s Encrypt 自动申请及续签，并查看状态、到期时间、计划续签时间和失败重试计划。公网 IP 自动使用短期证书，续签热加载保留 Agent 和终端连接。默认由 Farhelm 直接提供 HTTPS；已有外部代理时可选用 TCP 转发，详见[正式证书部署](docs/production-certificates.md)。
 
 纯内网部署支持 [私有 CA 自动签发与续签](docs/private-certificates.md)：在系统设置配置域名或 IP，网页和 Agent 共用 HTTPS 入口。新安装的 Agent 自动携带 CA；浏览器首次信任后，日常服务端证书续签无需再次授权。
 

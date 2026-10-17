@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 将 Compose 主配置、端口附加配置和环境模板统一放入 `deploy/`，保留原项目名与数据卷；明确正式部署直接使用 Farhelm，Nginx 仅作为可选代理示例。
+
 - 服务端支持 Linux 一键安装：自动准备独立 Node.js、构建前后端、初始化管理员和托管私有 CA，并安装 systemd 自启服务。
 - 增加 Docker Compose 部署，使用非 root 容器、命名数据卷、协议感知健康检查和自动重启策略，支持 HTTPS 或仅 SSH + HTTP 管理。
 - 新安装保留 CA、SSH 主机密钥和账号身份；重复启动不覆盖系统设置。补充真实 Linux / Compose 终端及录制持久化验证。

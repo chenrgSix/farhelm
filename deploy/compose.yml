@@ -3,7 +3,7 @@ services:
   server:
     image: farhelm/server:local
     build:
-      context: .
+      context: ..
       dockerfile: deploy/server/Dockerfile
     restart: unless-stopped
     init: true

@@ -66,7 +66,7 @@ export async function startFrontendEntry({ mode, root, temp, tls, apiPort }) {
     } else {
       container = `farhelm-entry-e2e-${process.pid}`;
       const config = readFileSync(
-        join(root, "deploy/nginx/farhelm.conf"),
+        join(root, "deploy/examples/nginx/farhelm.conf"),
         "utf8",
       )
         .replace("fleet.example.com", "host.docker.internal")

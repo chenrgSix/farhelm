@@ -1,6 +1,6 @@
 # 服务端部署：一键安装与 Docker Compose
 
-两种方式都包含构建后的 Vue 网页、API、Agent 接入和 SSH 统一入口；不需要单独启动 Vite，也不需要在平台服务器安装 Rust。默认启用 Agent + SSH、HTTPS、平台私有 CA 自动签发/续签。Agent 二进制和 JSON 清单仍在登录后通过「Agent 升级 → 升级包管理」上传。
+两种方式都包含构建后的 Vue 网页、API、Agent 接入和 SSH 统一入口；Farhelm 直接提供网页、API 和 HTTPS，无需安装 Nginx、单独启动 Vite 或安装 Rust。默认启用 Agent + SSH、HTTPS、平台私有 CA 自动签发/续签。Agent 二进制和 JSON 清单仍在登录后通过「Agent 升级 → 升级包管理」上传。
 
 部署前选择客户端可达的域名或 IP，例如 `10.10.0.10`；不要照抄示例地址。EasyTier 由部署者单独安装，地址和网络策略在系统设置配置。
 
@@ -58,17 +58,19 @@ sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 ```bash
 # 私有仓库先 gh auth login；或下载源码包后进入解压目录
 gh repo clone chenrgSix/farhelm
-cd farhelm
-cp deploy/server/compose.env.example .env
+cd farhelm/deploy
+cp compose.env.example .env
 ```
 
-编辑 `.env` 的 `FARHELM_PUBLIC_HOST` 为客户端可达的域名/IP，然后执行：
+以下 Compose 命令均在 `deploy/` 目录执行，使用该目录的 `compose.yml` 和 `.env`。编辑 `.env` 的 `FARHELM_PUBLIC_HOST` 为客户端可达的域名/IP，然后执行：
 
 ```bash
 docker compose up -d --build --wait
 ```
 
 网页默认 `https://你的域名或IP:8443`，SSH 网关默认 `2222`。
+
+从仓库根目录操作时，显式指定 `--env-file deploy/.env -f deploy/compose.yml`，例如 `docker compose --env-file deploy/.env -f deploy/compose.yml up -d --build --wait`。从旧版根目录布局迁移时，将原根目录 `.env` 移到 `deploy/.env`；固定项目名 `farhelm` 和数据卷名保持不变，使用过 `-p` 的部署继续沿用原项目名。
 
 ```bash
 # 查看初始随机密码（不会出现在 docker compose logs）
@@ -102,11 +104,11 @@ FLEET_WEB_PROTOCOL=http
 - HTTP-01：公网 80 必须转发至平台内部 ACME 8080。Compose 可启用附加配置：
 
   ```bash
-  docker compose -f compose.yaml -f deploy/server/compose.acme.yaml up -d --build --wait
+  docker compose -f compose.yml -f compose.acme.yml up -d --build --wait
   ```
 
 - TLS-ALPN-01：公网 443 必须到达平台 TLS 入口。Compose 设置 `FARHELM_WEB_PORT=443`，或配置 TCP 转发。
-- 网页、API、Agent 使用同一个入口。Nginx 如需放在前面，使用 TCP 转发才能继续由平台统一热加载证书。
+- 网页、API、Agent 直接使用 Farhelm 的同一个入口，证书由平台签发并热加载。已有外部代理的特殊部署可参考 [可选代理示例](../deploy/examples/nginx/README.md)。
 
 详细步骤见[公网证书部署](production-certificates.md)。公开验证所需的公网端口与平台内部监听端口是两个概念。
 

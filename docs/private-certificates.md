@@ -4,9 +4,11 @@ Farhelm 可在完全离线的内网创建本平台专用 CA，在「系统设置
 
 ## 部署入口
 
+[一键安装和 Docker Compose](server-deployment.md) 已包含前后端构建、CA 初始化和统一入口，按部署说明启动即可。下面保留手动部署步骤。
+
 先构建 `apps/server`、`apps/web`；服务端使用 Node 24+。设置 `FLEET_WEB_DIST` 指向构建后的 `apps/web/dist`，由 Farhelm 直接提供网页和 API。示例见 [内网环境配置](../deploy/server/private.env.example)、[systemd 服务](../deploy/server/farhelm.service)。系统设置的内网托管能力仅在已配置静态网页目录时开放。
 
-可以直接对内网开放 Farhelm 的 HTTPS 8443 端口，访问 `https://farhelm.internal:8443`。需要标准 443 时，可使用 [Nginx TCP 转发示例](../deploy/nginx/farhelm-private.conf)，由 Farhelm 终止 TLS；Nginx 无需读取证书或在续签时 reload。内网 DNS / hosts 负责把域名指向该服务器。IP 入口也支持 IPv4、IPv6，表单中 IPv6 不加方括号，访问 URL 加方括号。
+可以直接对内网开放 Farhelm 的 HTTPS 8443 端口，访问 `https://farhelm.internal:8443`。需要标准 443 时，一键安装使用 `--web-port 443`，或在 Compose 的 `deploy/.env` 设置 `FARHELM_WEB_PORT=443`；网页、API 和证书仍直接由 Farhelm 提供，无需 Nginx。已有代理时可参考 [可选 TCP 转发示例](../deploy/examples/nginx/farhelm-private.conf)。内网 DNS / hosts 负责把域名指向该服务器。IP 入口也支持 IPv4、IPv6，表单中 IPv6 不加方括号，访问 URL 加方括号。
 
 独立 Vite / Nginx HTTPS 入口的证书不会自动随本功能更新。正式内网部署应按上述方式统一入口，而不是把前端地址指向一个仍独立终止 TLS 的服务。SSH 网关的主机密钥另行管理，不使用 HTTPS CA。
 

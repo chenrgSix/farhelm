@@ -80,7 +80,7 @@ const compose = (...args) =>
       "--env-file",
       join(temp, "empty.env"),
       "-f",
-      "compose.yaml",
+      "deploy/compose.yml",
       ...args,
     ],
     env,

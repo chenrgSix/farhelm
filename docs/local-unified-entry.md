@@ -1,4 +1,6 @@
-# 本机统一 HTTPS 入口
+# 本机开发环境的统一 HTTPS 入口
+
+本页仅说明已有的本机开发转发环境。正式一键安装和 [deploy/compose.yml](../deploy/compose.yml) 直接运行 Farhelm，不需要启动这里的 Nginx 容器。
 
 当前本机使用 `https://host.docker.internal:5173/`。Docker Desktop 的 `farhelm-entry` 只做 TCP 转发到宿主机 Farhelm HTTPS 8443；网页静态文件、API、Agent HTTPS/WSS 都由 Farhelm 提供并使用系统设置中托管的同一张证书。SSH 网关仍为 2222，不使用 HTTPS 证书。
 

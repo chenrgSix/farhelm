@@ -9,7 +9,7 @@
 | 验证方式 | 公网端口 | 部署要求 |
 | --- | --- | --- |
 | HTTP-01 | 80 | 转发到平台 HTTP 验证入口；80 已被 Web 服务使用时，可只代理验证路径 |
-| TLS-ALPN-01 | 443 | TCP 转发直达平台 HTTPS 入口，透传 `acme-tls/1`；无需开放 80 |
+| TLS-ALPN-01 | 443 | 平台直接监听或由 Docker / TCP 转发到 HTTPS 入口，保留 `acme-tls/1`；无需开放 80 |
 
 平台内部可监听 8443、8080 等任意可用端口，**公网验证端口由 CA 固定为 80 / 443，不能改成 8443 等端口**。证书不绑定业务端口，签发后可以在其他 HTTPS 端口使用。所选验证入口必须持续可达，以便自动续签；切换方式不会重新签发仍有效且未到续签时间的证书。
 
@@ -27,15 +27,15 @@ Let’s Encrypt 的 IP 证书有效期为 **160 小时**，平台以返回证书
 
 ## 入口部署
 
-Farhelm 必须实际终止公网 TLS，才能让签发的新证书立即用于网页和 Agent。推荐非特权 Farhelm 进程监听内部 8443 / 8080，由 Nginx **TCP 转发**发布 443；选择 HTTP-01 时另行发布 80。示例文件：
+Farhelm 直接提供网页、API 和 HTTPS，并热加载自动签发的新证书。推荐使用[一键安装或 Docker Compose](server-deployment.md)，无需安装 Nginx：
 
-- [server.env.example](../deploy/server/server.env.example)：服务配置，域名在网页设置，不写死在环境变量里。
-- [farhelm.service](../deploy/server/farhelm.service)：systemd 服务示例，部署方按实际 Node 路径、用户和目录安装。
-- [farhelm-acme.conf](../deploy/nginx/farhelm-acme.conf)：包含于 Nginx 顶层的 `stream {}` 配置，需要启用 stream 模块，不能放在 `http {}` 中。
+- 一键安装：通过 `--web-port 443` 直接监听标准 HTTPS 端口；安装器为非 root 服务配置低端口绑定能力。
+- Docker Compose：在 `deploy/.env` 设置 `FARHELM_WEB_PORT=443`，由 Docker 将主机 443 映射至容器内 8443。选择 HTTP-01 时再使用 `deploy/compose.acme.yml` 将主机 80 映射至内部验证端口 8080。
+- 手动部署仍可参考 [server.env.example](../deploy/server/server.env.example) 和 [farhelm.service](../deploy/server/farhelm.service)。需要 Node 24+、已构建的前后端和可写的持久化数据目录，`FLEET_WEB_DIST` 指向网页构建目录。服务示例默认程序位于 `/opt/farhelm`，数据位于 `/var/lib/farhelm`，配置位于 `/etc/farhelm/server.env`。
 
-先安装 Node 24+ 与项目依赖，构建 `apps/server`、`apps/web`，把平台数据和安装包置于持久化目录并授予 Farhelm 服务用户读写权限。`FLEET_WEB_DIST` 必须指向构建后的网页目录。systemd 示例假设程序位于 `/opt/farhelm`，数据位于 `/var/lib/farhelm`，环境文件 `/etc/farhelm/server.env` 应限制为部署管理员可读，首次使用时替换示例管理员密码。已有数据库不重复创建初始管理员。
+### 已有外部代理时的可选配置
 
-这里 Nginx 不读取证书，也不解密 TLS；签发 / 续签不需要 Nginx reload，HTTPS/WSS 均由 Farhelm 热加载。原 [farhelm.conf](../deploy/nginx/farhelm.conf) 是 Nginx 自行终止 HTTPS 的另一种部署方式，继续由外部签发器管理证书，**不能与自动托管示例同时占用 80 / 443**。在原模式仅更新后端证书不会更新 Nginx 的公网证书；切换架构时需安排一次入口维护。TCP 代理配置依据 [Nginx stream proxy 文档](https://nginx.org/en/docs/stream/ngx_stream_proxy_module.html)。
+[代理示例](../deploy/examples/nginx/README.md) 仅供已经使用 Nginx 的部署参考，默认安装流程不会启动它。[farhelm-acme.conf](../deploy/examples/nginx/farhelm-acme.conf) 使用 TCP 转发，包含于 Nginx 顶层 `stream {}`，证书仍由 Farhelm 热加载。[farhelm.conf](../deploy/examples/nginx/farhelm.conf) 则由 Nginx 终止 HTTPS，需由外部签发器维护入口证书；两套配置不可同时占用同一端口。TCP 代理配置依据 [Nginx stream proxy 文档](https://nginx.org/en/docs/stream/ngx_stream_proxy_module.html)。
 
 选择 TLS-ALPN-01 时可删除示例中的 80 端口段。普通 HTTPS 反向代理会终止 TLS，无法转发 ACME 的握手验证；应使用 TCP 透传，或由该反向代理自行管理证书。验证证书仅用于匹配 SNI 且独占 `acme-tls/1` 的握手，普通 HTTPS/WSS 继续使用平台证书。验证结束、失败、取消或超时后清除临时证书。
 
@@ -52,7 +52,9 @@ location ^~ /.well-known/acme-challenge/ {
 
 ## 第一次配置
 
-首次尚无公网证书时，保留现有受信 HTTPS 管理入口，或者通过 SSH 隧道访问受信的 localhost 初始化证书。`FLEET_TLS_CERT`、`FLEET_TLS_KEY` 是此初始化证书；必须可读，不能关闭 TLS 校验绕过初始化。
+一键安装和 Docker Compose 已自动创建初始管理员及平台私有 CA。按[部署说明](server-deployment.md)完成首次信任并登录，即可在系统设置申请公网证书，无需另行生成初始化证书。
+
+以下是手动部署的初始化步骤。首次尚无公网证书时，保留现有受信 HTTPS 管理入口，或者通过 SSH 隧道访问受信的 localhost 初始化证书。`FLEET_TLS_CERT`、`FLEET_TLS_KEY` 是此初始化证书；必须可读，不能关闭 TLS 校验绕过初始化。
 
 新部署可先在服务器上运行 `node scripts/dev-tls.mjs init /var/lib/farhelm/bootstrap-tls`，通过已有可信 SSH 通道取回 `ca.crt` 并核对指纹，在管理电脑信任该受约束的本地 CA，再建立 `ssh -L 8443:127.0.0.1:8443 your-server` 并访问 `https://localhost:8443`。只复制 CA 公共证书，私钥保留服务器，初始化目录交给 Farhelm 服务用户所有。此 CA 只用于初始化管理连接，不签发公网域名证书，也不分发给正式 Agent。公网入口的证书由 Let’s Encrypt 签发。
 
