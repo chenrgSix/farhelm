@@ -1,0 +1,31 @@
+name: farhelm
+services:
+  server:
+    image: farhelm/server:local
+    build:
+      context: .
+      dockerfile: deploy/server/Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    environment:
+      FARHELM_PUBLIC_HOST: ${FARHELM_PUBLIC_HOST:-localhost}
+      FARHELM_PUBLIC_PORT: ${FARHELM_WEB_PORT:-8443}
+      FLEET_DEVICE_ACCESS: ${FLEET_DEVICE_ACCESS:-agent-ssh}
+      FLEET_WEB_PROTOCOL: ${FLEET_WEB_PROTOCOL:-https}
+      FLEET_ADMIN_USER: ${FLEET_ADMIN_USER:-admin}
+      FLEET_ADMIN_PASSWORD: ${FLEET_ADMIN_PASSWORD:-}
+      FLEET_SSH_PUBLIC_HOST: ${FARHELM_PUBLIC_HOST:-localhost}
+      FLEET_SSH_PUBLIC_PORT: ${FARHELM_SSH_PORT:-2222}
+    ports:
+      - "${FARHELM_BIND_ADDRESS:-0.0.0.0}:${FARHELM_WEB_PORT:-8443}:8443"
+      - "${FARHELM_BIND_ADDRESS:-0.0.0.0}:${FARHELM_SSH_PORT:-2222}:2222"
+    volumes:
+      - farhelm-data:/var/lib/farhelm
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+volumes:
+  farhelm-data:

@@ -1,5 +1,11 @@
 # 更新记录
 
+## Unreleased
+
+- 服务端支持 Linux 一键安装：自动准备独立 Node.js、构建前后端、初始化管理员和托管私有 CA，并安装 systemd 自启服务。
+- 增加 Docker Compose 部署，使用非 root 容器、命名数据卷、协议感知健康检查和自动重启策略，支持 HTTPS 或仅 SSH + HTTP 管理。
+- 新安装保留 CA、SSH 主机密钥和账号身份；重复启动不覆盖系统设置。补充真实 Linux / Compose 终端及录制持久化验证。
+
 ## v0.2.6（预览版）
 
 首个 GitHub Release，包含服务端、网页控制台和 Linux Agent 源码，以及 ARM64 / x86_64 Agent 安装包。

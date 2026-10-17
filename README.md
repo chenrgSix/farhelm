@@ -18,6 +18,8 @@ Agent 0.2.3 起可在设备「网络记录」中配置多个网络探测地址�
 
 平台将 **设备仅用 SSH** 与 **关闭网页管理** 独立配置：设置 `FLEET_DEVICE_ACCESS=ssh-only`、`FLEET_WEB_ENABLED=1`、`FLEET_WEB_PROTOCOL=http` 即可使用无需证书的 HTTP 网页，管理设备、账号权限和录制，并保留网页终端及 SSH 入口。只有显式设置 `FLEET_WEB_ENABLED=0` 才关闭网页。SSH 主机密钥自动生成并持久保存，详见 [SSH 接入与网页管理](docs/ssh-only.md)。
 
+服务端支持 [Linux 一键安装与 Docker Compose 部署](docs/server-deployment.md)，两种方式均包含前端、持久化数据和自动启动配置。
+
 ## 项目名称与兼容性
 
 项目名称为 **Farhelm（遥舵）**，npm 包为 `farhelm`、`@farhelm/server`、`@farhelm/web`，Rust Agent 包及可执行文件为 `farhelm-agent`。

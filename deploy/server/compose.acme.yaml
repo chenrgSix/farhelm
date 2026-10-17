@@ -1,0 +1,5 @@
+# Optional HTTP-01 listener. TLS-ALPN-01 instead needs the main web entry on 443.
+services:
+  server:
+    ports:
+      - "${FARHELM_BIND_ADDRESS:-0.0.0.0}:80:8080"
