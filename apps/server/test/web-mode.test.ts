@@ -47,6 +47,34 @@ test("device access, web visibility and protocol are independent explicit settin
   });
   assert.equal(secure.tls, true);
   assert.equal(secure.config.deviceAccess, "ssh-only");
+  const independent = runtimeConfig({
+    ...base,
+    FLEET_DEVICE_ACCESS: "agent-ssh",
+    FLEET_TLS_CERT: "cert",
+    FLEET_TLS_KEY: "key",
+    FLEET_AGENT_PORT: "9444",
+    FLEET_AGENT_PUBLIC_PORT: "443",
+  });
+  assert.equal(independent.config.webProtocol, "http");
+  assert.equal(independent.tls, true);
+  assert.equal(independent.agentPort, 9444);
+  assert.equal(independent.config.agentPublicPort, 443);
+  assert.equal(independent.config.separateListeners, true);
+  for (const ports of [
+    { FLEET_AGENT_PORT: "8443" },
+    { FLEET_AGENT_PORT: "2222", FLEET_SSH_PORT: "2222" },
+  ])
+    assert.throws(
+      () =>
+        runtimeConfig({
+          ...base,
+          FLEET_DEVICE_ACCESS: "agent-ssh",
+          FLEET_TLS_CERT: "cert",
+          FLEET_TLS_KEY: "key",
+          ...ports,
+        }),
+      /ports must differ/,
+    );
   const agentWithoutWeb = runtimeConfig({
     FLEET_DEVICE_ACCESS: "agent-ssh",
     FLEET_WEB_ENABLED: "0",

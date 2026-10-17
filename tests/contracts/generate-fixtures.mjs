@@ -846,12 +846,8 @@ fixture("audit-deployment.rolled_back", "audit", {
   action: "deployment.rolled_back",
   detail: { revision: 1, code: "APPLY_FAILED" },
 });
-bad(
-  "deployment-agent-http",
-  "deployment-settings",
-  { device_access: "ssh-only", web_enabled: true, web_protocol: "http" },
-  (x) => (x.device_access = "agent-ssh"),
-  "Agent requires HTTPS",
-);
+fixture("deployment-agent-http", "deployment-settings", {
+  device_access: "agent-ssh", web_enabled: true, web_protocol: "http",
+});
 save("manifest.json", manifest);
 console.log(`Wrote ${manifest.length} fixtures`);

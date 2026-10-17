@@ -35,6 +35,7 @@ import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
 import { auditContext, auditText } from "./audit-context.js";
 import { deployment } from "./deployment.js";
+import { WebListener, isWebRequest, type WebBinding } from "./web-listener.js";
 import { localAdminServer } from "./local-admin.js";
 import { historyPage } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
@@ -84,6 +85,7 @@ import {
   type TaskEvent,
 } from "./types.js";
 interface Connection {
+  webIngress?: boolean;
   socket: WebSocket;
   deviceId: string;
   tokenHash: string;
@@ -110,14 +112,8 @@ const readPem = (x: string | Buffer) =>
       ? Buffer.from(x)
       : readFileSync(x);
 export async function buildServer(config: ServerConfig) {
-  const {
-    deviceAccess,
-    webEnabled,
-    webProtocol,
-    agentEnabled,
-    localAdmin,
-    tls,
-  } = deployment(config);
+  let { deviceAccess, webEnabled, webProtocol, agentEnabled, localAdmin, tls } =
+    deployment(config);
   if (localAdmin && !config.ssh)
     throw new Error("SSH-only mode requires an SSH listener");
   if (tls && (!config.tlsCert || !config.tlsKey))
@@ -132,7 +128,9 @@ export async function buildServer(config: ServerConfig) {
           certificateTest: undefined,
         }
       : {}),
-    ...(!webEnabled ? { webDist: undefined, consoleOrigin: undefined } : {}),
+    ...(!webEnabled && !config.separateListeners
+      ? { webDist: undefined, consoleOrigin: undefined }
+      : {}),
     ...(!agentEnabled ? { agentInstall: undefined } : {}),
   };
   const store = new Store(config.dataDir);
@@ -230,30 +228,46 @@ export async function buildServer(config: ServerConfig) {
       : false,
     logController: new LogController({ disableRequestLogging: true }),
   } satisfies FastifyServerOptions;
-  const app: FastifyInstance = localAdmin
+  let tlsOptions: import("node:https").ServerOptions | undefined = tls
+    ? {
+        key: managed?.key ?? readPem(config.tlsKey!),
+        cert: managed?.cert ?? readPem(config.tlsCert!),
+        minVersion: "TLSv1.2",
+        ...(acmeTls ? { ALPNCallback: acmeTls.callback() } : {}),
+        SNICallback: function (this: TLSSocket, name, callback) {
+          const selected =
+            activeIdentity &&
+            [activeIdentity, retiredIdentity, bootstrapIdentity].find(
+              (item) => item && certificateMatches(item.certificate, name),
+            );
+          callback(null, acmeTls?.sniContext(this) ?? selected?.context);
+        },
+      }
+    : undefined;
+  const privateAdmin =
+    localAdmin || (config.separateListeners && !agentEnabled);
+  const app: FastifyInstance = privateAdmin
     ? Fastify({
         ...options,
         serverFactory: (handler) => localAdminServer(handler, config.dataDir),
       })
     : !tls
       ? Fastify(options)
-      : Fastify({
-          ...options,
-          https: {
-            key: managed?.key ?? readPem(config.tlsKey!),
-            cert: managed?.cert ?? readPem(config.tlsCert!),
-            minVersion: "TLSv1.2",
-            ...(acmeTls ? { ALPNCallback: acmeTls.callback() } : {}),
-            SNICallback: function (this: TLSSocket, name, callback) {
-              const selected =
-                activeIdentity &&
-                [activeIdentity, retiredIdentity, bootstrapIdentity].find(
-                  (item) => item && certificateMatches(item.certificate, name),
-                );
-              callback(null, acmeTls?.sniContext(this) ?? selected?.context);
-            },
-          },
-        });
+      : Fastify({ ...options, https: tlsOptions! });
+  const web = config.separateListeners
+    ? new WebListener(app.server, () => {
+        if (!tlsOptions) throw Error("HTTPS certificate is not available");
+        return tlsOptions;
+      })
+    : undefined;
+  const tlsTargets = {
+    setSecureContext(options: import("node:tls").SecureContextOptions) {
+      tlsOptions = { ...tlsOptions, ...options };
+      if ("setSecureContext" in app.server)
+        (app.server as HttpsServer).setSecureContext(options);
+      web?.setSecureContext(options);
+    },
+  };
   app.addHook("onRequest", (req, _reply, done) => {
     const route = req.routeOptions.url ?? "unknown";
     auditContext.run(
@@ -274,9 +288,24 @@ export async function buildServer(config: ServerConfig) {
       if (socket.alpnProtocol === ACME_ALPN) socket.end();
     });
   // Run after websocket bookkeeping so rejected upgrades also close their sockets.
-  // Block Agent enrollment, authentication and control on the management listener.
+  // HTTP management never accepts Agent traffic. Legacy HTTPS access remains
+  // until online Agents have migrated to the independent TLS listener.
   app.addHook("preValidation", async (req) => {
     const route = req.routeOptions.url ?? "";
+    const agentRoute = /^\/(?:api\/)?agent(?:\/|$)/.test(route);
+    if (web) {
+      if (isWebRequest(req.raw)) {
+        if (!webEnabled) fail(403, "WEB_ACCESS_DISABLED");
+        if (
+          agentRoute &&
+          (req.protocol !== "https" ||
+            config.deploymentControl?.legacyAgentEntryEnabled() === false)
+        )
+          fail(403, "AGENT_HTTPS_REQUIRED");
+      } else if (agentEnabled && !agentRoute && route !== "/healthz") {
+        fail(404, "AGENT_ENDPOINT_ONLY");
+      }
+    }
     if (
       config.deploymentControl?.busy() ||
       (config.deploymentControl?.terminalsBlocked() &&
@@ -304,7 +333,7 @@ export async function buildServer(config: ServerConfig) {
       typeof config.tlsKey === "string" &&
       !config.tlsKey.includes("-----BEGIN ")
     ) {
-      tlsWatcher = watchTlsContext(app.server as HttpsServer, {
+      tlsWatcher = watchTlsContext(tlsTargets, {
         certPath: config.tlsCert,
         keyPath: config.tlsKey,
         log: (message) => app.log.warn(message),
@@ -313,6 +342,7 @@ export async function buildServer(config: ServerConfig) {
   });
   app.addHook("onClose", async () => {
     tlsWatcher?.close();
+    await web?.close();
   });
   app.setErrorHandler((err: any, req, reply) => {
     if (err instanceof ApiError && err.statusCode === 403) {
@@ -366,13 +396,21 @@ export async function buildServer(config: ServerConfig) {
     );
     return reply.code(500).send({ v: 1, error: "INTERNAL_ERROR" });
   });
-  app.addHook("onSend", async (_req, reply, payload) => {
+  app.addHook("onSend", async (req, reply, payload) => {
     reply
       .header("cache-control", "no-store")
       .header("x-content-type-options", "nosniff")
       .header("referrer-policy", "no-referrer");
-    if (tls && !reply.hasHeader("strict-transport-security"))
-      reply.header("strict-transport-security", "max-age=31536000");
+    if (
+      (req.protocol === "https" || (!web && tls)) &&
+      !reply.hasHeader("strict-transport-security")
+    )
+      reply.header(
+        "strict-transport-security",
+        web && (webProtocol === "http" || !isWebRequest(req.raw))
+          ? "max-age=0"
+          : "max-age=31536000",
+      );
     return payload;
   });
   app.addHook("onRequest", async (req) => {
@@ -542,7 +580,8 @@ export async function buildServer(config: ServerConfig) {
         config: config.acme,
         tlsAlpn: acmeTls,
         tlsPort: () => {
-          const address = app.server.address();
+          const address =
+            web && !agentEnabled ? web.address() : app.server.address();
           return address && typeof address !== "string" ? address.port : null;
         },
         privateAvailable: !!config.webDist,
@@ -554,7 +593,7 @@ export async function buildServer(config: ServerConfig) {
         warn: (message) => app.log.warn(message),
         activate: (bundle) => {
           const next = identity(bundle.cert, bundle.key);
-          (app.server as HttpsServer).setSecureContext({
+          tlsTargets.setSecureContext({
             cert: bundle.cert,
             key: bundle.key,
             minVersion: "TLSv1.2",
@@ -575,6 +614,7 @@ export async function buildServer(config: ServerConfig) {
     store,
     admin,
     initialServerUrl: config.agentInstall?.publicUrl,
+    agentPort: config.separateListeners ? config.agentPublicPort : undefined,
     networkManaged: (id) => !!networkRoutes.current(id).policy,
     agent: (id) => {
       const c = connections.get(id);
@@ -720,8 +760,11 @@ export async function buildServer(config: ServerConfig) {
       if (upgrades.active(id)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
     },
     rate,
-    consoleOrigin: config.consoleOrigin,
-    consoleProtocol: tls ? "https" : "http",
+    get consoleOrigin() {
+      return config.consoleOrigin;
+    },
+    // Each ingress validates its own scheme; HTTP management uses WS, Agent uses WSS.
+    consoleProtocol: web ? undefined : tls ? "https" : "http",
     agent(id) {
       const c = connections.get(id);
       if (
@@ -975,7 +1018,7 @@ export async function buildServer(config: ServerConfig) {
     runtime: {
       device_access: deviceAccess,
       web_enabled: webEnabled,
-      web_protocol: tls ? "https" : "http",
+      web_protocol: web ? webProtocol : tls ? "https" : "http",
     },
   }));
   app.post("/api/v1/enrollment-tokens", async (req) => {
@@ -1692,6 +1735,7 @@ export async function buildServer(config: ServerConfig) {
     (socket, req) => {
       const auth = deviceAuth(req);
       const c: Connection = {
+        webIngress: isWebRequest(req.raw),
         socket,
         deviceId: auth.id,
         tokenHash: auth.token_hash,
@@ -1994,5 +2038,22 @@ export async function buildServer(config: ServerConfig) {
     await app.close();
     throw error;
   }
-  return { app, store, testHooks, ssh, close: () => app.close() };
+  return {
+    app,
+    store,
+    testHooks,
+    ssh,
+    webReady: (protocol: string) =>
+      !!web && (protocol !== "https" || !!tlsOptions),
+    async configureWeb(binding: WebBinding, origin?: string | null) {
+      if (!web) throw Error("Separate web listener is unavailable");
+      await web.configure(binding);
+      webEnabled = binding.enabled;
+      webProtocol = binding.protocol;
+      config.consoleOrigin = origin ?? undefined;
+    },
+    legacyAgentConnections: () =>
+      [...connections.values()].filter((c) => c.webIngress && live(c)).length,
+    close: () => app.close(),
+  };
 }

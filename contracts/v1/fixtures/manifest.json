@@ -1416,8 +1416,8 @@
   },
   {
     "schema": "deployment-settings.schema.json",
-    "path": "invalid/deployment-agent-http.json",
-    "valid": false
+    "path": "valid/deployment-agent-http.json",
+    "valid": true
   },
   {
     "path": "valid/certificate-ipv4-update.json",

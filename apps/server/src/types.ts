@@ -34,6 +34,9 @@ export interface TaskEvent {
 export interface ServerConfig {
   deploymentControl?: import("./deployment-settings.js").DeploymentController;
   dataDir: string;
+  separateListeners?: boolean;
+  agentPort?: number;
+  agentPublicPort?: number;
   mode?: "full" | "ssh-only";
   deviceAccess?: "agent-ssh" | "ssh-only";
   webEnabled?: boolean;

@@ -6,35 +6,24 @@
   "additionalProperties": false,
   "properties": {
     "device_access": {
-      "enum": ["agent-ssh", "ssh-only"]
+      "enum": [
+        "agent-ssh",
+        "ssh-only"
+      ]
     },
     "web_enabled": {
       "type": "boolean"
     },
     "web_protocol": {
-      "enum": ["http", "https"]
+      "enum": [
+        "http",
+        "https"
+      ]
     }
   },
-  "required": ["device_access", "web_enabled", "web_protocol"],
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "device_access": {
-            "const": "agent-ssh"
-          },
-          "web_enabled": {
-            "const": true
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "web_protocol": {
-            "const": "https"
-          }
-        }
-      }
-    }
+  "required": [
+    "device_access",
+    "web_enabled",
+    "web_protocol"
   ]
 }

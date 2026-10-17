@@ -17,7 +17,12 @@
       "$ref": "deployment-settings.schema.json"
     },
     "state": {
-      "enum": ["idle", "applying", "awaiting_confirmation", "rolled_back"]
+      "enum": [
+        "idle",
+        "applying",
+        "awaiting_confirmation",
+        "rolled_back"
+      ]
     },
     "entry_url": {
       "anyOf": [
@@ -58,7 +63,11 @@
     "last_error": {
       "anyOf": [
         {
-          "enum": ["APPLY_FAILED", "APPLY_INTERRUPTED", "CONFIRMATION_TIMEOUT"]
+          "enum": [
+            "APPLY_FAILED",
+            "APPLY_INTERRUPTED",
+            "CONFIRMATION_TIMEOUT"
+          ]
         },
         {
           "type": "null"
@@ -76,6 +85,18 @@
     "recovery_command": {
       "type": "string",
       "maxLength": 4096
+    },
+    "agent_https_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "agents_on_web": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "web_reload_supported": {
+      "type": "boolean"
     }
   },
   "required": [

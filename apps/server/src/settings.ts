@@ -32,6 +32,7 @@ export function registerSettings(
     store: Store;
     admin: (req: FastifyRequest) => User;
     initialServerUrl?: string;
+    agentPort?: number;
     networkManaged?: (id: string) => boolean;
     agent?: (
       id: string,
@@ -60,6 +61,7 @@ export function registerSettings(
       | undefined;
     return {
       v: 1,
+      ...(d.agentPort ? { agent_https_port: d.agentPort } : {}),
       ...(row ?? {
         platform_server_url: d.initialServerUrl?.trim() ?? "",
         revision: 0,

@@ -403,7 +403,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         if (
           !origin ||
           ![
-            `${d.consoleProtocol ?? "https"}://${req.headers.host}`,
+            `${d.consoleProtocol ?? req.protocol}://${req.headers.host}`,
             d.consoleOrigin,
           ].includes(origin)
         )

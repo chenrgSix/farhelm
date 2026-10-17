@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { ServerConfig } from "./types.js";
 import { managedCertificate } from "./certificate-files.js";
 import { deployment } from "./deployment.js";
@@ -39,6 +40,16 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
   const port = localAdmin
     ? undefined
     : portNumber(env.FLEET_PORT ?? (tls ? "8443" : "8080"), "FLEET_PORT");
+  const agentPort = portNumber(
+    env.FLEET_AGENT_PORT ?? (port === 8444 ? "8445" : "8444"),
+    "FLEET_AGENT_PORT",
+  );
+  const agentPublicPort = portNumber(
+    env.FLEET_AGENT_PUBLIC_PORT ?? String(agentPort),
+    "FLEET_AGENT_PUBLIC_PORT",
+  );
+  if (agentEnabled && port === agentPort)
+    throw new Error("Agent and web ports must differ");
   const sshValue = env.FLEET_SSH_PORT ?? (agentEnabled ? "0" : "2222");
   const sshPort =
     sshValue === "0" && !localAdmin
@@ -47,6 +58,8 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
           sshValue,
           "FLEET_SSH_PORT (required when web and Agent access are disabled)",
         );
+  if (sshPort && (sshPort === port || (agentEnabled && sshPort === agentPort)))
+    throw new Error("SSH, Agent and web ports must differ");
   const sshHost = env.FLEET_SSH_HOST ?? host;
   const testMode = env.FLEET_TEST_MODE === "1";
   const acmeEnabled = tls && env.FLEET_ACME_ENABLED === "1";
@@ -68,6 +81,9 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
       "Explicit FLEET_TLS_CERT and FLEET_TLS_KEY are required for HTTPS; use FLEET_WEB_PROTOCOL=http with SSH-only device access for certificate-free web management",
     );
   const config: ServerConfig = {
+    separateListeners: true,
+    agentPort,
+    agentPublicPort,
     mode,
     deviceAccess,
     webEnabled,
@@ -87,7 +103,11 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
             : undefined,
         }
       : undefined,
-    webDist: webEnabled ? env.FLEET_WEB_DIST : undefined,
+    webDist:
+      webEnabled ||
+      (env.FLEET_WEB_DIST && existsSync(join(env.FLEET_WEB_DIST, "index.html")))
+        ? env.FLEET_WEB_DIST
+        : undefined,
     consoleOrigin: webEnabled ? env.FLEET_CONSOLE_ORIGIN : undefined,
     ...(tls
       ? {
@@ -114,5 +134,5 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env) {
         }
       : {}),
   };
-  return { config, host, port, localAdmin, tls };
+  return { config, host, port, localAdmin, tls, agentPort };
 }

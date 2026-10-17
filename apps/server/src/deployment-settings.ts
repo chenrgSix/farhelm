@@ -29,6 +29,7 @@ type Saved = Snapshot & {
   v: 1;
   revision: number;
   listener_port: number;
+  agent_listener_port?: number;
   ssh_port: number;
   previous: Snapshot | null;
   state: "idle" | "applying" | "awaiting_confirmation" | "rolled_back";
@@ -49,12 +50,6 @@ export function parseDeployment(value: unknown): DeploymentSettings {
     !["http", "https"].includes(b.web_protocol)
   )
     fail(400, "INVALID_DEPLOYMENT_SETTINGS");
-  if (
-    b.device_access === "agent-ssh" &&
-    b.web_enabled &&
-    b.web_protocol !== "https"
-  )
-    fail(400, "AGENT_HTTPS_REQUIRED");
   return {
     device_access: b.device_access,
     web_enabled: b.web_enabled,
@@ -67,6 +62,8 @@ export function parseDeployment(value: unknown): DeploymentSettings {
 export class DeploymentController {
   private saved!: Saved;
   private running?: Running;
+  private activeSettings?: DeploymentSettings;
+  private restartRequired = true;
   private control?: ReturnType<typeof createServer>;
   private timer?: NodeJS.Timeout;
   private operation?: Promise<void>;
@@ -85,10 +82,16 @@ export class DeploymentController {
     this.path = join(this.dataDir, "deployment.json");
   }
   busy() {
-    return this.applying;
+    return this.applying && this.restartRequired;
+  }
+  legacyAgentEntryEnabled() {
+    return (
+      this.saved.settings.web_enabled &&
+      this.saved.settings.web_protocol === "https"
+    );
   }
   terminalsBlocked() {
-    return this.applying || !!this.saved.previous;
+    return this.restartRequired && (this.applying || !!this.saved.previous);
   }
   private write(next: Saved) {
     privateFile(this.path, JSON.stringify(next) + "\n");
@@ -103,27 +106,36 @@ export class DeploymentController {
     });
   }
   private async launch(snapshot: Snapshot) {
-    const { config, host, port, localAdmin, tls } = this.config(
-      snapshot.settings,
-    );
+    const { config, host, port, agentPort } = this.config(snapshot.settings);
     config.deploymentControl = this;
     if (snapshot.entry_url) config.consoleOrigin = snapshot.entry_url;
-    const socket = localAdmin
-      ? await prepareLocalAdmin(this.dataDir)
-      : undefined;
+    const socket =
+      config.deviceAccess === "ssh-only"
+        ? await prepareLocalAdmin(this.dataDir)
+        : undefined;
     const server = await this.build(config);
     try {
       if (socket) {
         await server.app.listen({ path: socket });
         chmodSync(socket, 0o600);
-      } else await server.app.listen({ host, port });
+      } else await server.app.listen({ host, port: agentPort });
+      await server.configureWeb(
+        {
+          host,
+          port: port ?? this.saved.listener_port,
+          enabled: snapshot.settings.web_enabled,
+          protocol: snapshot.settings.web_protocol,
+        },
+        snapshot.web_origin,
+      );
     } catch (error) {
       await server.close();
       throw error;
     }
     this.running = server;
+    this.activeSettings = { ...snapshot.settings };
     console.log(
-      `Farhelm ${socket ? "SSH-only mode; local management: " + socket + "; HTTPS disabled" : (tls ? "HTTPS" : "HTTP") + " listening on " + host + ":" + port}; device access: ${config.deviceAccess}; web: ${config.webEnabled}`,
+      `Farhelm web: ${snapshot.settings.web_enabled ? snapshot.settings.web_protocol + "://" + host + ":" + (port ?? this.saved.listener_port) : "disabled"}; Agent: ${socket ? "disabled" : "https://" + host + ":" + agentPort}`,
     );
     if (server.ssh) {
       console.log(
@@ -154,10 +166,7 @@ export class DeploymentController {
             settings: {
               ...this.saved.settings,
               web_enabled: true,
-              web_protocol:
-                this.saved.settings.device_access === "agent-ssh"
-                  ? "https"
-                  : this.saved.settings.web_protocol,
+              web_protocol: this.saved.settings.web_protocol,
             },
             confirm_web_disable: false,
           },
@@ -193,6 +202,13 @@ export class DeploymentController {
           saved.ssh_port > 65535
         )
           throw Error("Invalid deployment journal");
+        if (
+          saved.agent_listener_port !== undefined &&
+          (!Number.isInteger(saved.agent_listener_port) ||
+            saved.agent_listener_port < 1 ||
+            saved.agent_listener_port > 65535)
+        )
+          throw Error("Invalid Agent listening port");
         saved.settings = parseDeployment(saved.settings);
         if (saved.previous) {
           interrupted = true;
@@ -222,6 +238,7 @@ export class DeploymentController {
           web_origin: this.env.FLEET_CONSOLE_ORIGIN ?? null,
           listener_port: original.port ?? (d.tls ? 8443 : 8080),
           ssh_port: original.config.ssh?.port ?? 0,
+          agent_listener_port: original.agentPort,
           previous: null,
           state: "idle",
           confirm_by: null,
@@ -232,6 +249,11 @@ export class DeploymentController {
       // initial deployment relied on its default port.
       this.env.FLEET_PORT ??= String(this.saved.listener_port);
       this.env.FLEET_SSH_PORT ??= String(this.saved.ssh_port);
+      this.env.FLEET_AGENT_PORT ??= String(
+        this.saved.agent_listener_port ??
+          (this.saved.listener_port === 8444 ? 8445 : 8444),
+      );
+      this.saved.agent_listener_port = Number(this.env.FLEET_AGENT_PORT);
       await this.launch(this.saved);
       if (interrupted)
         this.running!.store.audit("deployment.rolled_back", null, null, null, {
@@ -288,6 +310,11 @@ export class DeploymentController {
       last_error: this.saved.last_error,
       active_terminals: this.activeTerminals(),
       https_ready: !!this.tlsReady(),
+      agent_https_port: Number(
+        this.env.FLEET_AGENT_PUBLIC_PORT ?? this.env.FLEET_AGENT_PORT,
+      ),
+      agents_on_web: this.running?.legacyAgentConnections() ?? 0,
+      web_reload_supported: this.running?.webReady("https") ?? false,
       recovery_command: `node apps/server/dist/enable-web.js --data-dir '${this.dataDir.replaceAll("'", "'\\''")}'`,
     };
   }
@@ -350,6 +377,7 @@ export class DeploymentController {
       if (!ready) fail(409, "DEPLOYMENT_HTTPS_NOT_READY");
       if (
         settings.web_enabled &&
+        settings.web_protocol === "https" &&
         !certificateMatches(ready.cert, origin.hostname)
       ) {
         if (!ready.domain) fail(409, "DEPLOYMENT_CERTIFICATE_HOST_MISMATCH");
@@ -368,8 +396,17 @@ export class DeploymentController {
         !existsSync(join(next.config.webDist, "index.html")))
     )
       fail(409, "DEPLOYMENT_WEB_NOT_READY");
-    if (this.activeTerminals()) fail(409, "DEPLOYMENT_ACTIVE_TERMINALS");
+    const restart = this.needsRestart(settings);
     if (
+      settings.device_access === "agent-ssh" &&
+      (!settings.web_enabled || settings.web_protocol === "http") &&
+      this.running!.legacyAgentConnections()
+    )
+      fail(409, "AGENT_ENDPOINT_SYNC_REQUIRED");
+    if (restart && this.activeTerminals())
+      fail(409, "DEPLOYMENT_ACTIVE_TERMINALS");
+    if (
+      restart &&
       this.running!.store.db.prepare(
         "SELECT 1 FROM tasks WHERE status NOT IN ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','EXPIRED','UNKNOWN') LIMIT 1",
       ).get()
@@ -395,6 +432,7 @@ export class DeploymentController {
       confirm_by: null,
       last_error: null,
     });
+    this.restartRequired = restart;
     this.applying = true;
     setTimeout(() => this.apply(), 250).unref();
     return this.snapshot();
@@ -414,11 +452,35 @@ export class DeploymentController {
       void this.stop();
     });
   }
+  private needsRestart(settings: DeploymentSettings) {
+    return (
+      !this.running ||
+      this.activeSettings?.device_access !== settings.device_access ||
+      !this.running.webReady(settings.web_protocol)
+    );
+  }
+  private async reconfigure(snapshot: Snapshot) {
+    if (this.needsRestart(snapshot.settings)) {
+      await this.running?.close();
+      this.running = undefined;
+      await this.launch(snapshot);
+    } else {
+      const { host, port } = this.config(snapshot.settings);
+      await this.running!.configureWeb(
+        {
+          host,
+          port: port ?? this.saved.listener_port,
+          enabled: snapshot.settings.web_enabled,
+          protocol: snapshot.settings.web_protocol,
+        },
+        snapshot.web_origin,
+      );
+      this.activeSettings = { ...snapshot.settings };
+    }
+  }
   private async activate() {
     try {
-      await this.running!.close();
-      this.running = undefined;
-      await this.launch(this.saved);
+      await this.reconfigure(this.saved);
       if (this.saved.settings.web_enabled) {
         this.write({
           ...this.saved,
@@ -490,9 +552,7 @@ export class DeploymentController {
       confirm_by: null,
       last_error: code,
     });
-    if (this.running) await this.running.close();
-    this.running = undefined;
-    await this.launch(this.saved);
+    await this.reconfigure(this.saved);
     this.running!.store.audit("deployment.rolled_back", null, null, null, {
       revision: this.saved.revision,
       code,

@@ -21,10 +21,6 @@ export function deployment(
   if (!["http", "https"].includes(webProtocol))
     throw new Error("Invalid FLEET_WEB_PROTOCOL");
   const agentEnabled = deviceAccess === "agent-ssh";
-  if (agentEnabled && webEnabled && webProtocol === "http")
-    throw new Error(
-      "HTTP web management requires FLEET_DEVICE_ACCESS=ssh-only; Agent access requires HTTPS",
-    );
   const localAdmin = !agentEnabled && !webEnabled;
   const tls = !localAdmin && (agentEnabled || webProtocol === "https");
   return {

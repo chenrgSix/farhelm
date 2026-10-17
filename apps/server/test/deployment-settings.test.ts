@@ -14,6 +14,10 @@ import { join } from "node:path";
 import { createServer } from "node:net";
 import { request as http } from "node:http";
 import { request as https } from "node:https";
+import { once } from "node:events";
+import { WebSocket } from "ws";
+import { Client } from "ssh2";
+import { hash, token as newToken } from "../src/util.js";
 import { execFileSync } from "node:child_process";
 import { buildServer } from "../src/server.js";
 import { PrivateAuthority } from "../src/private-ca.js";
@@ -62,6 +66,7 @@ async function fixture(confirmationMs = 10000, withTls = true) {
   const env = {
     FLEET_HOST: "127.0.0.1",
     FLEET_PORT: String(port),
+    FLEET_AGENT_PORT: String(await freePort()),
     FLEET_SSH_PORT: String(sshPort),
     FLEET_DATA_DIR: data,
     FLEET_WEB_DIST: web,
@@ -238,7 +243,7 @@ test("administrator-only settings validate revisions, TLS readiness, active term
       ],
       [
         change(state, { device_access: "agent-ssh" }, f.port),
-        "AGENT_HTTPS_REQUIRED",
+        "DEPLOYMENT_HTTPS_NOT_READY",
       ],
       [
         change(state, { web_enabled: false }, f.port),
@@ -257,6 +262,13 @@ test("administrator-only settings validate revisions, TLS readiness, active term
       assert.equal(result.body.error, expected);
       assert.equal((await f.get()).revision, 0);
     }
+    const authority = new PrivateAuthority(f.running.store);
+    await authority.prepare(null);
+    const bundle = await authority.issue("localhost");
+    writeFileSync(
+      f.data + "/certificates/active.json",
+      JSON.stringify({ ...bundle, domain: "localhost", mode: "private" }),
+    );
     const db = f.running.store.db;
     const admin = db
       .prepare("SELECT id FROM users WHERE username='admin'")
@@ -272,9 +284,14 @@ test("administrator-only settings validate revisions, TLS readiness, active term
         await f.api(
           "/settings/deployment",
           "PUT",
-          change(state, { web_enabled: false }, f.port, {
-            confirm_web_disable: true,
-          }),
+          change(
+            state,
+            { web_enabled: false, device_access: "agent-ssh" },
+            f.port,
+            {
+              confirm_web_disable: true,
+            },
+          ),
         )
       ).body.error,
       "DEPLOYMENT_ACTIVE_TERMINALS",
@@ -289,9 +306,14 @@ test("administrator-only settings validate revisions, TLS readiness, active term
         await f.api(
           "/settings/deployment",
           "PUT",
-          change(state, { web_enabled: false }, f.port, {
-            confirm_web_disable: true,
-          }),
+          change(
+            state,
+            { web_enabled: false, device_access: "agent-ssh" },
+            f.port,
+            {
+              confirm_web_disable: true,
+            },
+          ),
         )
       ).body.error,
       "DEPLOYMENT_ACTIVE_TASKS",
@@ -572,6 +594,296 @@ test("a failed confirmation write retains the rollback timer and does not record
     );
     assert.equal((await f.get()).settings.web_protocol, "http");
   } finally {
+    await f.close();
+  }
+});
+
+// A protocol peer isolates ingress/lifecycle guarantees; real Linux PTY is checked in e2e.
+async function splitPeer(
+  f: Awaited<ReturnType<typeof fixture>>,
+  legacy = false,
+) {
+  const db = f.running.store.db;
+  db.prepare(
+    "INSERT INTO devices(id,public_key,name,created_at) VALUES('split-device','split-key','split-device',?)",
+  ).run(Date.now());
+  const access = newToken();
+  db.prepare(
+    "INSERT INTO device_tokens(token_hash,device_id,expires_at,scope) VALUES(?,'split-device',?,'agent-control-output')",
+  ).run(hash(access), Date.now() + 60000);
+  const agent = new WebSocket(
+    `wss://127.0.0.1:${legacy ? f.port : f.env.FLEET_AGENT_PORT}/agent/ws`,
+    {
+      ca: readFileSync(f.root + "/cert"),
+      headers: { authorization: "Bearer " + access },
+    },
+  );
+  agent.on("error", () => {});
+  const sessions = new Map<string, number>();
+  const send = (type: string, body: any) =>
+    agent.send(JSON.stringify({ v: 1, type, body }));
+  agent.on("message", (raw) => {
+    const { type, body } = JSON.parse(raw.toString());
+    if (type === "terminal.open") {
+      sessions.set(body.session_id, 0);
+      send("terminal.opened", { session_id: body.session_id });
+    }
+    if (type === "terminal.input") {
+      const seq = (sessions.get(body.session_id) ?? 0) + 1;
+      sessions.set(body.session_id, seq);
+      send("terminal.output", {
+        session_id: body.session_id,
+        seq,
+        data: body.data,
+      });
+    }
+  });
+  await once(agent, "open");
+  send("agent.hello", {
+    agent_version: "split-test",
+    capabilities: ["terminal.pty.v1"],
+  });
+  await f.until(
+    async () =>
+      !!(await f.api("/devices", "GET", undefined, "https")).body.devices[0]
+        ?.control_online,
+  );
+  return { agent, access };
+}
+async function enableAgent(f: Awaited<ReturnType<typeof fixture>>) {
+  const state = await f.get();
+  const r = await f.api(
+    "/settings/deployment",
+    "PUT",
+    change(
+      state,
+      { device_access: "agent-ssh", web_protocol: "https" },
+      f.port,
+    ),
+  );
+  assert.equal(r.status, 200);
+  await f.until(
+    async () => (await f.get("https")).state === "awaiting_confirmation",
+  );
+  await f.api(
+    "/settings/deployment/confirm",
+    "POST",
+    { v: 1, revision: r.body.revision },
+    "https",
+  );
+}
+test("separate web listener switches and rolls back without replacing Agent, SSH sessions or recordings", async () => {
+  const f = await fixture(1200);
+  let agent: WebSocket | undefined,
+    ws: WebSocket | undefined,
+    ssh: Client | undefined;
+  try {
+    await enableAgent(f);
+    ({ agent } = await splitPeer(f));
+    const core = f.running,
+      fingerprint = core.ssh!.info().fingerprint;
+    const created = (
+      await f.api(
+        "/terminal-sessions",
+        "POST",
+        { v: 1, device_id: "split-device", cols: 80, rows: 24 },
+        "https",
+      )
+    ).body;
+    let output = "";
+    let ready = false;
+    ws = new WebSocket(`wss://127.0.0.1:${f.port}/api/v1/terminal/ws`, {
+      ca: readFileSync(f.root + "/cert"),
+      origin: `https://127.0.0.1:${f.port}`,
+    });
+    ws.on("error", () => {});
+    ws.on("message", (raw) => {
+      const m = JSON.parse(raw.toString());
+      if (m.type === "terminal.ready") ready = true;
+      if (m.type === "terminal.output")
+        output += Buffer.from(m.body.data, "base64").toString();
+    });
+    await once(ws, "open");
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: "terminal.attach",
+        body: { session_id: created.session_id, ticket: created.ticket },
+      }),
+    );
+    await f.until(async () => ready);
+    ssh = new Client();
+    ssh.connect({
+      host: "127.0.0.1",
+      port: f.sshPort,
+      username: "admin:split-device",
+      password: f.env.FLEET_ADMIN_PASSWORD,
+      hostHash: "sha256",
+      hostVerifier: (value) =>
+        "SHA256:" +
+          Buffer.from(value, "hex").toString("base64").replace(/=+$/, "") ===
+        fingerprint,
+    });
+    await once(ssh, "ready");
+    const shell = await new Promise<import("ssh2").ClientChannel>(
+      (resolve, reject) =>
+        ssh!.shell({ term: "xterm", cols: 80, rows: 24 }, (e, c) =>
+          e ? reject(e) : resolve(c),
+        ),
+    );
+    let sshOutput = "";
+    shell.on("data", (data) => (sshOutput += data.toString()));
+    const assertAlive = async (marker: string) => {
+      assert.equal(f.running, core);
+      assert.equal(agent!.readyState, WebSocket.OPEN);
+      assert.equal(ws!.readyState, WebSocket.OPEN);
+      shell.write("ssh-" + marker);
+      ws!.send(
+        JSON.stringify({
+          v: 1,
+          type: "terminal.input",
+          body: { data: Buffer.from("web-" + marker).toString("base64") },
+        }),
+      );
+      await f.until(
+        async () =>
+          sshOutput.includes("ssh-" + marker) &&
+          output.includes("web-" + marker),
+      );
+      const recording = (
+        await f.api(
+          `/terminal-sessions/${created.session_id}/recording`,
+          "GET",
+          undefined,
+          f.controller.snapshot().settings.web_protocol,
+        )
+      ).body;
+      assert.ok(
+        recording.events.some(
+          (e: any) =>
+            e.kind === "output" &&
+            Buffer.from(e.data.data, "base64")
+              .toString()
+              .includes("web-" + marker),
+        ),
+      );
+    };
+    await assertAlive("before");
+    let state = await f.get("https");
+    const result = await f.api(
+      "/settings/deployment",
+      "PUT",
+      change(state, { web_protocol: "http" }, f.port, {
+        entry_origin: `https://127.0.0.1:${f.port}`,
+      }),
+      "https",
+    );
+    assert.equal(result.status, 200);
+    assert.equal(result.headers["strict-transport-security"], "max-age=0");
+    await f.until(
+      async () => (await f.get()).state === "awaiting_confirmation",
+    );
+    await assertAlive("http");
+    state = await f.get();
+    await f.api("/settings/deployment/confirm", "POST", {
+      v: 1,
+      revision: state.revision,
+    });
+    assert.equal((await f.api("/me")).body.runtime.web_protocol, "http");
+    const denied = new WebSocket(`ws://127.0.0.1:${f.port}/agent/ws`, {
+      headers: { "x-forwarded-proto": "https" },
+    });
+    denied.on("error", () => {});
+    await assert.rejects(once(denied, "open"), /403/);
+    // Returning to HTTPS is a trial: timeout restores HTTP without interrupting either terminal.
+    state = await f.get();
+    await f.api(
+      "/settings/deployment",
+      "PUT",
+      change(state, { web_protocol: "https" }, f.port),
+    );
+    await f.until(
+      async () => (await f.get("https")).state === "awaiting_confirmation",
+    );
+    await assertAlive("https");
+    await f.until(
+      async () => (await f.get()).last_error === "CONFIRMATION_TIMEOUT",
+    );
+    await assertAlive("rollback");
+    state = await f.get();
+    f.controller.prepare(
+      change(state, { web_enabled: false }, f.port, {
+        confirm_web_disable: true,
+      }),
+      null,
+    );
+    f.controller.apply();
+    await f.until(async () => f.controller.snapshot().state === "idle");
+    shell.write("ssh-web-disabled");
+    await f.until(async () => sshOutput.includes("ssh-web-disabled"));
+    assert.equal(f.running, core);
+    assert.equal(agent!.readyState, WebSocket.OPEN);
+    f.controller.prepare(
+      change(f.controller.snapshot(), { web_enabled: true }, f.port),
+      null,
+    );
+    f.controller.apply();
+    await f.until(
+      async () => (await f.get()).state === "awaiting_confirmation",
+    );
+    state = await f.get();
+    await f.api("/settings/deployment/confirm", "POST", {
+      v: 1,
+      revision: state.revision,
+    });
+    await assertAlive("web-reopened");
+    const sessions = (await f.api("/terminal-sessions")).body.sessions;
+    const sshSession = sessions.find((s: any) => s.transport === "ssh");
+    assert.equal(sshSession.status, "OPEN");
+    const sshRecording = (
+      await f.api(`/terminal-sessions/${sshSession.id}/recording`)
+    ).body;
+    assert.ok(
+      sshRecording.events.some(
+        (e: any) =>
+          e.kind === "output" &&
+          Buffer.from(e.data.data, "base64")
+            .toString()
+            .includes("ssh-rollback"),
+      ),
+    );
+  } finally {
+    ws?.terminate();
+    ssh?.destroy();
+    agent?.terminate();
+    await f.close();
+  }
+});
+test("legacy HTTPS Agents must migrate before their web entry is removed", async () => {
+  const f = await fixture();
+  let agent: WebSocket | undefined;
+  try {
+    await enableAgent(f);
+    ({ agent } = await splitPeer(f, true));
+    const state = await f.get("https");
+    assert.equal(state.agents_on_web, 1);
+    for (const changeSet of [
+      { web_protocol: "http" },
+      { web_enabled: false },
+    ]) {
+      const r = await f.api(
+        "/settings/deployment",
+        "PUT",
+        change(state, changeSet, f.port, { confirm_web_disable: true }),
+        "https",
+      );
+      assert.equal(r.status, 409);
+      assert.equal(r.body.error, "AGENT_ENDPOINT_SYNC_REQUIRED");
+    }
+    assert.equal((await f.get("https")).revision, state.revision);
+    assert.equal(agent.readyState, WebSocket.OPEN);
+  } finally {
+    agent?.terminate();
     await f.close();
   }
 });
