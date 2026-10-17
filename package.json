@@ -49,7 +49,8 @@
     "test:server:bootstrap": "npm --prefix apps/server run build && node --test tests/deployment/bootstrap.test.mjs",
     "test:server:backup": "npm --prefix apps/server run build && node --test tests/deployment/backup.test.mjs",
     "test:server:compose": "node tests/deployment/compose.mjs",
-    "test:server:native": "bash tests/deployment/native.sh"
+    "test:server:native": "bash tests/deployment/native.sh",
+    "test:split-listeners": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/separate-listeners.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

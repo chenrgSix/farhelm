@@ -16,7 +16,7 @@ Agent 0.2.3 起可在设备「网络记录」中配置多个网络探测地址�
 
 管理员现可在「用户与权限」创建账号、自定义角色和用户组，分配角色及具体设备范围。设备页的「管理设备组」支持创建、编辑、删除标签，列表支持按组筛选及多选设备批量添加、移除标签。设备组是便于批量选择的可选标签，可重叠、可为空，新设备默认不入组；调整标签不影响已有授权。详见[用户与分组授权](docs/access-control.md)。
 
-平台将 **设备仅用 SSH** 与 **关闭网页管理** 独立配置：设置 `FLEET_DEVICE_ACCESS=ssh-only`、`FLEET_WEB_ENABLED=1`、`FLEET_WEB_PROTOCOL=http` 即可使用无需证书的 HTTP 网页，管理设备、账号权限和录制，并保留网页终端及 SSH 入口。只有显式设置 `FLEET_WEB_ENABLED=0` 才关闭网页。SSH 主机密钥自动生成并持久保存，详见 [SSH 接入与网页管理](docs/ssh-only.md)。
+平台将网页协议与 Agent 接入独立配置：网页可选 HTTP/HTTPS（默认端口 8443），Agent 使用独立 HTTPS 端口 8444，CA 与证书继续自动管理。系统设置中可切换网页协议，已有终端及录制保留；旧 Agent 先同步独立地址再切换。**设备仅用 SSH** 与 **关闭网页管理** 也独立配置：设置 `FLEET_DEVICE_ACCESS=ssh-only`、`FLEET_WEB_ENABLED=1`、`FLEET_WEB_PROTOCOL=http` 即可使用无需证书的 HTTP 网页，管理设备、账号权限和录制，并保留网页终端及 SSH 入口。只有显式设置 `FLEET_WEB_ENABLED=0` 才关闭网页。SSH 主机密钥自动生成并持久保存，详见 [SSH 接入与网页管理](docs/ssh-only.md)。
 
 服务端支持 [Linux 一键安装与 Docker Compose 部署](docs/server-deployment.md)，两种方式均直接提供前端、API 和 HTTPS，无需 Nginx。Compose 配置位于 [deploy/compose.yml](deploy/compose.yml)，在 `deploy/` 目录启动，包含持久化数据和自动启动配置。
 
@@ -51,7 +51,7 @@ export FLEET_ADMIN_PASSWORD='请替换为至少8位且含英文字母和数字�
 npm run dev
 ```
 
-启动脚本只在项目 `.dev/` 下生成长期本地开发 CA、可自动续签的服务端证书和状态；不修改系统信任、账号、权限、systemd 或生产服务。控制台 https://localhost:5173 默认仅监听 loopback，Vite 把 API、Agent WebSocket 和健康接口代理到校验证书的 HTTPS 服务；Agent 初次通过 HTTPS/WSS 访问 https://localhost:8443，之后可在系统设置同步到前端 HTTPS 入口。已有服务端时可单独运行 `npm run dev:web` 启动 HTTPS 前端，不会重启服务端或 Agent。Docker Agent 与宿主机浏览器共用入口时使用 `https://host.docker.internal:5173`，本机解析与证书信任配置见[统一平台入口](docs/platform-entry.md)。
+启动脚本只在项目 `.dev/` 下生成长期本地开发 CA、可自动续签的服务端证书和状态；不修改系统信任、账号、权限、systemd 或生产服务。控制台 https://localhost:5173 默认仅监听 loopback，Vite 把 API、Agent WebSocket 和健康接口代理到校验证书的 HTTPS 服务；Agent 通过独立 HTTPS/WSS 入口 https://localhost:8444 接入。已有服务端时可单独运行 `npm run dev:web` 启动 HTTPS 前端，不会重启服务端或 Agent。Docker Agent 与宿主机浏览器共用入口时使用 `https://host.docker.internal:5173`，本机解析与证书信任配置见[统一平台入口](docs/platform-entry.md)。
 
 已有目录更名时，应先停止本地服务，连同 `.dev/` 一起移动，并从新目录重新启动。Docker 的绑定挂载保存绝对路径，开发容器也需要重新创建并指向新目录；重新创建前保留容器内自行安装的工具及文件。保留原有 Agent 状态目录和服务端数据库，即可继续使用已有设备身份、配置和会话录制。
 
@@ -59,7 +59,7 @@ npm run dev
 
 登录 → 设备页 → 点击「连接终端」→ 像普通终端一样输入命令。连续命令共享 Shell 和工作目录，支持 Tab 补全、Ctrl-C、窗口缩放与中文。输入 `exit` 退出；「终端会话」可以查看回放与导出记录。运维角色仍受设备范围约束。
 
-管理员可在「系统设置」直接粘贴 HTTPS 网页地址，保存为「平台访问地址」；也可点击「使用当前网页地址并同步」，一键保存当前 HTTPS 网页地址并同步 Agent。前端服务转发 API 与 Agent WebSocket，配置见[统一平台入口](docs/platform-entry.md)。设置立即生效并持久保存；添加 Agent 时自动带入，并自动同步到支持此功能的在线 Agent；终端结束后切换，失败保留原地址，前端可查看逐台结果。
+管理员在「系统设置 → Agent 接入设置」配置 Agent HTTPS 地址，或点击「使用独立 Agent 地址并同步」，采用当前主机名和独立 Agent 端口。网页使用 HTTP 时仍可管理自动证书与 CA。旧 HTTPS 网页入口保留兼容，迁移步骤见[服务端部署](docs/server-deployment.md)。设置立即生效并持久保存；添加 Agent 时自动带入，并自动同步到支持此功能的在线 Agent；终端结束后切换，失败保留原地址，前端可查看逐台结果。
 
 管理员可在「Agent 升级」上传安装包及版本清单，管理多版本、停用或启用包，再选择目标版本和设备批量更新，支持并发限制、离线排队、现有终端完成后切换、失败回退和逐台结果。新版运行账号无需 sudo；更早的 Agent 首次需更新一次基础程序。见 [Agent 批量升级](docs/agent-upgrades.md)。
 

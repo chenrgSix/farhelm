@@ -15,7 +15,7 @@ RUN npm --prefix apps/server run build \
 
 FROM ${NODE_IMAGE}
 ENV NODE_ENV=production FLEET_DATA_DIR=/var/lib/farhelm \
-    FLEET_HOST=0.0.0.0 FLEET_PORT=8443 FLEET_WEB_ENABLED=1 \
+    FLEET_HOST=0.0.0.0 FLEET_PORT=8443 FLEET_AGENT_PORT=8444 FLEET_WEB_ENABLED=1 \
     FLEET_DEVICE_ACCESS=agent-ssh FLEET_WEB_PROTOCOL=https \
     FLEET_WEB_DIST=/opt/farhelm/apps/web/dist FLEET_AGENT_DIST_DIR=/var/lib/farhelm/agent-dist \
     FLEET_SSH_HOST=0.0.0.0 FLEET_SSH_PORT=2222 \
@@ -31,6 +31,6 @@ COPY lib/ lib/
 COPY deploy/server/bootstrap.mjs deploy/server/healthcheck.mjs deploy/server/
 RUN mkdir -p /var/lib/farhelm && chown node:node /var/lib/farhelm && chmod 700 /var/lib/farhelm
 USER node
-EXPOSE 8443 2222 8080
+EXPOSE 8443 8444 2222 8080
 HEALTHCHECK --interval=30s --timeout=6s --start-period=40s --retries=3 CMD ["node", "deploy/server/healthcheck.mjs"]
 CMD ["node", "deploy/server/bootstrap.mjs"]

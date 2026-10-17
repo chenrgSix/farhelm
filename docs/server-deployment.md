@@ -30,7 +30,7 @@ sudo cat /var/lib/farhelm/bootstrap-admin.json
 sudo journalctl -u farhelm -f
 ```
 
-- 网页：`https://10.10.0.10:8443`，SSH 网关：`10.10.0.10:2222`。
+- 网页：`https://10.10.0.10:8443`，Agent：`https://10.10.0.10:8444`，SSH 网关：`10.10.0.10:2222`。
 - 初始管理员默认 `admin`，随机密码保存在上面的 0600 文件中，不输出到服务日志。登录后可修改密码；文件保存的是初始凭据，修改密码后它不会更新，可自行安全删除。
 - CA 公共证书：`/var/lib/farhelm/ca.crt`。通过可信运维渠道复制到管理员电脑并信任一次；不要复制 CA 私钥。新 Agent 的安装命令自动携带 CA。后续服务端证书续签不需要再次信任。
 - 服务端程序及独立 Node：`/opt/farhelm/current`、`/opt/farhelm/runtime`。
@@ -41,13 +41,16 @@ sudo journalctl -u farhelm -f
 
 ```bash
 # 修改网页/SSH 网关端口；绑定低端口时仅给服务授予端口绑定能力
-sudo bash install.sh --source . --host farhelm.example.com --web-port 443 --ssh-port 2222
+sudo bash install.sh --source . --host farhelm.example.com --web-port 443 --agent-port 8444 --ssh-port 2222
+
+# HTTP 网页 + HTTPS Agent，Agent 的 CA 仍自动签发和续签
+sudo bash install.sh --source . --host 10.10.0.10 --web-http
 
 # 设备只通过 SSH 接入，保留 HTTP 网页管理，不生成 HTTPS 证书
 sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 ```
 
-未传 `--host` 时使用本机检测到的第一个 IP，无法检测时为 localhost；多网卡、NAT 或 VPN 场景应明确指定地址。内部 ACME HTTP 验证监听使用 8080，不可与网页或 SSH 网关端口重叠。安装器不会修改防火墙规则。
+未传 `--host` 时使用本机检测到的第一个 IP，无法检测时为 localhost；多网卡、NAT 或 VPN 场景应明确指定地址。内部 ACME HTTP 验证监听使用 8080，不可与网页、Agent 或 SSH 网关端口重叠。安装器不会修改防火墙规则。
 
 原生自启通过 `systemctl enable --now farhelm` 配置。源码下载和构建临时目录自动清理，前端 node_modules、npm 缓存和服务端开发依赖不会留在安装目录。安装失败不删除已经生成的数据；若已生成服务配置，可先查日志，再用 `systemctl restart farhelm` 恢复，不要删除数据库重新安装。
 
@@ -68,7 +71,7 @@ cp compose.env.example .env
 docker compose up -d --build --wait
 ```
 
-网页默认 `https://你的域名或IP:8443`，SSH 网关默认 `2222`。
+网页默认 `https://你的域名或IP:8443`，Agent HTTPS 默认 `8444`（`FARHELM_AGENT_PORT`），SSH 网关默认 `2222`。
 
 从仓库根目录操作时，显式指定 `--env-file deploy/.env -f deploy/compose.yml`，例如 `docker compose --env-file deploy/.env -f deploy/compose.yml up -d --build --wait`。从旧版根目录布局迁移时，将原根目录 `.env` 移到 `deploy/.env`；固定项目名 `farhelm` 和数据卷名保持不变，使用过 `-p` 的部署继续沿用原项目名。
 
@@ -86,7 +89,9 @@ docker compose logs -f server
 
 Compose 使用非 root 用户、只读容器根文件系统、命名数据卷和 `restart: unless-stopped`。Docker 随开机启动后，容器会按重启策略自动恢复；手动停止的容器不会自行恢复，需再执行 `docker compose up -d`。[Docker 重启策略说明](https://docs.docker.com/engine/containers/start-containers-automatically/)
 
-健康检查读取当前实际 HTTP/HTTPS 或本地管理套接字状态，HTTPS 校验证书；网页开关和协议从前端更改后无需改健康检查脚本。`up --wait` 等待健康状态，而非只等待容器进程创建。
+健康检查分别检查网页的实际 HTTP/HTTPS 和 Agent HTTPS；两者关闭时检查本地管理套接字状态，HTTPS 校验证书；网页开关和协议从前端更改后无需改健康检查脚本。`up --wait` 等待健康状态，而非只等待容器进程创建。
+
+网页可独立使用 HTTP：首次启动前只设 `FLEET_WEB_PROTOCOL=http`，保持 `FLEET_DEVICE_ACCESS=agent-ssh` 即可。此时 Agent 仍通过独立的 HTTPS 端口连接，安装命令自动携带 CA；浏览器不需要信任该 CA。
 
 HTTP + 设备仅 SSH 模式：首次启动前在 `.env` 设置：
 
@@ -107,8 +112,8 @@ FLEET_WEB_PROTOCOL=http
   docker compose -f compose.yml -f compose.acme.yml up -d --build --wait
   ```
 
-- TLS-ALPN-01：公网 443 必须到达平台 TLS 入口。Compose 设置 `FARHELM_WEB_PORT=443`，或配置 TCP 转发。
-- 网页、API、Agent 直接使用 Farhelm 的同一个入口，证书由平台签发并热加载。已有外部代理的特殊部署可参考 [可选代理示例](../deploy/examples/nginx/README.md)。
+- TLS-ALPN-01：公网 443 必须到达平台 TLS 入口。启用 Agent 时设置 `FARHELM_AGENT_PORT=443`，或配置 TCP 转发至 Agent TLS 端口；仅 SSH + HTTPS 网页时转发至网页 TLS 端口。
+- 网页/API 与 Agent 使用独立端口，HTTPS 证书由平台签发并同步热加载到两个监听器；续签不重启 Agent 或终端。已有外部代理的特殊部署可参考 [可选代理示例](../deploy/examples/nginx/README.md)。
 
 详细步骤见[公网证书部署](production-certificates.md)。公开验证所需的公网端口与平台内部监听端口是两个概念。
 
@@ -131,3 +136,11 @@ FLEET_WEB_PROTOCOL=http
 如需同时验证真实 Agent，可在上述集成测试命令前设置 `FARHELM_TEST_AGENT_BIN=/绝对路径/farhelm-agent-linux-aarch64`（或与 Docker 主机架构匹配的 x86_64 包）。直接复用发布包，不重建 Rust 缓存。
 
 2026-10-17 在 ARM64 Linux 容器实际验证：原生 systemd 安装和重启自启、Compose HTTPS / HTTP 首次启动和重建、网页静态资源及登录、真实 sshd 的网页终端与 SSH 网关录制、CA / SSH 主机密钥 / 管理员 / 设备 / 历史录制保留，以及发布版 Agent 的 HTTPS 信任和 PTY 录制。x86_64 安装路径已实现，未进行本次 x86_64 系统级验收；公网 CA 正式签发仍需在实际域名或公网 IP 环境验证。
+
+## 已有部署迁移
+
+升级后网页端口保留；另开放 Agent HTTPS 端口（默认 8444）。旧网页 HTTPS 入口暂时兼容 Agent。先在「系统设置 → Agent 接入设置」点击「使用独立 Agent 地址并同步」，核对设备在线且同步完成，再在「平台运行方式」选择网页 HTTP。启用 VPN 网络策略时，也要把策略中的平台 HTTPS 地址更新为独立 Agent 地址。NAT/外部代理应填写实际可达的对外端口。
+
+在线 Agent 还在旧网页入口时，系统阻止切 HTTP 或关闭网页；离线 Agent 和已复制的旧安装命令不会因此自动改变地址，需保留旧入口至迁移完成。网页协议切换与回退不会关闭已经建立的终端连接，切换后从新地址登录继续管理；浏览器主动刷新/退出会按既有规则处理其终端。改变设备接入方式或首次加载 TLS 仍需无活跃任务/终端再重载。
+
+`npm run test:split-listeners` 在隔离环境使用真实 Linux Agent，验证 HTTP 网页 + HTTPS Agent、两种网页协议下的自动续签、持续 Web/SSH PTY、完整录制和入口隔离。默认复用 `.dev/agent-dist/farhelm-agent-linux-aarch64` 与 `farhelm-agent-dev:local`，可用 `FARHELM_TEST_AGENT_BIN` / `FARHELM_TEST_AGENT_IMAGE` 指定兼容的非 root Linux 测试镜像和二进制。

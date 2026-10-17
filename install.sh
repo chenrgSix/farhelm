@@ -5,8 +5,8 @@ umask 077
 fail() { printf 'Farhelm: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'EOF'
-Usage: bash install.sh [--host DOMAIN_OR_IP] [--web-port 8443] [--ssh-port 2222]
-                       [--ssh-only-http] [--source DIRECTORY] [--ref main]
+Usage: bash install.sh [--host DOMAIN_OR_IP] [--web-port 8443] [--agent-port 8444] [--ssh-port 2222]
+                       [--web-http] [--ssh-only-http] [--source DIRECTORY] [--ref main]
                        [--token-file FILE]
 Downloads the source and a checksum-verified private Node.js runtime, builds both
 server and web, and enables farhelm.service. Debian 12+/Ubuntu 22.04+ or a modern
@@ -14,15 +14,16 @@ glibc Linux with systemd, x86_64/ARM64. Existing completed installations are kep
 For this private repository, use an authenticated gh CLI, GH_TOKEN, or token file.
 EOF
 }
-public_host=""; web_port=8443; ssh_port=2222; source_dir=""; ref=main; token_file=""; device_access=agent-ssh; protocol=https
+public_host=""; web_port=8443; agent_port=8444; ssh_port=2222; source_dir=""; ref=main; token_file=""; device_access=agent-ssh; protocol=https
 while (($#)); do
   case "$1" in
-    --host|--web-port|--ssh-port|--source|--ref|--token-file)
+    --host|--web-port|--agent-port|--ssh-port|--source|--ref|--token-file)
       (($# >= 2)) || fail "Missing value for $1"
       case "$1" in
-        --host) public_host=$2;; --web-port) web_port=$2;; --ssh-port) ssh_port=$2;;
+        --host) public_host=$2;; --web-port) web_port=$2;; --agent-port) agent_port=$2;; --ssh-port) ssh_port=$2;;
         --source) source_dir=$2;; --ref) ref=$2;; --token-file) token_file=$2;;
       esac; shift 2;;
+    --web-http) protocol=http; shift;;
     --ssh-only-http) device_access=ssh-only; protocol=http; shift;;
     --help|-h) usage; exit 0;;
     *) fail "Unknown option: $1";;
@@ -30,8 +31,8 @@ while (($#)); do
 done
 [[ $(uname -s) == Linux ]] || fail "The native installer needs Linux; use Docker Compose on other systems."
 [[ $ref =~ ^[a-zA-Z0-9._/-]+$ && $ref != *..* ]] || fail "Invalid source ref"
-[[ $web_port =~ ^[1-9][0-9]{0,4}$ && $ssh_port =~ ^[1-9][0-9]{0,4}$ ]] || fail "Invalid port"
-((web_port <= 65535 && ssh_port <= 65535 && web_port != ssh_port && web_port != 8080 && ssh_port != 8080)) || fail "Ports must differ and cannot use the internal ACME port 8080"
+[[ $web_port =~ ^[1-9][0-9]{0,4}$ && $ssh_port =~ ^[1-9][0-9]{0,4}$ && $agent_port =~ ^[1-9][0-9]{0,4}$ ]] || fail "Invalid port"
+((web_port <= 65535 && agent_port <= 65535 && ssh_port <= 65535 && agent_port != web_port && agent_port != ssh_port && agent_port != 8080 && web_port != ssh_port && web_port != 8080 && ssh_port != 8080)) || fail "Ports must differ and cannot use the internal ACME port 8080"
 [[ -z $public_host || $public_host =~ ^[a-zA-Z0-9.:-]+$ ]] || fail "Use an ASCII domain or IP, without scheme, port or path"
 if [[ -n $source_dir ]]; then source_dir=$(cd "$source_dir" && pwd -P); fi
 if [[ -n $token_file ]]; then token_file=$(cd "$(dirname "$token_file")" && pwd -P)/$(basename "$token_file"); fi
@@ -43,9 +44,10 @@ if ((EUID != 0)); then
   private_token=$(mktemp)
   trap 'rm -f "$private_token"' EXIT
   if [[ -n $token_file ]]; then cat "$token_file" > "$private_token"; else printf '%s' "$auth" > "$private_token"; fi
-  args=(--host "$public_host" --web-port "$web_port" --ssh-port "$ssh_port" --ref "$ref" --token-file "$private_token")
+  args=(--host "$public_host" --web-port "$web_port" --agent-port "$agent_port" --ssh-port "$ssh_port" --ref "$ref" --token-file "$private_token")
   [[ -z $source_dir ]] || args+=(--source "$source_dir")
-  [[ $protocol == https ]] || args+=(--ssh-only-http)
+  [[ $protocol == https ]] || args+=(--web-http)
+  [[ $device_access != ssh-only ]] || args+=(--ssh-only-http)
   sudo bash "$0" "${args[@]}"
   exit $?
 fi
@@ -108,7 +110,7 @@ node=$prefix/runtime/bin/node
 "$node" -e 'if (+process.versions.node.split(".")[0] < 24) process.exit(1)' || fail "This OS cannot run Node.js 24; check glibc support"
 if [[ -z $public_host ]]; then public_host=$(hostname -I 2>/dev/null | awk '{print $1}'); public_host=${public_host:-localhost}; fi
 # Check input and listener conflicts before touching the persistent database.
-"$node" --input-type=module - "$public_host" "$web_port" "$ssh_port" <<'JS'
+"$node" --input-type=module - "$public_host" "$web_port" "$agent_port" "$ssh_port" <<'JS'
 import { isIP, createServer } from 'node:net';
 const [host, ...ports] = process.argv.slice(2);
 if (!isIP(host) && !host.split('.').every(p => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(p))) throw Error('Invalid public host');
@@ -147,12 +149,14 @@ rm -rf "$stage/apps/web/node_modules" "$stage/.npm-cache" "$stage/.npm"
 chown -R root:root "$stage"
 chmod -R a+rX "$stage"
 install -d -o farhelm -g "$service_group" -m 700 "$data"
-runuser -u farhelm -- env FLEET_DATA_DIR="$data" FARHELM_PUBLIC_HOST="$public_host" FARHELM_PUBLIC_PORT="$web_port" FLEET_DEVICE_ACCESS="$device_access" FLEET_WEB_PROTOCOL="$protocol" "$node" "$stage/deploy/server/bootstrap.mjs" --init-only
+runuser -u farhelm -- env FLEET_DATA_DIR="$data" FARHELM_PUBLIC_HOST="$public_host" FARHELM_PUBLIC_PORT="$web_port" FLEET_AGENT_PUBLIC_PORT="$agent_port" FLEET_DEVICE_ACCESS="$device_access" FLEET_WEB_PROTOCOL="$protocol" "$node" "$stage/deploy/server/bootstrap.mjs" --init-only
 mv "$stage" "$prefix/current"; stage=""
 install -d -m 700 /etc/farhelm
 cat > "$config" <<EOF
 FLEET_HOST=0.0.0.0
 FLEET_PORT=$web_port
+FLEET_AGENT_PORT=$agent_port
+FLEET_AGENT_PUBLIC_PORT=$agent_port
 FLEET_DEVICE_ACCESS=$device_access
 FLEET_WEB_ENABLED=1
 FLEET_WEB_PROTOCOL=$protocol
@@ -191,7 +195,7 @@ ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=$data
 EOF
-if ((web_port < 1024 || ssh_port < 1024)); then
+if ((web_port < 1024 || agent_port < 1024 || ssh_port < 1024)); then
   printf 'AmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\n' >> /etc/systemd/system/farhelm.service
 fi
 printf '\n[Install]\nWantedBy=multi-user.target\n' >> /etc/systemd/system/farhelm.service
@@ -201,10 +205,11 @@ systemctl daemon-reload
 systemctl enable --now farhelm.service
 ready=0
 for ((attempt=0; attempt<30; attempt++)); do
-  if runuser -u farhelm -- env FLEET_DATA_DIR="$data" FLEET_PORT="$web_port" "$node" "$prefix/current/deploy/server/healthcheck.mjs"; then ready=1; break; fi
+  if runuser -u farhelm -- env FLEET_DATA_DIR="$data" FLEET_PORT="$web_port" FLEET_AGENT_PORT="$agent_port" "$node" "$prefix/current/deploy/server/healthcheck.mjs"; then ready=1; break; fi
   sleep 1
 done
 ((ready)) || fail "Service health check failed. Inspect: journalctl -u farhelm. Data and configuration were kept."
 touch "$prefix/installed"
 printf '\nFarhelm installed; boot startup enabled.\nWeb entry: %s://%s:%s\nSSH gateway port: %s\nInitial credentials: sudo cat %s/bootstrap-admin.json\nConfiguration: %s\n' "$protocol" "$public_host" "$web_port" "$ssh_port" "$data" "$config"
+[[ $device_access != agent-ssh ]] || printf 'Agent HTTPS port: %s (automatic certificate renewal).\n' "$agent_port"
 [[ $protocol != https ]] || printf 'CA public certificate: %s/ca.crt (trust once on your administrator computer).\n' "$data"

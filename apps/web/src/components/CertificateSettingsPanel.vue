@@ -445,10 +445,10 @@ onBeforeUnmount(() => {
             天（160 小时），平台按实际有效期提前自动续签；无需手动选择证书类型。
           </p>
           <p v-if="mode === 'private'" class="field-hint">
-            无需公网和互联网连接。先保存配置、创建并下载
-            CA，在管理电脑上信任后，再启用自动签发。 网页、API 和 Agent 共用该
-            HTTPS 入口；内网 DNS 或 hosts 需指向平台。 新 Agent 安装命令自动携带
-            CA，已有 Agent 请先在下方一键同步 CA，全部就绪后再切换证书。
+            无需公网和互联网连接。平台为 Agent HTTPS 自动签发和续签；网页选择
+            HTTPS 时共用托管证书，选择 HTTP 时无需浏览器信任 CA。 内网 DNS 或
+            hosts 需指向平台。新 Agent 安装命令自动携带 CA；更换 CA 前，已有
+            Agent 请先在下方同步，全部就绪后再切换证书。
           </p>
           <p class="field-hint">
             证书签发后自动热加载，已有终端连接继续运行。更换域名或 IP

@@ -13,7 +13,7 @@ cd "$root"
 docker build -t "$image" -f tests/deployment/Dockerfile.systemd tests/deployment
 docker run -d --name "$name" --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock \
   --mount "type=bind,source=$root,target=/source,readonly" \
-  -p 127.0.0.1::8443 -p 127.0.0.1::2222 "$image" >/dev/null
+  -p 127.0.0.1::8443 -p 127.0.0.1::8444 -p 127.0.0.1::2222 "$image" >/dev/null
 for ((attempt=0; attempt<60; attempt++)); do
   if docker exec "$name" systemctl list-units >/dev/null 2>&1; then break; fi
   sleep 1

@@ -1,6 +1,6 @@
 # 正式环境自动管理 HTTPS 证书
 
-本页说明公网 Let’s Encrypt 模式。完全内网 / 离线环境现已支持 [平台私有 CA 自动签发与续签](private-certificates.md)，同样在系统设置配置，网页与 Agent 共用统一入口。
+本页说明公网 Let’s Encrypt 模式。完全内网 / 离线环境现已支持 [平台私有 CA 自动签发与续签](private-certificates.md)，同样在系统设置配置，网页与 Agent 分别监听，共用托管 HTTPS 证书；网页可选 HTTP。
 
 管理员在「系统设置 → HTTPS 证书」配置平台域名或公网 IP、联系邮箱，阅读并勾选 Let’s Encrypt 服务条款，然后启用「自动申请和续签证书」并保存。平台异步申请证书；页面每 5 秒刷新申请状态、签发机构、完整到期时间、下次检查 / 重试时间和失败原因，关闭网页不影响续签。
 
@@ -29,8 +29,8 @@ Let’s Encrypt 的 IP 证书有效期为 **160 小时**，平台以返回证书
 
 Farhelm 直接提供网页、API 和 HTTPS，并热加载自动签发的新证书。推荐使用[一键安装或 Docker Compose](server-deployment.md)，无需安装 Nginx：
 
-- 一键安装：通过 `--web-port 443` 直接监听标准 HTTPS 端口；安装器为非 root 服务配置低端口绑定能力。
-- Docker Compose：在 `deploy/.env` 设置 `FARHELM_WEB_PORT=443`，由 Docker 将主机 443 映射至容器内 8443。选择 HTTP-01 时再使用 `deploy/compose.acme.yml` 将主机 80 映射至内部验证端口 8080。
+- 一键安装：启用 Agent 时，TLS-ALPN-01 使用 `--agent-port 443`；仅 SSH + HTTPS 网页时使用 `--web-port 443`。安装器为非 root 服务配置低端口绑定能力。
+- Docker Compose：启用 Agent 时，在 `deploy/.env` 设置 `FARHELM_AGENT_PORT=443`，由 Docker 将主机 443 映射至 Agent 8444；仅 SSH + HTTPS 网页则设 `FARHELM_WEB_PORT=443` 映射网页 8443。选择 HTTP-01 时再使用 `deploy/compose.acme.yml` 将主机 80 映射至内部验证端口 8080。
 - 手动部署仍可参考 [server.env.example](../deploy/server/server.env.example) 和 [farhelm.service](../deploy/server/farhelm.service)。需要 Node 24+、已构建的前后端和可写的持久化数据目录，`FLEET_WEB_DIST` 指向网页构建目录。服务示例默认程序位于 `/opt/farhelm`，数据位于 `/var/lib/farhelm`，配置位于 `/etc/farhelm/server.env`。
 
 ### 已有外部代理时的可选配置

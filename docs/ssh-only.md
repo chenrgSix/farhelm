@@ -6,7 +6,7 @@
 
 - 首次启动使用环境变量作为默认值，此后以数据目录中的 `deployment.json` 为准；升级已有部署时自动沿用原来的选项。备份时请连同数据目录一起保存。
 - HTTPS 使用现有部署证书或平台管理的有效证书；没有证书、证书过期或域名不匹配时会拒绝切换。平台管理的证书无需重新设置 TLS 环境变量。Agent 通道仍要求 HTTPS。
-- 应用会重新加载监听器，Agent 会重连。存在活跃终端或未完成命令任务时拒绝切换；试运行期间暂停新建终端，确认后恢复。设备、账号权限、历史录制和 SSH 主机密钥保留。
+- 单独切换网页协议或开关时，只调整网页监听，Agent、SSH 和已建立的终端保持连接。变更设备接入方式或首次加载 TLS 时需要重载，存在活跃终端或命令任务则拒绝；此类重载的试运行期间暂停新建终端。设备、账号权限、历史录制和 SSH 主机密钥保留。
 - 网页保持开启的切换先试运行 **2 分钟**。进入提示的新地址，登录后在系统设置点击“确认保留此配置”；未确认、启动失败或试运行期间平台重启，都会恢复原配置。网页关闭是显式确认后的持久设置，不要求网页确认。
 - 开关改变平台自身的监听协议和网页路由，监听地址与端口沿用部署配置。外部反向代理仍需保持协议一致。HTTPS 切回 HTTP 的响应会清除该主机的 HSTS；浏览器的上级域名 HSTS 或代理重定向需由对应部署处理，无法访问时等待自动回退。
 
@@ -28,20 +28,22 @@ API：`GET/PUT /api/v1/settings/deployment`，`POST /api/v1/settings/deployment/
 | --- | --- |
 | `FLEET_DEVICE_ACCESS` | `agent-ssh`（默认）或 `ssh-only`；后者关闭 Agent 注册、认证及控制通道，已有双接入设备沿原 ID 使用 SSH |
 | `FLEET_WEB_ENABLED` | `1`（默认）开启网页管理，`0` 关闭网页管理 |
-| `FLEET_WEB_PROTOCOL` | `https`（默认）或 `http`；HTTP 网页用于 `ssh-only`，无需证书；Agent 接入仍要求 HTTPS |
+| `FLEET_WEB_PROTOCOL` | `https`（默认）或 `http`；HTTP 网页无需证书，可同时启用 Agent；Agent 接入单独使用 HTTPS |
 | `FLEET_WEB_DIST` | 网页构建产物目录，开启网页时指向 `apps/web/dist` |
-| `FLEET_HOST` / `FLEET_PORT` | 管理监听地址/端口，默认 `127.0.0.1`，HTTP 默认 8080、HTTPS 默认 8443 |
+| `FLEET_HOST` / `FLEET_PORT` | 管理监听地址/端口，默认 `127.0.0.1`，一键安装/Compose 默认 8443，手动 SSH-only HTTP 默认 8080 |
+| `FLEET_AGENT_PORT` / `FLEET_AGENT_PUBLIC_PORT` | 独立 Agent HTTPS 监听端口与对外端口，默认 8444；证书由平台管理 |
 | `FLEET_SSH_HOST` / `FLEET_SSH_PORT` | SSH 入口地址/端口；仅 SSH 设备接入默认启用 2222。网页开启时可显式设端口为 `0` 关闭 SSH 入口，仅使用网页终端 |
 | `FLEET_DATA_DIR` | 持久目录，保存原设备、凭据、账号权限、录制和 SSH 主机密钥 |
 
-已有运行配置时请在系统设置中保存并应用；这三个环境变量只作为首次启动的默认值。切换前结束活跃终端。同一数据目录只能运行一个平台实例。
+已有运行配置时请在系统设置中保存并应用；这三个环境变量只作为首次启动的默认值。变更设备接入方式前结束活跃终端。同一数据目录只能运行一个平台实例。
 
 | 设备接入 | 网页开关 | 协议 | 结果 |
 | --- | --- | --- | --- |
 | `ssh-only` | `1` | `http` | HTTP 网页管理 + SSH 入口，无 HTTPS 证书、CA 或 Agent |
 | `ssh-only` | `1` | `https` | HTTPS 网页管理 + SSH 入口，网页需要证书，目标设备无需 CA |
 | `ssh-only` | `0` | 任意 | SSH 入口 + 本机 Unix 管理套接字，无 HTTP/HTTPS TCP 管理入口 |
-| `agent-ssh` | `1` | `https` | 原完整模式，网页、Agent 和可选 SSH 入口 |
+| `agent-ssh` | `1` | `http` | HTTP 网页管理、独立 HTTPS Agent 和可选 SSH 入口 |
+| `agent-ssh` | `1` | `https` | HTTPS 网页管理、独立 HTTPS Agent 和可选 SSH 入口 |
 | `agent-ssh` | `0` | 任意 | 关闭网页页面，保留供 Agent 使用的 HTTPS API；仍需要证书 |
 
 原 `FLEET_MODE=ssh-only` 保留“设备仅 SSH、网页关闭”的兼容预设，新变量可独立覆盖。新部署建议使用上面三个明确配置，避免将“只用 SSH 接入”理解为“关闭网页”。
@@ -133,7 +135,7 @@ curl --fail-with-body --silent --show-error --unix-socket "$SOCK" \
 
 可在停服后用同一数据目录调整设备接入方式或网页开关，保留设备 ID、用户、角色、用户组、设备标签和历史录制。已配置备用 SSH 的 Agent 设备可沿原 ID 使用 SSH；仅有 Agent 的设备在此模式中无法连接。切换运行模式需要重启，因此先结束活跃终端；不能用两个进程同时打开同一数据目录。
 
-启动会检查已有本机管理套接字：运行中拒绝重复启动，异常退出留下的旧套接字可自动恢复；普通文件、符号链接或其他用户的套接字不会被覆盖。恢复 Agent 接入时设置 `FLEET_DEVICE_ACCESS=agent-ssh`、`FLEET_WEB_PROTOCOL=https` 并提供原 HTTPS 配置；网页是否开启仍由 `FLEET_WEB_ENABLED` 控制。旧 `FLEET_MODE=ssh-only` 是关闭网页的兼容预设，显式的新配置优先。
+启动会检查已有本机管理套接字：运行中拒绝重复启动，异常退出留下的旧套接字可自动恢复；普通文件、符号链接或其他用户的套接字不会被覆盖。恢复 Agent 接入时设置 `FLEET_DEVICE_ACCESS=agent-ssh` 并提供 Agent 的 HTTPS 配置（网页协议可独立选择）；网页是否开启仍由 `FLEET_WEB_ENABLED` 控制。旧 `FLEET_MODE=ssh-only` 是关闭网页的兼容预设，显式的新配置优先。
 
 SSH PTY、设备菜单、权限动态校验和录制使用与完整模式相同的流程。仍不开放 SFTP/SCP、端口转发、任意 SSH exec 或免审计通道。依赖 Agent 的命令任务、健康和网络采集、Agent 升级在本模式不可用。
 

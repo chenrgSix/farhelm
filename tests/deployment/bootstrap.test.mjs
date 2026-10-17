@@ -59,7 +59,7 @@ test("first boot creates a managed IP certificate, administrator and platform UR
   assert.equal(
     db.db.prepare("SELECT platform_server_url FROM system_settings").get()
       .platform_server_url,
-    result.url,
+    result.agent_url,
   );
   db.db.prepare("UPDATE users SET username='renamed-admin'").run();
   db.close();
@@ -147,4 +147,29 @@ test("interrupted initialization resumes its original intent and credentials", a
     ),
   );
   db.close();
+});
+
+test("HTTP management bootstraps an independent HTTPS Agent entry with automatic CA renewal", async (t) => {
+  const { data, env } = fixture(t, {
+    FLEET_WEB_PROTOCOL: "http",
+    FLEET_AGENT_PUBLIC_PORT: "9444",
+  });
+  const result = await initialize(env);
+  assert.equal(result.url, "http://192.0.2.10:8443");
+  assert.equal(result.agent_url, "https://192.0.2.10:9444");
+  assert.ok(existsSync(join(data, "ca.crt")));
+  const db = new Store(data);
+  try {
+    assert.equal(
+      db.db.prepare("SELECT platform_server_url FROM system_settings").get()
+        .platform_server_url,
+      result.agent_url,
+    );
+    assert.equal(
+      db.db.prepare("SELECT enabled FROM certificate_settings").get().enabled,
+      1,
+    );
+  } finally {
+    db.close();
+  }
 });

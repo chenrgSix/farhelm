@@ -1,6 +1,6 @@
 # 部署入口
 
-Farhelm 自身提供网页、API、HTTPS 和 Agent 接入，SSH 网关使用独立端口。正式部署不需要 Nginx。
+Farhelm 自身提供网页、API、HTTPS 和 Agent 接入，网页管理默认 8443，可选 HTTP/HTTPS；Agent 固定使用独立 HTTPS 端口 8444，SSH 网关使用 2222。正式部署不需要 Nginx。
 
 ## Docker Compose
 

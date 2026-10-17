@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { createHash, X509Certificate } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
-import { get } from "node:https";
+import { get, request } from "node:https";
 import { initialize } from "../../deploy/server/bootstrap.mjs";
 import { DeploymentController } from "../../apps/server/dist/deployment-settings.js";
 import { buildServer } from "../../apps/server/dist/server.js";
@@ -53,6 +53,7 @@ test("offline backup restores bootstrap, deployment journal, CA, HTTPS, identiti
     FLEET_DATA_DIR: source,
     FLEET_HOST: "127.0.0.1",
     FLEET_PORT: String(port),
+    FLEET_AGENT_PORT: String(await freePort()),
     FARHELM_PUBLIC_HOST: "127.0.0.1",
     FLEET_SSH_PORT: "0",
   };
@@ -142,17 +143,36 @@ test("offline backup restores bootstrap, deployment journal, CA, HTTPS, identiti
       new X509Certificate(ca).fingerprint256,
     );
     assert.equal(running.store.instance, instance);
-    const response = await running.app.inject({
-      method: "POST",
-      url: "/api/v1/login",
-      payload: credentials,
-    });
-    assert.equal(response.statusCode, 200);
-    const recording = await running.app.inject({
-      url: "/api/v1/terminal-sessions/recorded/recording",
-      headers: { authorization: `Bearer ${response.json().access_token}` },
-    });
-    assert.equal(recording.statusCode, 200);
+    async function api(path, payload, token) {
+      return new Promise((resolve, reject) => {
+        const req = request(
+          `https://127.0.0.1:${port}/api/v1${path}`,
+          {
+            ca,
+            method: payload ? "POST" : "GET",
+            headers: {
+              ...(payload ? { "content-type": "application/json" } : {}),
+              ...(token ? { authorization: `Bearer ${token}` } : {}),
+            },
+          },
+          (res) => {
+            let body = "";
+            res.on("data", (chunk) => (body += chunk));
+            res.on("end", () => resolve({ status: res.statusCode, body }));
+          },
+        );
+        req.on("error", reject);
+        req.end(payload ? JSON.stringify(payload) : undefined);
+      });
+    }
+    const response = await api("/login", credentials);
+    assert.equal(response.status, 200);
+    const recording = await api(
+      "/terminal-sessions/recorded/recording",
+      undefined,
+      JSON.parse(response.body).access_token,
+    );
+    assert.equal(recording.status, 200);
     assert.ok(
       recording.body.includes(
         Buffer.from("preserved output").toString("base64"),

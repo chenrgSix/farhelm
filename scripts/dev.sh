@@ -12,7 +12,9 @@ export FLEET_SSH_HOST=127.0.0.1
 export FLEET_HOST=127.0.0.1 FLEET_DATA_DIR="$FLEET_DEV_DIR/server"
 export FLEET_TLS_CERT="$FLEET_DEV_DIR/tls/server.crt" FLEET_TLS_KEY="$FLEET_DEV_DIR/tls/server.key"
 export FLEET_CA_CERT="$FLEET_DEV_DIR/tls/ca.crt"
-export FLEET_SERVER_URL="https://localhost:$FLEET_PORT"
+export FLEET_AGENT_PORT="${FLEET_AGENT_PORT:-8444}"
+export FLEET_WEB_URL="https://localhost:$FLEET_PORT"
+export FLEET_SERVER_URL="https://localhost:$FLEET_AGENT_PORT"
 export FLEET_STATE_DIR="$FLEET_DEV_DIR/agent" FLEET_DEVICE_NAME=local-linux
 export FLEET_EXECUTION_BACKEND="${FLEET_EXECUTION_BACKEND:-same-uid}"
 export FLEET_WEB_DIST="$ROOT/apps/web/dist"

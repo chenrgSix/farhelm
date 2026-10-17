@@ -1,14 +1,14 @@
 # 纯内网统一入口与自动证书
 
-Farhelm 可在完全离线的内网创建本平台专用 CA，在「系统设置 → HTTPS 证书」选择「纯内网（平台私有 CA）」后，为指定域名或 IP 自动签发、续签 HTTPS 服务端证书。网页、API、Agent 的 HTTPS/WSS 共用一个入口和证书，不需要单独部署前端证书，也不需要公网域名、互联网连接或 HTTP 80 端口。
+Farhelm 可在完全离线的内网创建本平台专用 CA，在「系统设置 → HTTPS 证书」选择「纯内网（平台私有 CA）」后，为指定域名或 IP 自动签发、续签 HTTPS 服务端证书。网页/API 与 Agent 使用独立监听端口，HTTPS 共用平台托管证书；网页可单独切换 HTTP，不需要单独部署前端证书，也不需要公网域名、互联网连接或 HTTP 80 端口。
 
 ## 部署入口
 
-[一键安装和 Docker Compose](server-deployment.md) 已包含前后端构建、CA 初始化和统一入口，按部署说明启动即可。下面保留手动部署步骤。
+[一键安装和 Docker Compose](server-deployment.md) 已包含前后端构建、CA 初始化和两个独立入口，按部署说明启动即可。下面保留手动部署步骤。
 
 先构建 `apps/server`、`apps/web`；服务端使用 Node 24+。设置 `FLEET_WEB_DIST` 指向构建后的 `apps/web/dist`，由 Farhelm 直接提供网页和 API。示例见 [内网环境配置](../deploy/server/private.env.example)、[systemd 服务](../deploy/server/farhelm.service)。系统设置的内网托管能力仅在已配置静态网页目录时开放。
 
-可以直接对内网开放 Farhelm 的 HTTPS 8443 端口，访问 `https://farhelm.internal:8443`。需要标准 443 时，一键安装使用 `--web-port 443`，或在 Compose 的 `deploy/.env` 设置 `FARHELM_WEB_PORT=443`；网页、API 和证书仍直接由 Farhelm 提供，无需 Nginx。已有代理时可参考 [可选 TCP 转发示例](../deploy/examples/nginx/farhelm-private.conf)。内网 DNS / hosts 负责把域名指向该服务器。IP 入口也支持 IPv4、IPv6，表单中 IPv6 不加方括号，访问 URL 加方括号。
+Agent 默认使用独立 HTTPS 8444 端口。可以直接对内网开放 Farhelm 网页的 HTTPS 8443 端口，访问 `https://farhelm.internal:8443`。需要标准 443 时，一键安装使用 `--web-port 443`，或在 Compose 的 `deploy/.env` 设置 `FARHELM_WEB_PORT=443`；网页、API 和证书仍直接由 Farhelm 提供，无需 Nginx。已有代理时可参考 [可选 TCP 转发示例](../deploy/examples/nginx/farhelm-private.conf)。内网 DNS / hosts 负责把域名指向该服务器。IP 入口也支持 IPv4、IPv6，表单中 IPv6 不加方括号，访问 URL 加方括号。
 
 独立 Vite / Nginx HTTPS 入口的证书不会自动随本功能更新。正式内网部署应按上述方式统一入口，而不是把前端地址指向一个仍独立终止 TLS 的服务。SSH 网关的主机密钥另行管理，不使用 HTTPS CA。
 
@@ -48,7 +48,7 @@ node scripts/init-private-tls.mjs /var/lib/farhelm
 1. 进入「HTTPS 证书」，选择「纯内网（平台私有 CA）」，填写统一入口域名或 IP，保存。无需联系邮箱及外部证书机构条款。
 2. 如果还没有 CA，点击「创建内网 CA」，再下载 CA 并核对指纹，完成管理员电脑的首次信任。使用初始化脚本的部署会直接显示同一 CA。
 3. 如果已有 Agent，先在同页点击「同步 CA 到已有 Agent / 重试」，等待全部就绪，再启用「自动申请和续签证书」并保存。页面自动显示申请状态、签发机构、服务端到期时间、续签计划、CA 指纹和 CA 到期时间。
-4. 用配置的域名或 IP 打开统一 HTTPS 入口。在「Agent 接入设置」保存该入口地址，之后生成 Agent 安装命令。证书设置不会提前改写正在使用的 Agent 地址。
+4. 用配置的域名或 IP 打开统一 HTTPS 入口。在「Agent 接入设置」保存独立 HTTPS Agent 地址（默认 8444，可用“使用独立 Agent 地址并同步”），之后生成 Agent 安装命令。证书设置不会提前改写正在使用的 Agent 地址。
 
 安装命令会把该入口当前使用的私有 CA 嵌入引导命令，curl 使用 `--cacert` 校验下载，安装完成后 Agent 使用 `/var/lib/farhelm-agent/ca.crt` 校验 HTTPS/WSS。无需在目标服务器单独手动复制 CA，也不会关闭 TLS 校验或把 CA 加入整个目标服务器的系统信任库。CA 私钥不会进入安装命令或接口响应。
 

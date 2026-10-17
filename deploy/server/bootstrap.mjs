@@ -52,14 +52,27 @@ export async function initialize(env = process.env) {
   );
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw Error("Invalid public port");
+  const agentPort = Number(
+    initialEnv.FLEET_AGENT_PUBLIC_PORT ??
+      initialEnv.FLEET_AGENT_PORT ??
+      (port === 8444 ? 8445 : 8444),
+  );
+  if (!Number.isInteger(agentPort) || agentPort < 1 || agentPort > 65535)
+    throw Error("Invalid Agent public port");
   const mode = deployment({
     deviceAccess: initialEnv.FLEET_DEVICE_ACCESS ?? "agent-ssh",
     webEnabled: true,
     webProtocol: initialEnv.FLEET_WEB_PROTOCOL ?? "https",
   });
   const url = new URL(
-    `${mode.tls ? "https" : "http"}://${isIP(host) === 6 ? `[${host}]` : host}:${port}`,
+    `${mode.webProtocol}://${isIP(host) === 6 ? `[${host}]` : host}:${port}`,
   ).origin;
+  if (mode.agentEnabled && port === agentPort)
+    throw Error("Agent and web public ports must differ");
+  const agentUrl = mode.agentEnabled
+    ? new URL(`https://${isIP(host) === 6 ? `[${host}]` : host}:${agentPort}`)
+        .origin
+    : null;
   const credentialsPath = join(data, "bootstrap-admin.json");
   const credentials = existsSync(credentialsPath)
     ? JSON.parse(readFileSync(credentialsPath, "utf8"))
@@ -88,6 +101,7 @@ export async function initialize(env = process.env) {
       env: {
         FARHELM_PUBLIC_HOST: host,
         FARHELM_PUBLIC_PORT: String(port),
+        FLEET_AGENT_PUBLIC_PORT: String(agentPort),
         FLEET_DEVICE_ACCESS: mode.deviceAccess,
         FLEET_WEB_PROTOCOL: mode.webProtocol,
       },
@@ -140,13 +154,14 @@ export async function initialize(env = process.env) {
         throw Error(
           `Certificate initialization failed: ${manager.snapshot().last_error?.code ?? manager.snapshot().status}`,
         );
-      store.db
-        .prepare(
-          "INSERT OR IGNORE INTO system_settings(id,platform_server_url,revision,updated_at,updated_by) VALUES(1,?,1,?,?)",
-        )
-        .run(url, Date.now(), actor);
+      if (agentUrl)
+        store.db
+          .prepare(
+            "INSERT OR IGNORE INTO system_settings(id,platform_server_url,revision,updated_at,updated_by) VALUES(1,?,1,?,?)",
+          )
+          .run(agentUrl, Date.now(), actor);
     }
-    const result = { v: 1, complete: true, url };
+    const result = { v: 1, complete: true, url, agent_url: agentUrl };
     privateFile(marker, JSON.stringify(result) + "\n");
     return result;
   } finally {

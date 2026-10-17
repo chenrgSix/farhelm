@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- 网页管理与 Agent 拆分为独立监听器：系统设置可选网页 HTTP/HTTPS，Agent HTTPS、CA 自动签发/续签继续运行；网页协议切换与回退保留已建立的终端和录制。
+- 一键安装和 Compose 增加独立 Agent 端口（默认 8444）；新安装自动配置 Agent 地址和 CA，旧入口 Agent 迁移前禁止关闭其 HTTPS 入口。
+
 ## v0.2.7（预览版，2026-10-17）
 
 - 更新 Vitest 与 Ajv 测试依赖以修复已公布告警；为 ACME 原生加密路径补充不加载 `node-forge` 的回归保护。

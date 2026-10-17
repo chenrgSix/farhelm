@@ -1,16 +1,16 @@
-# 网页与 Agent 共用平台入口
+# 网页与 Agent 接入地址
 
 新部署使用[一键安装或 Docker Compose](server-deployment.md)，Farhelm 直接提供网页、API 和 HTTPS，无需独立前端代理。本文保留已有外部代理和本地开发入口的配置说明。
 
-「系统设置 → 平台访问地址」填写的是目标服务器可访问的 **HTTPS 平台入口**，可以直接使用浏览器中的网页地址。它既可以是同时提供网页和 API 的 Farhelm 服务，也可以是转发到 Farhelm 的前端 Web 服务。用户无需填写后端内部地址或端口。
+「系统设置 → Agent 接入设置」填写目标服务器可访问的 **Agent HTTPS 地址**。新部署把网页/API（默认 8443）与 Agent（默认 8444）分开；网页可单独使用 HTTP，Agent 的 HTTPS 与 CA 仍自动管理。
 
-例如网页位于 `https://fleet.example.com/devices?group=prod`，粘贴后会提示并保存 `https://fleet.example.com`。HTTPS 页面也可点击「使用当前网页地址并同步」，一键保存当前网页的域名和端口，并自动发起 Agent 地址同步，无需再次点击「保存设置」。地址不变时重试未完成的同步；正在校验、已保存和已切换的 Agent 不会重复迁移。保存成功仅表示配置已持久化，实际同步结果请查看下方逐设备状态；保存冲突或结果不确定时须先重新加载配置。设备安装表单自动带入该值。后台接口的字段名仍为 `platform_server_url`，继续接受规范化的 HTTPS origin，原有配置兼容。
+点击「使用独立 Agent 地址并同步」会采用当前网页的主机名及 Agent 对外端口，并保存、发起地址同步。NAT 或代理场景可手动填写实际对外地址。后台字段仍为 `platform_server_url`，只接受 HTTPS origin；添加 Agent 自动带入该值和 CA。地址同步先验证身份与新连接，活跃终端结束后才切换，失败保留旧入口。
 
-这里的转发由前端 **Web 服务** 完成，不依赖某个用户打开浏览器。浏览器关闭后 Agent 仍保持连接。前端入口需同时提供网页、API 和 Agent WebSocket；单纯把 Vue 静态文件上传到不支持 API 转发的网站不能作为 Agent 入口。当前支持从域名根路径部署，子目录中的页面链接只用于提取域名和端口。
+## 旧 HTTPS 网页入口兼容
 
-## 同一个 Farhelm 服务提供网页
+旧 HTTPS 网页仍兼容 Agent 路由，但切换 HTTP 或关闭网页前必须迁移到独立入口。在线旧入口 Agent 会阻止切换；离线 Agent、旧安装命令以及网络策略中的地址也应完成迁移，见[部署迁移说明](server-deployment.md#已有部署迁移)。HTTP 网页不会接受 Agent 注册、认证或控制连接。
 
-构建网页后设置 `FLEET_WEB_DIST=/absolute/path/apps/web/dist`。Farhelm 会在同一个 HTTPS 地址提供网页、API、安装包和 WebSocket。此时浏览器访问的 HTTPS 地址本身就是平台入口，不需要额外代理；监听地址、证书及端口须允许目标服务器访问。
+下面的同入口代理示例仍可用于保留旧部署；它们要求 HTTPS 网页上游。新的独立入口部署可将 Agent 流量直接转发至 8444，管理流量转发至网页端口。Agent 端口只提供 Agent 路由和健康检查，不提供管理 API。
 
 ## 独立前端 Web 服务
 
@@ -41,7 +41,7 @@ npm run dev:web
 
 Vite 会提供 HTTPS 网页并转发 API、Agent WebSocket 和健康接口；必须同时设置前端证书与密钥。代理保留外部 Host 以便网页终端校验 Origin，上游 TLS 名称固定为 `FLEET_DEV_API_TARGET` 中的主机名。证书必须显式受信，不自动修改系统信任或跳过验证。
 
-`127.0.0.1` / `localhost` 只指访问者自身。Docker Desktop / OrbStack 中的目标 Agent 可用证书覆盖的 `https://host.docker.internal:5173` 访问本机 HTTPS 前端。宿主机浏览器也应打开这一地址，才可直接使用「使用当前网页地址并同步」。如果宿主机不能解析该名称，可在宿主机 `/etc/hosts` 添加 `127.0.0.1 host.docker.internal`；容器仍使用 Docker 自带的宿主机解析，不修改容器 hosts。
+`127.0.0.1` / `localhost` 只指访问者自身。Docker Desktop / OrbStack 中的目标 Agent 可用证书覆盖的 `https://host.docker.internal:5173` 访问本机 HTTPS 前端。新开发环境建议 Agent 使用 `https://host.docker.internal:8444`，网页可使用 5173，系统设置自动推导独立 Agent 地址。如果宿主机不能解析该名称，可在宿主机 `/etc/hosts` 添加 `127.0.0.1 host.docker.internal`；容器仍使用 Docker 自带的宿主机解析，不修改容器 hosts。
 
 macOS 浏览器需要一次性信任稳定的开发根证书，用于后续自动续签：
 
