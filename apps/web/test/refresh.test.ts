@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import App from "../src/App.vue";
 import { api } from "../src/api/client";
+import { readTabSession } from "../src/tab-session";
 
 const user = {
   id: "admin-1",
@@ -27,6 +28,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   api.setToken(null);
+  sessionStorage.clear();
 });
 async function login() {
   await wrapper!.get('input[name="username"]').setValue("admin");
@@ -225,9 +227,11 @@ it("revokes the server session before clearing local state and prevents duplicat
     method: "POST",
     body: { v: 1 },
   });
+  expect(readTabSession()?.token).toBe("test-token");
   finish({ v: 1, ok: true });
   await flushPromises();
   expect(wrapper.find('input[name="username"]').exists()).toBe(true);
+  expect(readTabSession()).toBeNull();
 });
 
 it("failed logout stays signed in with a retry notice; unauthorized cleanup never calls logout", async () => {
@@ -240,15 +244,18 @@ it("failed logout stays signed in with a retry notice; unauthorized cleanup neve
   await wrapper.get('[aria-label="退出登录"]').trigger("click");
   await flushPromises();
   expect(wrapper.text()).toContain("未能确认服务端注销");
+  expect(readTabSession()?.token).toBe("test-token");
   expect(wrapper.find('[aria-label="退出登录"]').exists()).toBe(true);
   failed = false;
   await wrapper.get('[aria-label="退出登录"]').trigger("click");
   await flushPromises();
   expect(wrapper.find('input[name="username"]').exists()).toBe(true);
+  expect(readTabSession()).toBeNull();
   await login();
   request.mockClear();
   api.onUnauthorized?.();
   await flushPromises();
   expect(wrapper.find('input[name="username"]').exists()).toBe(true);
+  expect(readTabSession()).toBeNull();
   expect(request.mock.calls.some(([path]) => path === "/logout")).toBe(false);
 });

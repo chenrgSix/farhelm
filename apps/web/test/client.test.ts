@@ -82,3 +82,24 @@ it("uploads a File without JSON/base64 conversion and keeps auth in headers", as
   expect(options.headers.get("Authorization")).toBe("Bearer test-token");
   expect(options.redirect).toBe("error");
 });
+
+it("ignores a late 401 belonging to a previous login", async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  );
+  const client = new ApiClient();
+  client.setToken("old-session");
+  client.onUnauthorized = vi.fn();
+  const pending = client.request("/me");
+  client.setToken("new-session");
+  finish(json({ error: "expired" }, 401));
+  await expect(pending).rejects.toThrow("登录已失效");
+  expect(client.onUnauthorized).not.toHaveBeenCalled();
+});

@@ -46,6 +46,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   api.setToken(null);
+  sessionStorage.clear();
 });
 describe("Exec idempotency user flow", () => {
   it("locks duplicate clicks; retains original request/key through failed response retry", async () => {

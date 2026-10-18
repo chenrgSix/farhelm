@@ -87,7 +87,8 @@ export class ApiClient {
     const headers = new Headers({
       Accept: "application/json, application/octet-stream",
     });
-    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
+    const requestToken = this.token;
+    if (requestToken) headers.set("Authorization", `Bearer ${requestToken}`);
     if (options.body !== undefined)
       headers.set("Content-Type", "application/json");
     if (options.binary) {
@@ -119,7 +120,13 @@ export class ApiClient {
       );
     }
     if (!response.ok) {
-      if (response.status === 401 && this.token) this.onUnauthorized?.();
+      // A late response from a previous login must not clear a newer session.
+      if (
+        response.status === 401 &&
+        requestToken &&
+        requestToken === this.token
+      )
+        this.onUnauthorized?.();
       let reason = "";
       try {
         const body = await response.json();

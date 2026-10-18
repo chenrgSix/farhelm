@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
-import { api } from "./api/client";
+import {
+  computed,
+  defineAsyncComponent,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
+import { api, ApiError } from "./api/client";
+import { readTabSession, writeTabSession } from "./tab-session";
 import { useListResource } from "./composables/useListResource";
 import {
   useHistoryList,
@@ -63,6 +71,10 @@ const password = ref("");
 const loginBusy = ref(false);
 const loginError = ref("");
 const loginNotice = ref("");
+const restorePending = ref(!!readTabSession());
+const restoreBusy = ref(false);
+const restoreError = ref("");
+const sessionStorageAvailable = ref(true);
 const passwordOpen = ref(false);
 type View =
   | "devices"
@@ -182,6 +194,7 @@ const enrollOpen = ref(false);
 const installTarget = ref<Device>();
 const revokeBusy = ref<string | null>(null);
 let sessionGeneration = 0;
+let restoreAttempt = 0;
 let taskGeneration = 0;
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 const navigation = computed(
@@ -287,7 +300,12 @@ async function logout() {
     logoutBusy.value = false;
   }
 }
-function clearSession(message = "") {
+function clearSession(message = "", preserveSaved = false) {
+  restoreAttempt++;
+  restorePending.value = false;
+  restoreBusy.value = false;
+  restoreError.value = "";
+  if (!preserveSaved) writeTabSession(null);
   sessionGeneration++;
   taskGeneration++;
   api.setToken(null);
@@ -338,9 +356,69 @@ function passwordUnconfirmed() {
     "未能确认密码是否已修改，请先尝试用新密码登录；若失败，再使用原密码。请勿重复提交修改请求。",
   );
 }
+async function establishSession(
+  verified: User,
+  token: string,
+  preferredView?: string,
+) {
+  if (
+    !verified?.id ||
+    !["admin", "ops", "business", "auditor"].includes(verified.role)
+  )
+    throw new ApiError("登录身份无效，请重新登录", 401);
+  user.value = verified;
+  view.value =
+    navigation.value.find((item) => item.id === preferredView)?.id ??
+    navigation.value[0]?.id ??
+    "devices";
+  sessionStorageAvailable.value = writeTabSession({ token, view: view.value });
+  sessionGeneration++;
+  await refresh();
+  if (user.value) {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => {
+      if (!document.hidden && user.value) void refresh();
+    }, 10_000);
+  }
+}
+async function restoreLogin() {
+  if (restoreBusy.value) return;
+  const saved = readTabSession();
+  if (!saved) {
+    restorePending.value = false;
+    return;
+  }
+  const attempt = ++restoreAttempt;
+  restoreBusy.value = true;
+  restoreError.value = "";
+  api.setToken(saved.token);
+  try {
+    const verified = await api.request<User>("/me");
+    if (attempt !== restoreAttempt) return;
+    await establishSession(verified, saved.token, saved.view);
+    if (attempt === restoreAttempt) restorePending.value = false;
+  } catch (e) {
+    if (attempt !== restoreAttempt) return;
+    if (e instanceof ApiError && e.status === 401)
+      clearSession("登录已失效，请重新登录。");
+    else
+      restoreError.value = "暂时无法校验登录状态，请检查网络或服务端后重试。";
+  } finally {
+    if (attempt === restoreAttempt) restoreBusy.value = false;
+  }
+}
+watch(view, (page) => {
+  const saved = user.value ? readTabSession() : null;
+  if (saved)
+    sessionStorageAvailable.value = writeTabSession({ ...saved, view: page });
+});
+onMounted(() => {
+  if (restorePending.value) void restoreLogin();
+});
 async function login() {
   if (loginBusy.value) return;
   loginBusy.value = true;
+  const generation = sessionGeneration;
   loginError.value = "";
   loginNotice.value = "";
   try {
@@ -351,22 +429,16 @@ async function login() {
         body: { username: username.value, password: password.value },
       },
     );
+    if (generation !== sessionGeneration) return;
     if (!response.access_token || !response.user?.id)
       throw new Error("登录响应格式错误");
     api.setToken(response.access_token);
     const verified = await api.request<User>("/me");
-    if (!["admin", "ops", "business", "auditor"].includes(verified.role))
-      throw new Error("账号角色无效");
-    user.value = verified;
-    view.value = navigation.value[0]?.id ?? "devices";
-    sessionGeneration++;
-    await refresh();
-    if (user.value)
-      refreshTimer = setInterval(() => {
-        if (!document.hidden && user.value) void refresh();
-      }, 10_000);
+    if (generation !== sessionGeneration) return;
+    await establishSession(verified, response.access_token);
   } catch (e) {
-    clearSession(e instanceof Error ? e.message : "登录失败");
+    if (generation === sessionGeneration)
+      clearSession(e instanceof Error ? e.message : "登录失败");
   } finally {
     password.value = "";
     loginBusy.value = false;
@@ -553,7 +625,7 @@ function deviceName(id: string) {
   return devices.value.find((d) => d.id === id)?.name ?? id;
 }
 onBeforeUnmount(() => {
-  clearSession();
+  clearSession("", true);
   api.onUnauthorized = undefined;
 });
 </script>
@@ -584,41 +656,56 @@ onBeforeUnmount(() => {
     <main class="login-main">
       <div class="login-card">
         <div class="eyebrow">FARHELM CONSOLE</div>
-        <h2>登录控制台</h2>
-        <p class="muted">使用管理员配置的平台账号继续</p>
-        <form @submit.prevent="login">
-          <label
-            >账号<input
-              v-model="username"
-              name="username"
-              autocomplete="username"
-              required
-              maxlength="128"
-              autofocus
-              placeholder="输入平台账号" /></label
-          ><label
-            >密码<input
-              v-model="password"
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              required
-              maxlength="1024"
-              placeholder="输入密码"
-          /></label>
-          <div v-if="loginNotice" class="notice" role="status">
-            {{ loginNotice }}
-          </div>
-          <div v-if="loginError" class="notice danger" role="alert">
-            {{ loginError }}
-          </div>
-          <button class="button primary login-button" :disabled="loginBusy">
-            {{ loginBusy ? "正在验证…" : "登录 →" }}
+        <div v-if="restorePending" class="session-restore" aria-live="polite">
+          <h2>{{ restoreBusy ? "正在恢复登录…" : "恢复登录" }}</h2>
+          <p v-if="!restoreError" class="muted">正在校验会话，请稍候</p>
+          <p v-else class="notice danger" role="alert">{{ restoreError }}</p>
+          <button
+            v-if="restoreError"
+            class="button primary"
+            :disabled="restoreBusy"
+            @click="restoreLogin"
+          >
+            重试恢复登录
           </button>
-        </form>
-        <p class="login-note">
-          会话仅保留在当前页面内存中，刷新页面需重新登录。没有默认账号或公共密码
-        </p>
+        </div>
+        <template v-else>
+          <h2>登录控制台</h2>
+          <p class="muted">使用管理员配置的平台账号继续</p>
+          <form @submit.prevent="login">
+            <label
+              >账号<input
+                v-model="username"
+                name="username"
+                autocomplete="username"
+                required
+                maxlength="128"
+                autofocus
+                placeholder="输入平台账号" /></label
+            ><label
+              >密码<input
+                v-model="password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                required
+                maxlength="1024"
+                placeholder="输入密码"
+            /></label>
+            <div v-if="loginNotice" class="notice" role="status">
+              {{ loginNotice }}
+            </div>
+            <div v-if="loginError" class="notice danger" role="alert">
+              {{ loginError }}
+            </div>
+            <button class="button primary login-button" :disabled="loginBusy">
+              {{ loginBusy ? "正在验证…" : "登录 →" }}
+            </button>
+          </form>
+          <p class="login-note">
+            当前标签页刷新后可恢复登录，会话过期需重新登录。不会保存账号密码
+          </p>
+        </template>
         <div class="login-footer">
           <span>{{ pageUsesHttps ? "HTTPS / WSS" : "HTTP / WS" }}</span
           ><span>身份与设备范围校验</span>
@@ -711,6 +798,9 @@ onBeforeUnmount(() => {
         </div>
       </header>
       <main class="main-content">
+        <div v-if="!sessionStorageAvailable" class="notice" role="status">
+          浏览器未允许保存标签页会话，本次登录可正常使用，刷新后需重新登录。
+        </div>
         <div class="page-heading">
           <div>
             <div class="eyebrow">FARHELM / {{ view.toUpperCase() }}</div>

@@ -3,6 +3,7 @@ import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import ChangePasswordPanel from "../src/components/ChangePasswordPanel.vue";
 import App from "../src/App.vue";
 import { api, ApiError } from "../src/api/client";
+import { readTabSession } from "../src/tab-session";
 let wrapper: VueWrapper | undefined;
 beforeEach(() => {
   // jsdom does not implement the native dialog API.
@@ -20,6 +21,7 @@ afterEach(() => {
   wrapper = undefined;
   vi.restoreAllMocks();
   api.setToken(null);
+  sessionStorage.clear();
 });
 async function fill(
   current = "old-personal-password1",
@@ -117,6 +119,7 @@ it("an account without assigned permissions can open the form and returns to log
   await flushPromises();
   expect(wrapper.find("dialog").exists()).toBe(false);
   expect(wrapper.get('[role="status"]').text()).toContain("密码修改成功");
+  expect(readTabSession()).toBeNull();
   expect(wrapper.get<HTMLInputElement>('[name="password"]').element.value).toBe(
     "",
   );

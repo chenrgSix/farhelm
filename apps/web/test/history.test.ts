@@ -10,6 +10,7 @@ afterEach(() => {
   wrapper?.unmount();
   vi.restoreAllMocks();
   api.setToken(null);
+  sessionStorage.clear();
 });
 const user = {
   id: "admin",
