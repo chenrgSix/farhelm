@@ -94,6 +94,9 @@
         }
       },
       "required": ["device_access", "web_enabled", "web_protocol"]
+    },
+    "must_change_password": {
+      "type": "boolean"
     }
   },
   "required": ["v", "id", "username", "role", "device_scope"]

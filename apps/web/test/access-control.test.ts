@@ -119,6 +119,7 @@ it("creates users with no implicit privileges, uses device-group tags to select 
       v: 1,
       username: "new-user",
       password: "abcd1234",
+      must_change_password: true,
       enabled: true,
       role_ids: [],
       group_ids: ["group"],
@@ -288,6 +289,28 @@ it("task and audit review grants select and lock their base read permissions", a
       "audit.read_all",
       "devices.read",
     ]),
+  );
+  wrapper.unmount();
+});
+
+it("allows opting out of first-login password changes when creating an account", async () => {
+  const { wrapper, request, button } = await setup();
+  await button("创建用户").trigger("click");
+  const checkbox = wrapper
+    .findAll("label")
+    .find((l) => l.text().includes("首次登录时强制修改密码"))!
+    .get<HTMLInputElement>("input");
+  expect(checkbox.element.checked).toBe(true);
+  await checkbox.setValue(false);
+  await wrapper.get('input[autocomplete="off"]').setValue("opt-out");
+  await wrapper.get('input[type="password"]').setValue("abcd1234");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith(
+    "/users",
+    expect.objectContaining({
+      body: expect.objectContaining({ must_change_password: false }),
+    }),
   );
   wrapper.unmount();
 });

@@ -129,7 +129,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     if (!row) return false;
     const user = store.user(row);
     return (
-      hasPermission(user, "terminal.connect") && d.inScope(user, s.deviceId)
+      !user.must_change_password &&
+      hasPermission(user, "terminal.connect") &&
+      d.inScope(user, s.deviceId)
     );
   }
   function sendClient(s: Session, type: string, body: Record<string, any>) {

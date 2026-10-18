@@ -6,8 +6,17 @@ import {
   isAccountPassword,
 } from "../password-policy";
 import { api, ApiError } from "../api/client";
-defineProps<{ username: string }>();
-const emit = defineEmits<{ close: []; changed: []; unconfirmed: [] }>();
+const props = defineProps<{
+  username: string;
+  required?: boolean;
+  logoutBusy?: boolean;
+}>();
+const emit = defineEmits<{
+  close: [];
+  changed: [];
+  unconfirmed: [];
+  logout: [];
+}>();
 const dialog = ref<HTMLDialogElement>();
 const currentInput = ref<HTMLInputElement>();
 const currentPassword = ref("");
@@ -42,10 +51,10 @@ onBeforeUnmount(() => {
   if (previousFocus?.isConnected) previousFocus.focus();
 });
 function close() {
-  if (!busy.value) emit("close");
+  if (!busy.value && !props.required) emit("close");
 }
 async function save() {
-  if (busy.value || !canSave.value) return;
+  if (busy.value || props.logoutBusy || !canSave.value) return;
   busy.value = true;
   error.value = "";
   try {
@@ -97,10 +106,13 @@ async function save() {
   >
     <div class="panel-heading">
       <div>
-        <h2 id="password-title">修改密码</h2>
+        <h2 id="password-title">
+          {{ required ? "首次登录，请修改密码" : "修改密码" }}
+        </h2>
         <p class="muted">当前账号：{{ username }}</p>
       </div>
       <button
+        v-if="!required"
         class="icon-button"
         type="button"
         aria-label="关闭修改密码"
@@ -111,11 +123,15 @@ async function save() {
       </button>
     </div>
     <form @submit.prevent="save">
-      <p id="password-effect" class="muted">
+      <p v-if="required" id="password-effect" class="muted">
+        管理员要求首次登录时修改密码。完成后请用新密码重新登录，即可使用网页和
+        SSH 入口。当前密码为管理员提供的初始密码。
+      </p>
+      <p v-else id="password-effect" class="muted">
         修改后，本账号在所有浏览器和 SSH
         入口的登录都会失效，已有终端会断开。请先完成终端中的操作，再使用新密码重新登录。
       </p>
-      <fieldset :disabled="busy">
+      <fieldset :disabled="busy || logoutBusy">
         <label
           >当前密码<input
             ref="currentInput"
@@ -157,14 +173,30 @@ async function save() {
         </p>
       </fieldset>
       <p v-if="error" class="text-warning" role="alert">{{ error }}</p>
+      <slot />
       <div class="password-actions">
-        <button class="button" type="button" :disabled="busy" @click="close">
+        <button
+          v-if="required"
+          class="button"
+          type="button"
+          :disabled="busy || logoutBusy"
+          @click="emit('logout')"
+        >
+          {{ logoutBusy ? "正在退出…" : "退出登录" }}
+        </button>
+        <button
+          v-else
+          class="button"
+          type="button"
+          :disabled="busy"
+          @click="close"
+        >
           取消
         </button>
         <button
           class="button primary"
           type="submit"
-          :disabled="busy || !canSave"
+          :disabled="busy || logoutBusy || !canSave"
         >
           {{ busy ? "正在修改…" : "确认修改" }}
         </button>

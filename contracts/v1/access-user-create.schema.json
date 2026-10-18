@@ -52,6 +52,9 @@
       "minLength": 8,
       "maxLength": 1024,
       "pattern": "^(?=[\\s\\S]*[A-Za-z])(?=[\\s\\S]*[0-9])[\\s\\S]*$"
+    },
+    "must_change_password": {
+      "type": "boolean"
     }
   },
   "required": [

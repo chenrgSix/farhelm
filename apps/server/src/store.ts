@@ -275,6 +275,23 @@ export class Store {
         "utf8",
       ),
     );
+    if (
+      !(this.db.prepare("PRAGMA table_info(users)").all() as any[]).some(
+        (c) => c.name === "must_change_password",
+      )
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL(
+              "../migrations/027_first_login_password.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",
@@ -437,6 +454,7 @@ export class Store {
     return {
       id: row.id,
       username: row.username,
+      must_change_password: !!row.must_change_password,
       role: admin
         ? "admin"
         : permissions.some((p) =>

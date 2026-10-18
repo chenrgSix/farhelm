@@ -1,6 +1,7 @@
 export type Role = "admin" | "ops" | "business" | "auditor";
 export type Scope = "*" | string[];
 export interface User {
+  must_change_password?: boolean;
   id: string;
   username: string;
   role: Role;

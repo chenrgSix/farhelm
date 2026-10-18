@@ -149,3 +149,94 @@ it("accepts eight-character mixed passwords and rejects missing letters, missing
     ).toBe(false);
   }
 });
+
+it("requires first-login password changes before loading business UI, including after reload", async () => {
+  let required = true;
+  const user = () => ({
+    id: "first",
+    username: "new-user",
+    role: "admin",
+    device_scope: "*",
+    must_change_password: required,
+  });
+  const request = vi.spyOn(api, "request").mockImplementation(async (path) => {
+    if (path === "/login")
+      return { access_token: "first-login-token", user: user() };
+    if (path === "/me") return user();
+    if (path === "/me/password") {
+      required = false;
+      return { v: 1, ok: true };
+    }
+    if (path.startsWith("/devices")) return { devices: [] };
+    if (path.startsWith("/tasks")) return { tasks: [] };
+    if (path.startsWith("/device-groups")) return { device_groups: [] };
+    throw Error("unexpected " + path);
+  });
+  wrapper = mount(App);
+  await wrapper.get('[name="username"]').setValue("new-user");
+  await wrapper.get('[name="password"]').setValue("Initial123");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(wrapper.get("dialog h2").text()).toContain("首次登录");
+  expect(wrapper.find("nav").exists()).toBe(false);
+  expect(request.mock.calls.map(([p]) => p)).toEqual(["/login", "/me"]);
+  expect(wrapper.find('[aria-label="关闭修改密码"]').exists()).toBe(false);
+  await wrapper.get("dialog").trigger("cancel");
+  expect(wrapper.find("dialog").exists()).toBe(true);
+  wrapper.unmount();
+  request.mockClear();
+  wrapper = mount(App);
+  await flushPromises();
+  expect(wrapper.get("dialog h2").text()).toContain("首次登录");
+  expect(request.mock.calls.map(([p]) => p)).toEqual(["/me"]);
+  await fill("Initial123", "Personal456");
+  await wrapper.get("dialog form").trigger("submit");
+  await flushPromises();
+  expect(readTabSession()).toBeNull();
+  expect(wrapper.get('[role="status"]').text()).toContain("密码修改成功");
+  await wrapper.get('[name="username"]').setValue("new-user");
+  await wrapper.get('[name="password"]').setValue("Personal456");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(wrapper.find("dialog").exists()).toBe(false);
+  expect(wrapper.find("nav").exists()).toBe(true);
+  expect(request.mock.calls.some(([p]) => p.startsWith("/devices"))).toBe(true);
+});
+
+it("allows a restricted user to log out, retaining the gate when logout fails", async () => {
+  const user = {
+    id: "first",
+    username: "new-user",
+    role: "business",
+    device_scope: [],
+    must_change_password: true,
+  };
+  let offline = true;
+  vi.spyOn(api, "request").mockImplementation(async (path) => {
+    if (path === "/login") return { access_token: "first-login-token", user };
+    if (path === "/me") return user;
+    if (path === "/logout") {
+      if (offline) throw new ApiError("offline");
+      return { v: 1, ok: true };
+    }
+    throw Error("unexpected " + path);
+  });
+  wrapper = mount(App);
+  await wrapper.get('[name="username"]').setValue("new-user");
+  await wrapper.get('[name="password"]').setValue("Initial123");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  const logout = () =>
+    wrapper!.findAll("button").find((b) => b.text() === "退出登录")!;
+  await logout().trigger("click");
+  await flushPromises();
+  expect(wrapper.get("dialog [role=alert]").text()).toContain(
+    "未能确认服务端注销",
+  );
+  expect(readTabSession()).not.toBeNull();
+  offline = false;
+  await logout().trigger("click");
+  await flushPromises();
+  expect(wrapper.find("dialog").exists()).toBe(false);
+  expect(readTabSession()).toBeNull();
+});

@@ -108,6 +108,7 @@ const labels: Record<string, string> = {
   job_id: "升级任务 ID",
   target_id: "操作对象 ID",
   enabled: "启用",
+  must_change_password: "首次登录强制改密",
   role_ids: "角色",
   group_ids: "用户组",
   member_ids: "成员",

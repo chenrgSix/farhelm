@@ -33,6 +33,7 @@ const initial = () => ({
   name: "",
   description: "",
   enabled: true,
+  must_change_password: true,
   role_ids: [] as string[],
   group_ids: [] as string[],
   member_ids: [] as string[],
@@ -204,7 +205,12 @@ async function save() {
       role_ids: [...draft.value.role_ids],
       group_ids: [...draft.value.group_ids],
       device_scope: scope(),
-      ...(!existing ? { password: draft.value.password } : {}),
+      ...(!existing
+        ? {
+            password: draft.value.password,
+            must_change_password: draft.value.must_change_password,
+          }
+        : {}),
     };
   } else if (kind === "password") {
     path = `/users/${encodeURIComponent(existing!.id)}/password`;
@@ -394,7 +400,12 @@ onBeforeUnmount(() => {
                 >（当前账号）</small
               >
             </td>
-            <td>{{ item.enabled ? "启用" : "停用" }}</td>
+            <td>
+              {{ item.enabled ? "启用" : "停用"
+              }}<small v-if="item.must_change_password" class="muted"
+                >待首次改密</small
+              >
+            </td>
             <td>{{ item.role_names.join("、") || "未分配" }}</td>
             <td>{{ names(item.group_ids, "groups") }}</td>
             <td>{{ scopeLabel(item.effective_device_scope) }}</td>
@@ -601,6 +612,17 @@ onBeforeUnmount(() => {
                 <p v-if="!editing || mode === 'password'" class="field-hint">
                   {{ PASSWORD_HINT }}保存后无法查看密码。
                 </p>
+                <label v-if="mode === 'user' && !editing" class="access-check"
+                  ><input
+                    v-model="draft.must_change_password"
+                    type="checkbox"
+                  /><span
+                    >首次登录时强制修改密码<small
+                      >用户需先在网页设置自己的密码，之后才能使用设备和 SSH
+                      入口。</small
+                    ></span
+                  ></label
+                >
                 <label v-if="mode === 'user'" class="access-check"
                   ><input
                     v-model="draft.enabled"

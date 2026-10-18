@@ -435,7 +435,7 @@ export async function buildServer(config: ServerConfig) {
       fail(401, "AUTH_REQUIRED");
     return hash(authorization.slice(7));
   }
-  function userAuth(req: FastifyRequest): User {
+  function sessionUser(req: FastifyRequest): User {
     const row = db
       .prepare(
         "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1",
@@ -443,6 +443,11 @@ export async function buildServer(config: ServerConfig) {
       .get(bearer(req), Date.now());
     if (!row) fail(401, "SESSION_INVALID");
     return store.user(row);
+  }
+  function userAuth(req: FastifyRequest): User {
+    const user = sessionUser(req);
+    if (user.must_change_password) fail(403, "PASSWORD_CHANGE_REQUIRED");
+    return user;
   }
   function deviceAuth(req: FastifyRequest): {
     id: string;
@@ -826,7 +831,7 @@ export async function buildServer(config: ServerConfig) {
   registerAccessControl(app, {
     store,
     admin,
-    userAuth,
+    passwordAuth: sessionUser,
     availableStorage,
     rate,
     changed: () => terminals.tick(),
@@ -872,7 +877,7 @@ export async function buildServer(config: ServerConfig) {
     return { access_token: loginSession(user), user };
   });
   app.post("/api/v1/logout", async (req) => {
-    const user = userAuth(req),
+    const user = sessionUser(req),
       sessionHash = bearer(req),
       b = object(req.body);
     keys(b, ["v"]);
@@ -894,6 +899,7 @@ export async function buildServer(config: ServerConfig) {
       .get(login.sessionHash, login.user.id, Date.now());
     if (!row) fail(401, "SESSION_INVALID");
     const user = store.user(row);
+    if (user.must_change_password) fail(403, "PASSWORD_CHANGE_REQUIRED");
     if (!hasPermission(user, "terminal.connect"))
       fail(403, "EXEC_ROLE_REQUIRED");
     return user;
@@ -907,6 +913,14 @@ export async function buildServer(config: ServerConfig) {
             if (config.deploymentControl?.terminalsBlocked())
               fail(503, "DEPLOYMENT_APPLYING");
             const user = passwordUser(username, password, ip);
+            if (user.must_change_password) {
+              store.audit("authorization.denied", user.id, null, null, {
+                reason: "PASSWORD_CHANGE_REQUIRED",
+                method: "SSH",
+                route: "ssh",
+              });
+              fail(403, "PASSWORD_CHANGE_REQUIRED");
+            }
             if (!hasPermission(user, "terminal.connect")) {
               store.audit("authorization.denied", user.id, null, null, {
                 reason: "SSH_TARGET_DENIED",
@@ -1014,7 +1028,7 @@ export async function buildServer(config: ServerConfig) {
   });
   app.get("/api/v1/me", async (req) => ({
     v: 1,
-    ...userAuth(req),
+    ...sessionUser(req),
     runtime: {
       device_access: deviceAccess,
       web_enabled: webEnabled,

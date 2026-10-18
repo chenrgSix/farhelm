@@ -109,6 +109,11 @@ test("legacy migration preserves accounts and device scope; existing devices sta
   let store = new Store(dir);
   assert.equal(
     store.user(store.db.prepare("SELECT * FROM users WHERE id='legacy'").get())
+      .must_change_password,
+    false,
+  );
+  assert.equal(
+    store.user(store.db.prepare("SELECT * FROM users WHERE id='legacy'").get())
       .role,
     "ops",
   );
@@ -1171,6 +1176,186 @@ test("task and audit cross-user permissions require their read permissions and a
           ["admin", "auditor"].includes(role.id),
         );
     }
+  } finally {
+    await f.close();
+  }
+});
+
+test("first-login password requirement gates all business APIs until an atomic password change", async () => {
+  const f = await fixture();
+  try {
+    const u = await f.user("first-admin", {
+      role_ids: ["admin"],
+      device_scope: "*",
+      must_change_password: true,
+    });
+    assert.equal(u.must_change_password, true);
+    const reopened = new Store(f.store.dataDir);
+    assert.equal(
+      reopened.user(
+        reopened.db.prepare("SELECT * FROM users WHERE id=?").get(u.id),
+      ).must_change_password,
+      true,
+    );
+    reopened.close();
+    const login = await f.login(u.username);
+    assertValid("login-response", login.body);
+    assert.equal(login.body.user.must_change_password, true);
+    const auth = login.body.access_token;
+    const second = (await f.login(u.username)).body.access_token;
+    const me = await f.api("GET", "/me", undefined, auth);
+    assert.equal(me.status, 200);
+    assertValid("me-response", me.body);
+    assert.equal(me.body.must_change_password, true);
+    for (const [method, path] of [
+      ["GET", "/devices"],
+      ["GET", "/tasks"],
+      ["GET", "/audit"],
+      ["GET", "/terminal-sessions"],
+      ["POST", "/terminal-sessions"],
+      ["GET", "/terminal-sessions/missing/recording"],
+      ["GET", "/access"],
+      ["GET", "/settings"],
+      ["GET", "/ssh"],
+      ["POST", "/tasks/missing/cancel"],
+    ]) {
+      const denied = await f.api(
+        method!,
+        path!,
+        method === "POST" ? { v: 1 } : undefined,
+        auth,
+      );
+      assert.equal(denied.status, 403, path);
+      assert.equal(denied.body.error, "PASSWORD_CHANGE_REQUIRED", path);
+    }
+    assert.equal(
+      (await f.api("POST", "/logout", { v: 1 }, second)).status,
+      200,
+    );
+    assert.equal((await f.api("GET", "/me", undefined, second)).status, 401);
+    const change = {
+      v: 1,
+      current_password: password,
+      new_password: "Own-password2",
+    };
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/me/password",
+          { ...change, current_password: "wrong" },
+          auth,
+        )
+      ).body.error,
+      "CURRENT_PASSWORD_INCORRECT",
+    );
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/me/password",
+          { ...change, new_password: password },
+          auth,
+        )
+      ).body.error,
+      "PASSWORD_UNCHANGED",
+    );
+    f.store.db.exec(
+      "CREATE TRIGGER fail_first_password_audit BEFORE INSERT ON audit WHEN NEW.action='access.password_changed' BEGIN SELECT RAISE(ABORT,'audit failure'); END",
+    );
+    assert.equal(
+      (await f.api("POST", "/me/password", change, auth)).status,
+      500,
+    );
+    assert.equal(
+      (await f.api("GET", "/me", undefined, auth)).body.must_change_password,
+      true,
+    );
+    f.store.db.exec("DROP TRIGGER fail_first_password_audit");
+    assert.equal(
+      (await f.api("POST", "/me/password", change, auth)).status,
+      200,
+    );
+    assert.equal((await f.api("GET", "/me", undefined, auth)).status, 401);
+    assert.equal((await f.login(u.username)).status, 401);
+    const fresh = await f.login(u.username, change.new_password);
+    assert.equal(fresh.status, 200);
+    assert.equal(fresh.body.user.must_change_password, false);
+    assert.equal(
+      (await f.api("GET", "/devices", undefined, fresh.body.access_token))
+        .status,
+      200,
+    );
+    const managed = (await f.all()).users.find((x: any) => x.id === u.id);
+    assert.equal(managed.must_change_password, false);
+    assert.deepEqual(managed.role_ids, u.role_ids);
+    const events = (await f.api("GET", "/audit")).body.audit;
+    for (const event of events) assertValid("audit", event);
+    assert.ok(
+      events.some(
+        (e: any) =>
+          e.action === "access.user_created" &&
+          e.detail.changes.must_change_password === true,
+      ),
+    );
+    assert.ok(
+      events.some(
+        (e: any) =>
+          e.action === "access.password_changed" &&
+          e.detail.changes.must_change_password === false,
+      ),
+    );
+    assert.ok(!JSON.stringify(events).includes(change.new_password));
+  } finally {
+    await f.close();
+  }
+});
+
+test("first-login policy is optional, strictly boolean, and survives an administrator password reset", async () => {
+  const f = await fixture();
+  try {
+    for (const policy of [undefined, false]) {
+      const u = await f.user(
+        policy === undefined ? "legacy-client" : "opt-out",
+        {
+          role_ids: ["ops"],
+          ...(policy === undefined ? {} : { must_change_password: policy }),
+        },
+      );
+      assert.equal(u.must_change_password, false);
+      const auth = (await f.login(u.username)).body.access_token;
+      assert.equal(
+        (await f.api("GET", "/devices", undefined, auth)).status,
+        200,
+      );
+    }
+    for (const value of [null, "true", 1]) {
+      const invalid = await f.api("POST", "/users", {
+        v: 1,
+        username: "bad-policy",
+        password,
+        enabled: true,
+        role_ids: [],
+        group_ids: [],
+        device_scope: [],
+        must_change_password: value,
+      });
+      assert.equal(invalid.status, 400);
+    }
+    const pending = await f.user("reset-pending", {
+      must_change_password: true,
+    });
+    const reset = await f.api("POST", `/users/${pending.id}/password`, {
+      v: 1,
+      revision: pending.revision,
+      password: "Reset-initial2",
+    });
+    assert.equal(reset.status, 200);
+    assert.equal(
+      (await f.login(pending.username, "Reset-initial2")).body.user
+        .must_change_password,
+      true,
+    );
   } finally {
     await f.close();
   }

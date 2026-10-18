@@ -785,3 +785,60 @@ test(
     }
   },
 );
+
+test("SSH rejects direct and menu logins requiring a first password change, then accepts the new password", async () => {
+  const f = await fixture();
+  try {
+    const admin = (
+      await f.app.inject({
+        method: "POST",
+        url: "/api/v1/login",
+        payload: { username: "admin", password: "ssh-test-password1" },
+      })
+    ).json().access_token;
+    const created = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/users",
+      headers: { authorization: "Bearer " + admin },
+      payload: {
+        v: 1,
+        username: "first-ssh",
+        password: "Initial-ssh1",
+        enabled: true,
+        role_ids: ["ops"],
+        group_ids: [],
+        device_scope: ["device"],
+        must_change_password: true,
+      },
+    });
+    assert.equal(created.statusCode, 200);
+    for (const name of ["first-ssh", "first-ssh:device"])
+      await assert.rejects(f.connect(name, "Initial-ssh1"), /authentication/);
+    const auth = (
+      await f.app.inject({
+        method: "POST",
+        url: "/api/v1/login",
+        payload: { username: "first-ssh", password: "Initial-ssh1" },
+      })
+    ).json().access_token;
+    const change = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/me/password",
+      headers: { authorization: "Bearer " + auth },
+      payload: {
+        v: 1,
+        current_password: "Initial-ssh1",
+        new_password: "Personal-ssh2",
+      },
+    });
+    assert.equal(change.statusCode, 200);
+    await assert.rejects(
+      f.connect("first-ssh", "Initial-ssh1"),
+      /authentication/,
+    );
+    for (const name of ["first-ssh", "first-ssh:device"])
+      (await f.connect(name, "Personal-ssh2")).end();
+  } finally {
+    await f.close();
+  }
+});

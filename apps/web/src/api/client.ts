@@ -140,6 +140,8 @@ export class ApiClient {
         /* Untrusted error body is optional. */
       }
       const upgradeHints: Record<string, string> = {
+        PASSWORD_CHANGE_REQUIRED:
+          "请先在网页完成首次密码修改，再使用平台功能或 SSH 入口。",
         DEPLOYMENT_REVISION_CONFLICT:
           "运行设置已被其他管理员修改，请刷新后重新编辑。",
         DEPLOYMENT_ACTIVE_TASKS: "有尚未结束的命令任务，请等待完成后再切换。",

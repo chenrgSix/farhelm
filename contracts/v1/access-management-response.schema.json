@@ -146,6 +146,9 @@
             },
             "uniqueItems": true,
             "maxItems": 100
+          },
+          "must_change_password": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -444,6 +447,9 @@
           },
           "uniqueItems": true,
           "maxItems": 100
+        },
+        "must_change_password": {
+          "type": "boolean"
         }
       },
       "required": [

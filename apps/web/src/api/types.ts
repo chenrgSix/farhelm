@@ -10,6 +10,7 @@ export interface RuntimeSettings {
   web_protocol: "http" | "https";
 }
 export interface User {
+  must_change_password?: boolean;
   runtime?: RuntimeSettings;
   id: string;
   username: string;
@@ -329,6 +330,7 @@ export type Permission =
   | "network.manage";
 export type DeviceScope = "*" | string[];
 export interface ManagedUser {
+  must_change_password?: boolean;
   id: string;
   username: string;
   enabled: boolean;

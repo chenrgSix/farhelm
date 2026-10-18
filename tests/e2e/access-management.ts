@@ -203,6 +203,8 @@ try {
   await admin.getByRole("button", { name: "创建用户", exact: true }).click();
   await admin.getByLabel("账号", { exact: true }).fill("operator");
   await admin.getByLabel("初始密码", { exact: true }).fill(password);
+  // This scenario exercises access grants with a ready-to-use account.
+  await admin.getByLabel(/首次登录时强制修改密码/).uncheck();
   await admin.getByLabel("加入用户组 运维组", { exact: true }).check();
   await save(admin);
   await expect(

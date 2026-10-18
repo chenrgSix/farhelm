@@ -83,7 +83,7 @@ export function registerAccessControl(
   d: {
     store: Store;
     admin(req: FastifyRequest): User;
-    userAuth(req: FastifyRequest): User;
+    passwordAuth(req: FastifyRequest): User;
     availableStorage(): void;
     rate: RateLimiter;
     changed(): void;
@@ -172,6 +172,7 @@ export function registerAccessControl(
       id: r.id,
       username: r.username,
       enabled: !!r.enabled,
+      must_change_password: !!r.must_change_password,
       revision: r.revision,
       created_at: r.created_at,
       role_ids: memberships("user_roles", "user_id", r.id, "role_id"),
@@ -388,19 +389,29 @@ export function registerAccessControl(
         "v",
         "username",
         "password",
+        "must_change_password",
         "enabled",
         "role_ids",
         "group_ids",
         "device_scope",
       ]);
       version(b);
-      const input = userInput(b);
+      const mustChangePassword = b.must_change_password ?? false;
+      if (
+        typeof mustChangePassword !== "boolean" ||
+        b.must_change_password === null
+      )
+        fail(400, "INVALID_PASSWORD_CHANGE_REQUIRED");
+      const input = {
+        ...userInput(b),
+        must_change_password: mustChangePassword,
+      };
       unique("users", "username", input.username);
       limit("users", 1000);
       const password = passwordHash(accountPassword(b.password)),
         userId = randomUUID();
       db.prepare(
-        "INSERT INTO users(id,username,password_hash,role,device_scope,created_at,enabled) VALUES(?,?,?,'business',?,?,?)",
+        "INSERT INTO users(id,username,password_hash,role,device_scope,created_at,enabled,must_change_password) VALUES(?,?,?,'business',?,?,?,?)",
       ).run(
         userId,
         input.username,
@@ -408,6 +419,7 @@ export function registerAccessControl(
         canonical(input.device_scope),
         Date.now(),
         Number(input.enabled),
+        Number(input.must_change_password),
       );
       replace("user_roles", "user_id", userId, "role_id", input.role_ids);
       updateGroups(userId, input.group_ids);
@@ -457,7 +469,7 @@ export function registerAccessControl(
     }),
   );
   app.post("/api/v1/me/password", async (req) => {
-    const actor = d.userAuth(req);
+    const actor = d.passwordAuth(req);
     const b = object(req.body);
     keys(b, ["v", "current_password", "new_password"]);
     version(b);
@@ -475,15 +487,16 @@ export function registerAccessControl(
     if (currentPassword === newPassword) fail(400, "PASSWORD_UNCHANGED");
     const encoded = passwordHash(newPassword);
     d.store.transaction(() => {
-      db.prepare("UPDATE users SET password_hash=? WHERE id=?").run(
-        encoded,
-        actor.id,
-      );
+      db.prepare(
+        "UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?",
+      ).run(encoded, actor.id);
       invalidate([actor.id]);
       d.store.audit("access.password_changed", actor.id, null, null, {
         target_id: actor.id,
         revision: current.revision + 1,
-        changes: {},
+        changes: current.must_change_password
+          ? { must_change_password: false }
+          : {},
       });
     });
     d.changed();

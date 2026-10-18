@@ -104,6 +104,8 @@ export async function verifySshWeb({
       .getByLabel("账号", { exact: true })
       .fill("httpops");
     await page.getByLabel("初始密码", { exact: true }).fill(password);
+    // This scenario exercises access grants with a ready-to-use account.
+    await page.getByLabel(/首次登录时强制修改密码/).uncheck();
     await page.getByLabel("加入用户组 HTTP 运维组", { exact: true }).check();
     await save();
     await page.screenshot({

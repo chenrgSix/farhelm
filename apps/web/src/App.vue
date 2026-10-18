@@ -373,6 +373,7 @@ async function establishSession(
     "devices";
   sessionStorageAvailable.value = writeTabSession({ token, view: view.value });
   sessionGeneration++;
+  if (verified.must_change_password) return;
   await refresh();
   if (user.value) {
     if (refreshTimer) clearInterval(refreshTimer);
@@ -511,10 +512,15 @@ function refreshUser() {
   return userRefresh;
 }
 async function refresh() {
-  if (!user.value) return;
+  if (!user.value || user.value.must_change_password) return;
   const generation = sessionGeneration;
   await refreshUser();
-  if (generation !== sessionGeneration || !user.value || sessionError.value)
+  if (
+    generation !== sessionGeneration ||
+    !user.value ||
+    user.value.must_change_password ||
+    sessionError.value
+  )
     return;
   await Promise.all(refreshTargets().map((list) => list.load()));
   if (generation === sessionGeneration) {
@@ -713,6 +719,18 @@ onBeforeUnmount(() => {
       </div>
     </main>
   </div>
+  <main v-else-if="user.must_change_password" class="first-password-screen">
+    <ChangePasswordPanel
+      :username="user.username"
+      required
+      :logout-busy="logoutBusy"
+      @logout="logout"
+      @changed="passwordChanged"
+      @unconfirmed="passwordUnconfirmed"
+    >
+      <p v-if="error" class="notice danger" role="alert">{{ error }}</p>
+    </ChangePasswordPanel>
+  </main>
   <div v-else class="app-shell">
     <ChangePasswordPanel
       v-if="passwordOpen"

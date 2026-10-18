@@ -727,6 +727,9 @@
                 },
                 "operation": {
                   "enum": ["add", "remove"]
+                },
+                "must_change_password": {
+                  "type": "boolean"
                 }
               },
               "required": []
@@ -2280,6 +2283,9 @@
                   },
                   "operation": {
                     "enum": ["add", "remove"]
+                  },
+                  "must_change_password": {
+                    "type": "boolean"
                   }
                 },
                 "required": []
