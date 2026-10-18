@@ -4,7 +4,7 @@ This is the real native Agent. It uses rustls HTTPS/WSS, Ed25519 identity, a SQL
 
 ## Build and run
 
-For automatic installation, use the console's **Add device → Agent** form. It generates a command that installs a static Linux binary, creates a non-root account if needed, registers the device, and starts a systemd service or background process. See [Agent installation](../docs/agent-installation.md) for platform packages, prerequisites and file locations. The manual build/run instructions below do not install accounts or services.
+For automatic installation, use the console's **Add device → Agent** form. It generates a command that installs a static Linux binary, creates a non-root account if needed, registers the device, and starts a systemd service or background process. See [Agent installation](../docs/agent-installation.md) for platform packages, prerequisites and file locations. Platform v0.2.8 uses Agent v0.2.7 unchanged; switching web management to HTTP does not require an Agent upgrade. The Agent URL always uses the independent HTTPS ingress (default port 8444). The manual build/run instructions below do not install accounts or services.
 
 Use an installed stable Rust toolchain and a C compiler (bundled SQLite and ring need one):
 
@@ -16,7 +16,7 @@ cargo fmt --check
 
 # Run as the non-root Linux account selected and configured by the operator.
 # The agent creates a missing state directory with mode 0700.
-export FLEET_SERVER_URL=https://localhost:8443
+export FLEET_SERVER_URL=https://localhost:8444
 export FLEET_CA_CERT=/absolute/path/to/ca.crt
 export FLEET_STATE_DIR=/absolute/path/to/private/agent-state
 export FLEET_ENROLLMENT_TOKEN='admin-issued-short-lived-token'

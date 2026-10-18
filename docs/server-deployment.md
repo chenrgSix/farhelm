@@ -1,6 +1,6 @@
 # 服务端部署：一键安装与 Docker Compose
 
-两种方式都包含构建后的 Vue 网页、API、Agent 接入和 SSH 统一入口；Farhelm 直接提供网页、API 和 HTTPS，无需安装 Nginx、单独启动 Vite 或安装 Rust。默认启用 Agent + SSH、HTTPS、平台私有 CA 自动签发/续签。Agent 二进制和 JSON 清单仍在登录后通过「Agent 升级 → 升级包管理」上传。
+两种方式都包含构建后的 Vue 网页、API、Agent 接入和 SSH 统一入口；Farhelm 直接提供 HTTP/HTTPS 网页、API 和独立 Agent HTTPS，无需安装 Nginx、单独启动 Vite 或安装 Rust。默认启用 Agent + SSH、HTTPS、平台私有 CA 自动签发/续签。Agent 二进制和 JSON 清单仍在登录后通过「Agent 升级 → 升级包管理」上传。
 
 部署前选择客户端可达的域名或 IP，例如 `10.10.0.10`；不要照抄示例地址。EasyTier 由部署者单独安装，地址和网络策略在系统设置配置。
 
@@ -8,13 +8,13 @@
 
 支持使用 systemd 的现代 glibc Linux，x86_64 / ARM64，建议 Debian 12+ / Ubuntu 22.04+。安装器自动准备必要命令、下载并校验 Node.js 24.21.0，使用普通 `farhelm` 用户构建前后端，配置 systemd 并执行健康检查。需要下载 GitHub 源码、Node.js 和 npm 依赖；不修改系统默认 Node，不需要预先安装 npm 或 Rust。
 
-当前 GitHub 仓库是私有的。在目标服务器安装并登录 GitHub CLI（`gh auth login`）后，复制这一条命令，将 IP 改成自己的：
+当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.8，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
 
 ```bash
-( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && gh api -H 'Accept: application/vnd.github.raw+json' 'repos/chenrgSix/farhelm/contents/install.sh?ref=main' > "$installer" && bash "$installer" --host 10.10.0.10 )
+( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.8/install.sh -o "$installer" && bash "$installer" --ref v0.2.8 --host 10.10.0.10 --web-http )
 ```
 
-脚本在提权前读取当前用户的 gh 凭据，通过临时 0600 文件传给安装过程；不把访问令牌放进命令参数、服务配置或日志。也支持 `GH_TOKEN` / `GITHUB_TOKEN` / `--token-file`。私有仓库不支持匿名 curl 安装；不会为部署而修改仓库可见性。
+不加 `--web-http` 时网页默认 HTTPS。私有仓库部署仍可先执行 `gh auth login`，通过 GitHub CLI 下载对应版本安装脚本。脚本在提权前读取当前用户的 gh 凭据，通过临时 0600 文件传给安装过程；不把访问令牌放进命令参数、服务配置或日志。也支持 `GH_TOKEN` / `GITHUB_TOKEN` / `--token-file`。私有仓库不支持匿名 curl 安装；不会为部署而修改仓库可见性。
 
 已经下载源码时，不需要 GitHub 登录：
 
@@ -30,9 +30,9 @@ sudo cat /var/lib/farhelm/bootstrap-admin.json
 sudo journalctl -u farhelm -f
 ```
 
-- 网页：`https://10.10.0.10:8443`，Agent：`https://10.10.0.10:8444`，SSH 网关：`10.10.0.10:2222`。
+- 网页：默认 `https://10.10.0.10:8443`，使用 `--web-http` 时为 `http://10.10.0.10:8443`；Agent 始终为 `https://10.10.0.10:8444`，SSH 网关为 `10.10.0.10:2222`。
 - 初始管理员默认 `admin`，随机密码保存在上面的 0600 文件中，不输出到服务日志。登录后可修改密码；文件保存的是初始凭据，修改密码后它不会更新，可自行安全删除。
-- CA 公共证书：`/var/lib/farhelm/ca.crt`。通过可信运维渠道复制到管理员电脑并信任一次；不要复制 CA 私钥。新 Agent 的安装命令自动携带 CA。后续服务端证书续签不需要再次信任。
+- CA 公共证书：`/var/lib/farhelm/ca.crt`。网页选择 HTTPS 时，通过可信运维渠道复制到管理员电脑并信任一次；HTTP 网页无需浏览器信任 CA。不要复制 CA 私钥。新 Agent 的安装命令自动携带 CA。后续服务端证书续签不需要再次信任。
 - 服务端程序及独立 Node：`/opt/farhelm/current`、`/opt/farhelm/runtime`。
 - 环境配置：`/etc/farhelm/server.env`；持久化数据：`/var/lib/farhelm`。
 - 已完成的安装再次执行会保留现状，不覆盖数据、不重置密码、不重启服务。这是安装器，不是无停机升级器。
@@ -59,8 +59,8 @@ sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 主机安装 Docker Engine 和 Compose v2，Linux 上启用 Docker 开机启动。首次需要联网拉取基础镜像和 npm 依赖；镜像构建时完成前后端编译，运行时无需再安装依赖。
 
 ```bash
-# 私有仓库先 gh auth login；或下载源码包后进入解压目录
-gh repo clone chenrgSix/farhelm
+# 也可下载 Release 源码包后进入解压目录
+git clone --branch v0.2.8 https://github.com/chenrgSix/farhelm.git
 cd farhelm/deploy
 cp compose.env.example .env
 ```
@@ -79,7 +79,7 @@ docker compose up -d --build --wait
 # 查看初始随机密码（不会出现在 docker compose logs）
 docker compose exec server cat /var/lib/farhelm/bootstrap-admin.json
 
-# 导出 CA 公共证书，在管理员电脑首次信任
+# 网页使用 HTTPS 时导出 CA 公共证书，在管理员电脑首次信任
 docker compose cp server:/var/lib/farhelm/ca.crt ./farhelm-ca.crt
 
 # 状态及日志
@@ -91,7 +91,26 @@ Compose 使用非 root 用户、只读容器根文件系统、命名数据卷和
 
 健康检查分别检查网页的实际 HTTP/HTTPS 和 Agent HTTPS；两者关闭时检查本地管理套接字状态，HTTPS 校验证书；网页开关和协议从前端更改后无需改健康检查脚本。`up --wait` 等待健康状态，而非只等待容器进程创建。
 
-网页可独立使用 HTTP：首次启动前只设 `FLEET_WEB_PROTOCOL=http`，保持 `FLEET_DEVICE_ACCESS=agent-ssh` 即可。此时 Agent 仍通过独立的 HTTPS 端口连接，安装命令自动携带 CA；浏览器不需要信任该 CA。
+HTTP 网页 + HTTPS Agent：首次启动前在 `deploy/.env` 设置：
+
+```env
+FARHELM_PUBLIC_HOST=10.10.0.10
+FARHELM_WEB_PORT=8443
+FARHELM_AGENT_PORT=8444
+FARHELM_SSH_PORT=2222
+FLEET_DEVICE_ACCESS=agent-ssh
+FLEET_WEB_PROTOCOL=http
+```
+
+启动后访问 `http://10.10.0.10:8443`；Agent 使用 `https://10.10.0.10:8444`，安装命令自动携带 CA。浏览器不需要信任该 CA，Agent 的证书校验、后台自动续签和热加载继续运行。HTTP 网页不加密登录与终端流量，适用于受控内网或 VPN；跨不可信网络管理时选择 HTTPS。
+
+| 入口 | 默认对外端口 | 用途 |
+| --- | --- | --- |
+| 网页 HTTP 或 HTTPS | 8443 | 登录、管理 API、网页终端、录制回放 |
+| Agent HTTPS / WSS | 8444 | 安装下载、注册、认证、控制和任务传输；不提供管理 API |
+| SSH 网关 | 2222 | 平台账号认证、设备选择、终端及录制；使用持久 SSH 主机密钥 |
+
+端口号不会随网页 HTTP/HTTPS 切换而改变。仅开放网页端口不足以连接 Agent，目标设备必须能访问独立 Agent 端口。
 
 HTTP + 设备仅 SSH 模式：首次启动前在 `.env` 设置：
 
@@ -139,8 +158,15 @@ FLEET_WEB_PROTOCOL=http
 
 ## 已有部署迁移
 
-升级后网页端口保留；另开放 Agent HTTPS 端口（默认 8444）。旧网页 HTTPS 入口暂时兼容 Agent。先在「系统设置 → Agent 接入设置」点击「使用独立 Agent 地址并同步」，核对设备在线且同步完成，再在「平台运行方式」选择网页 HTTP。启用 VPN 网络策略时，也要把策略中的平台 HTTPS 地址更新为独立 Agent 地址。NAT/外部代理应填写实际可达的对外端口。
+v0.2.8 更新服务端和网页，Agent 仍使用 v0.2.7，协议兼容；已有 Agent 无需为本次分离升级或重新注册。升级程序会重启服务，应先结束终端并停服备份，再保留原数据目录启动新版本。一键安装脚本不会覆盖已完成安装，不能当作升级命令。
 
-在线 Agent 还在旧网页入口时，系统阻止切 HTTP 或关闭网页；离线 Agent 和已复制的旧安装命令不会因此自动改变地址，需保留旧入口至迁移完成。网页协议切换与回退不会关闭已经建立的终端连接，切换后从新地址登录继续管理；浏览器主动刷新/退出会按既有规则处理其终端。改变设备接入方式或首次加载 TLS 仍需无活跃任务/终端再重载。
+1. 保留网页端口，另开放 Agent HTTPS 端口（默认 8444）；Compose 使用新版 `deploy/compose.yml`，原生部署检查 `FLEET_AGENT_PORT`。旧 HTTPS 网页入口暂时兼容 Agent。
+2. 在「系统设置 → Agent 接入设置」点击「使用独立 Agent 地址并同步」，或填写实际可达的 `https://主机:Agent端口`。同步需等待活跃任务和终端结束，核对逐台同步结果及设备在线状态。NAT/外部代理应使用对外端口，并设置 `FLEET_AGENT_PUBLIC_PORT`；Compose 对应 `FARHELM_AGENT_PORT`。
+3. 启用 VPN 网络策略时，同步更新策略中的平台 HTTPS 地址；确认离线设备的配置和旧安装命令也已安排迁移。
+4. 在「系统设置 → 平台运行方式」保持「Agent 和 SSH」与网页开启，只将网页协议改为 HTTP，点击「保存并应用」。
+5. **另开标签页**访问提示的 `http://主机:原网页端口`，登录后在两分钟内点击「确认保留此配置」。未确认或新入口失败会恢复原配置。确认后的选择写入 `deployment.json`，重启后继续使用；不需要修改环境变量。
+6. 验证网页登录、设备在线、新建终端、SSH 入口和录制回放。Agent 地址仍须为 HTTPS；HTTP 管理入口会拒绝 Agent 接入。
+
+在线 Agent 还在旧网页入口时，系统阻止切 HTTP 或关闭网页；离线 Agent 和已复制的旧安装命令不会因此自动改变地址，需保留旧入口至迁移完成。网页协议切换与回退不会关闭已经建立的终端连接，切换后从新地址登录继续管理；浏览器主动刷新/退出会按既有规则处理其终端，因此要保留活跃终端页面，用另一个标签页确认。外部代理或上级域名的 HSTS 强制 HTTPS 时，先调整对应入口，否则等待自动回退。改变设备接入方式或首次加载 TLS 仍需无活跃任务/终端再重载。
 
 `npm run test:split-listeners` 在隔离环境使用真实 Linux Agent，验证 HTTP 网页 + HTTPS Agent、两种网页协议下的自动续签、持续 Web/SSH PTY、完整录制和入口隔离。默认复用 `.dev/agent-dist/farhelm-agent-linux-aarch64` 与 `farhelm-agent-dev:local`，可用 `FARHELM_TEST_AGENT_BIN` / `FARHELM_TEST_AGENT_IMAGE` 指定兼容的非 root Linux 测试镜像和二进制。

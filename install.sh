@@ -11,7 +11,7 @@ Usage: bash install.sh [--host DOMAIN_OR_IP] [--web-port 8443] [--agent-port 844
 Downloads the source and a checksum-verified private Node.js runtime, builds both
 server and web, and enables farhelm.service. Debian 12+/Ubuntu 22.04+ or a modern
 glibc Linux with systemd, x86_64/ARM64. Existing completed installations are kept.
-For this private repository, use an authenticated gh CLI, GH_TOKEN, or token file.
+For private repositories, use an authenticated gh CLI, GH_TOKEN, or token file.
 EOF
 }
 public_host=""; web_port=8443; agent_port=8444; ssh_port=2222; source_dir=""; ref=main; token_file=""; device_access=agent-ssh; protocol=https
@@ -86,7 +86,7 @@ unset auth GH_TOKEN GITHUB_TOKEN
 fetch() { curl --fail --silent --show-error --location --retry 3 --connect-timeout 20 --max-time 600 --proto '=https' --proto-redir '=https' "$@"; }
 if [[ -z $source_dir ]]; then
   printf 'Downloading Farhelm source (%s)...\n' "$ref"
-  fetch --config "$work/github.conf" "https://api.github.com/repos/chenrgSix/farhelm/tarball/$ref" -o "$work/source.tar.gz" || fail "Source download failed. This repository is private; authenticate gh or supply --token-file."
+  fetch --config "$work/github.conf" "https://api.github.com/repos/chenrgSix/farhelm/tarball/$ref" -o "$work/source.tar.gz" || fail "Source download failed. Check the ref and network; for a private repository, authenticate gh or supply --token-file."
   mkdir "$work/source"
   tar -xzf "$work/source.tar.gz" --strip-components=1 -C "$work/source"
   source_dir=$work/source

@@ -1,4 +1,4 @@
-# Farhelm HTTPS / WSS / SSH server
+# Farhelm HTTP / HTTPS / WSS / SSH server
 
 P0/P1 development implementation. Node.js **24+** is required for `node:sqlite` (`DatabaseSync`; availability/experimental status depends on the exact Node 24 release). SQLite runs WAL, `synchronous=FULL`, foreign keys and a five-second busy timeout. This is a single-process/single-host server, not a high-availability or production-security claim.
 
@@ -6,13 +6,17 @@ P0/P1 development implementation. Node.js **24+** is required for `node:sqlite` 
 
 Run `npm ci`, `npm run build`, then `npm start` in this directory. Set:
 
-- `FLEET_HOST` (default `127.0.0.1`), `FLEET_PORT` (default `8443`)
+- `FLEET_HOST` (default `127.0.0.1`), `FLEET_PORT` (web/API port; installer and Compose default `8443`)
+- `FLEET_AGENT_PORT` (default `8444`), `FLEET_AGENT_PUBLIC_PORT` (defaults to the listener port): independent HTTPS Agent ingress; must differ from web and SSH ports
+- `FLEET_WEB_PROTOCOL` (`http` or `https`), `FLEET_WEB_ENABLED` (`1` or `0`), `FLEET_DEVICE_ACCESS` (`agent-ssh` or `ssh-only`): first-boot defaults; later use System Settings. HTTP web management can coexist with HTTPS Agent access
 - `FLEET_DATA_DIR` (default `./data`): private server-owned storage, separate from Agent execution storage
-- `FLEET_TLS_CERT`, `FLEET_TLS_KEY`: certificate-chain and key file paths; TLS 1.2+ only, no HTTP downgrade
+- `FLEET_TLS_CERT`, `FLEET_TLS_KEY`: certificate-chain and key file paths, or use platform-managed certificates. Agent transport always requires TLS 1.2+; choosing HTTP management does not disable Agent TLS or renewal
 - `FLEET_ADMIN_USER`, `FLEET_ADMIN_PASSWORD`: explicit initial admin; 8–1024 characters including an ASCII letter and a digit, no defaults. Existing users are never reset from environment variables. Remove bootstrap password from the environment after first use
-- Optional `FLEET_WEB_DIST`: built Vue directory containing `index.html`; serves the console and APIs on the same HTTPS origin
+- Optional `FLEET_WEB_DIST`: built Vue directory containing `index.html`; serves the console and APIs on the same HTTP/HTTPS management origin
 - Optional `FLEET_SSH_PORT` enables the SSH gateway; `FLEET_SSH_HOST` defaults to `FLEET_HOST`. `FLEET_SSH_PUBLIC_HOST` / `FLEET_SSH_PUBLIC_PORT` override the address displayed in the console. See [SSH gateway](../../docs/ssh-gateway.md).
 - Optional `FLEET_TEST_MODE=1`: in-process hooks only. CLI requires loopback binding. No fault-injection HTTP endpoint exists
+
+See [deployment and migration](../../docs/server-deployment.md) for setup, Agent address synchronization and the two-minute web protocol confirmation. Web-only protocol changes preserve established Agent, SSH and terminal connections; upgrading the server process still interrupts sessions.
 
 The UI uses explicit Bearer sessions. No CORS, cookies, query tokens or public user-provisioning endpoint is enabled. `/api/v1/me` returns the flat user object plus `v:1`. All JSON mutations except login require `v:1`. `/healthz` exposes the server instance identifier used in challenge domain separation.
 

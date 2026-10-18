@@ -73,7 +73,7 @@ Ctrl-C 停止本次开发服务。数据保留以便重新启动验证。开发�
 
 ## 独立配置
 
-服务端：FLEET_HOST、FLEET_PORT、FLEET_DATA_DIR、FLEET_TLS_CERT、FLEET_TLS_KEY、FLEET_ADMIN_USER、FLEET_ADMIN_PASSWORD、FLEET_WEB_DIST。
+服务端：FLEET_HOST、FLEET_PORT、FLEET_AGENT_PORT、FLEET_AGENT_PUBLIC_PORT、FLEET_WEB_PROTOCOL、FLEET_DATA_DIR、FLEET_TLS_CERT、FLEET_TLS_KEY、FLEET_ADMIN_USER、FLEET_ADMIN_PASSWORD、FLEET_WEB_DIST。
 
 Agent：FLEET_SERVER_URL（HTTPS origin）、FLEET_CA_CERT、FLEET_STATE_DIR（绝对路径）、FLEET_ENROLLMENT_TOKEN（首次注册）、FLEET_DEVICE_NAME、FLEET_EXECUTION_BACKEND（same-uid 或 disabled）、FLEET_HEARTBEAT_MS。
 
@@ -134,6 +134,6 @@ FLEET_ADMIN_USER=admin FLEET_ADMIN_PASSWORD='你的本地密码' npm run test:te
 
 正式环境可在「系统设置 → HTTPS 证书」配置域名或公网 IPv4 / IPv6 和邮箱，启用 Let’s Encrypt 自动申请及续签，并查看状态、到期时间、计划续签时间和失败重试计划。公网 IP 自动使用短期证书，续签热加载保留 Agent 和终端连接。默认由 Farhelm 直接提供 HTTPS；已有外部代理时可选用 TCP 转发，详见[正式证书部署](docs/production-certificates.md)。
 
-纯内网部署支持 [私有 CA 自动签发与续签](docs/private-certificates.md)：在系统设置配置域名或 IP，网页和 Agent 共用 HTTPS 入口。新安装的 Agent 自动携带 CA；浏览器首次信任后，日常服务端证书续签无需再次授权。
+纯内网部署支持 [私有 CA 自动签发与续签](docs/private-certificates.md)：在系统设置配置域名或 IP，网页和 Agent 使用独立端口，Agent 始终使用 HTTPS；网页选择 HTTP 时无需浏览器信任 CA，选择 HTTPS 时共用托管证书。新安装的 Agent 自动携带 CA；浏览器首次信任后，日常服务端证书续签无需再次授权。
 
 管理员可在系统设置的“平台运行方式”中直接切换设备接入、网页开关和 HTTP/HTTPS，支持试运行确认与失败回退，详见 [SSH 设备接入与网页管理](docs/ssh-only.md)。
