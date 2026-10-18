@@ -854,6 +854,8 @@ onBeforeUnmount(() => {
 }
 .access-table table {
   width: 100%;
+  min-width: 720px;
+  white-space: normal;
 }
 .access-table td {
   max-width: 350px;
@@ -865,6 +867,9 @@ onBeforeUnmount(() => {
 }
 .access-row-actions {
   min-width: 150px;
+}
+.access-row-actions .text-button {
+  white-space: nowrap;
 }
 .access-note {
   line-height: 1.65;
