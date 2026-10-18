@@ -2,6 +2,10 @@ import type { AuditEntry } from "./api/types";
 import { formatTime, statusLabels } from "./model";
 
 export const auditActionLabels: Record<string, string> = {
+  "api_token.created": "创建 API Token",
+  "api_token.updated": "修改 API Token 授权",
+  "api_token.revoked": "撤销 API Token",
+  "api_token.request": "API Token 调用",
   "network.platform_settings_updated": "修改平台网络策略",
   "network.device_address_updated": "修改设备内网地址",
   "network.route_configured": "修改设备网络策略",
@@ -68,6 +72,9 @@ export const auditActionLabels: Record<string, string> = {
   "user.password_change_failed": "本人改密验证失败",
 };
 const labels: Record<string, string> = {
+  token_id: "Token ID",
+  owner_id: "所属账号 ID",
+  status_code: "HTTP 状态码",
   channel: "网络通道",
   vpn_ip: "内网 / VPN IP",
   ssh_port: "SSH 内网端口",
@@ -278,6 +285,10 @@ export function auditSummary(entry: AuditEntry): string {
   );
 }
 export function auditOutcome(entry: AuditEntry): string {
+  if (entry.action === "api_token.request") {
+    const code = Number(object(entry.detail).status_code);
+    return code >= 400 ? `失败 / 拒绝（${code}）` : `成功（${code}）`;
+  }
   const detail = object(entry.detail),
     payload = object(detail.payload);
   const status = payload.status ?? detail.status;
@@ -313,6 +324,7 @@ export function auditSource(entry: AuditEntry) {
   if (!entry.context) return "历史记录未采集来源";
   return {
     http: "网页 / API",
+    api: `API Token${entry.context.api_token_name ? " · " + entry.context.api_token_name : ""}`,
     ssh: "SSH 入口",
     agent: "Agent 上报",
     system: "后台事件",

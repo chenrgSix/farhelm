@@ -112,6 +112,12 @@ export function historyPage(
   }
   if (kind !== "audit" && !canReadOtherHistory(user, kind))
     add("r.actor_id=?", user.id);
+  // A scoped token cannot use its owner's personal audit history to read other devices.
+  if (kind === "audit" && user.api_token_id && user.device_scope !== "*")
+    add(
+      "r.device_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(scope),
+    );
   if (device) add("r.device_id=?", device);
   if (actor) {
     const names =

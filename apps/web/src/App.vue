@@ -53,6 +53,7 @@ import AgentUpgradePanel from "./components/AgentUpgradePanel.vue";
 import DeviceGroupTools from "./components/DeviceGroupTools.vue";
 import DeviceActions from "./components/DeviceActions.vue";
 import ChangePasswordPanel from "./components/ChangePasswordPanel.vue";
+import ApiTokensPanel from "./components/ApiTokensPanel.vue";
 import AccessManagementPanel from "./components/AccessManagementPanel.vue";
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
@@ -83,7 +84,8 @@ type View =
   | "terminals"
   | "settings"
   | "upgrades"
-  | "access";
+  | "access"
+  | "api";
 const view = ref<View>("devices");
 const closingSession = ref<string | null>(null);
 const deviceList = useListResource<Device>("/devices", "devices");
@@ -219,11 +221,13 @@ const navigation = computed(
               : []),
             { id: "settings", label: "系统设置", icon: "⚙" } as const,
             { id: "access", label: "用户与权限", icon: "♙" } as const,
+            { id: "api", label: "API Token", icon: "⌘" } as const,
           ]
         : []),
     ] as const,
 );
 const titles = {
+  api: ["API Token", "管理 API 凭据与授权，接入脚本和 AI Skill"],
   access: ["用户与权限", "管理账号、角色与用户组授权"],
   devices: ["设备总览", "连接状态清晰可见，每一次操作都有记录"],
   tasks: ["任务中心", "从授权到真实结果，追踪每条命令的生命周期"],
@@ -805,7 +809,10 @@ onBeforeUnmount(() => {
           }}</span
           ><button
             v-if="
-              view !== 'settings' && view !== 'upgrades' && view !== 'access'
+              view !== 'settings' &&
+              view !== 'upgrades' &&
+              view !== 'access' &&
+              view !== 'api'
             "
             class="button secondary small"
             :disabled="refreshing"
@@ -909,6 +916,11 @@ onBeforeUnmount(() => {
         <p v-if="!navigation.length" class="notice">
           当前账号尚未分配操作权限，请联系管理员配置角色和设备范围。
         </p>
+        <ApiTokensPanel
+          v-if="view === 'api' && user.role === 'admin'"
+          :current-user-id="user.id"
+          :devices="devices"
+        />
         <AccessManagementPanel
           v-if="view === 'access' && user.role === 'admin'"
           :current-user-id="user.id"
@@ -939,7 +951,8 @@ onBeforeUnmount(() => {
             navigation.length &&
             view !== 'settings' &&
             view !== 'upgrades' &&
-            view !== 'access'
+            view !== 'access' &&
+            view !== 'api'
           "
           class="content-grid"
           :class="{ 'with-exec': execOpen }"

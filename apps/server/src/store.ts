@@ -292,6 +292,12 @@ export class Store {
         ),
       );
     }
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/028_api_tokens.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

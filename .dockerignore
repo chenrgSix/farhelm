@@ -25,6 +25,16 @@
 !deploy/server/healthcheck.mjs
 !lib/
 !lib/**
+!contracts/
+!contracts/v1/
+!contracts/v1/*.schema.json
+!skills/
+!skills/farhelm-api/
+!skills/farhelm-api/SKILL.md
+!skills/farhelm-api/scripts/
+!skills/farhelm-api/scripts/farhelm.py
+!skills/farhelm-api/references/
+!skills/farhelm-api/references/api.md
 **/node_modules
 **/dist
 **/.env

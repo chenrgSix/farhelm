@@ -29,6 +29,8 @@ COPY apps/server/resources/ apps/server/resources/
 COPY --from=build /build/apps/web/dist apps/web/dist/
 COPY lib/ lib/
 COPY deploy/server/bootstrap.mjs deploy/server/healthcheck.mjs deploy/server/
+COPY contracts/v1/*.schema.json contracts/v1/
+COPY skills/farhelm-api/ skills/farhelm-api/
 RUN mkdir -p /var/lib/farhelm && chown node:node /var/lib/farhelm && chmod 700 /var/lib/farhelm
 USER node
 EXPOSE 8443 8444 2222 8080

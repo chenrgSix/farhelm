@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/api-tokens-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "tokens": {
+      "type": "array",
+      "items": {
+        "$ref": "api-token.schema.json"
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": [
+              "devices.read",
+              "terminal.connect",
+              "tasks.read",
+              "tasks.read_all",
+              "tasks.execute",
+              "recordings.read",
+              "recordings.read_all",
+              "audit.read",
+              "audit.read_all",
+              "health.manage",
+              "network.manage"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["id", "label", "description"]
+      },
+      "maxItems": 11
+    }
+  },
+  "required": ["v", "tokens", "permissions"]
+}

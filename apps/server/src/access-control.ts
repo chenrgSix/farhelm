@@ -17,7 +17,7 @@ import {
   type RateLimiter,
 } from "./util.js";
 
-const catalog = [
+export const permissionCatalog = [
   {
     id: "devices.read",
     label: "查看设备",
@@ -363,7 +363,7 @@ export function registerAccessControl(
     d.admin(req);
     return {
       v: 1,
-      permissions: catalog,
+      permissions: permissionCatalog,
       users: db
         .prepare("SELECT * FROM users ORDER BY username")
         .all()

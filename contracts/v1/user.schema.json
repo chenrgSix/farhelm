@@ -78,6 +78,9 @@
     },
     "must_change_password": {
       "type": "boolean"
+    },
+    "api_token_id": {
+      "$ref": "common.schema.json#/$defs/id"
     }
   },
   "required": ["id", "username", "role", "device_scope"]

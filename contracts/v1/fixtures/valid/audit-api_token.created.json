@@ -1,0 +1,21 @@
+{
+  "id": 1,
+  "at": 1760000000000,
+  "actor_id": "00000000-0000-4000-8000-000000000002",
+  "device_id": null,
+  "task_id": null,
+  "action": "api_token.created",
+  "detail": {
+    "token_id": "00000000-0000-4000-8000-000000000001",
+    "owner_id": "00000000-0000-4000-8000-000000000002",
+    "name": "运维查询",
+    "permissions": ["devices.read"],
+    "device_scope": ["00000000-0000-4000-8000-000000000002"],
+    "expires_at": 1893456000000
+  },
+  "context": {
+    "source": "api",
+    "api_token_id": "00000000-0000-4000-8000-000000000001",
+    "api_token_name": "运维查询"
+  }
+}

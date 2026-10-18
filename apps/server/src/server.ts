@@ -40,6 +40,7 @@ import { localAdminServer } from "./local-admin.js";
 import { historyPage } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
 import { registerAccessControl } from "./access-control.js";
+import { ApiTokens } from "./api-tokens.js";
 import {
   hasPermission,
   canReadOtherHistory,
@@ -134,6 +135,7 @@ export async function buildServer(config: ServerConfig) {
     ...(!agentEnabled ? { agentInstall: undefined } : {}),
   };
   const store = new Store(config.dataDir);
+  const apiTokens = new ApiTokens(store);
   const db = store.db;
   const rate = new RateLimiter();
   const connections = new Map<string, Connection>();
@@ -375,11 +377,17 @@ export async function buildServer(config: ServerConfig) {
           )
             deviceId = resourceId;
         }
-        store.audit("authorization.denied", u?.id ?? null, deviceId, taskId, {
-          reason: err.code,
-          method: req.method,
-          route: req.routeOptions.url ?? "unknown",
-        });
+        store.audit(
+          "authorization.denied",
+          apiTokens.actor(req) ?? u?.id ?? null,
+          deviceId,
+          taskId,
+          {
+            reason: err.code,
+            method: req.method,
+            route: req.routeOptions.url ?? "unknown",
+          },
+        );
       } catch {
         return reply.code(503).send({ v: 1, error: "AUDIT_STORAGE_FAILURE" });
       }
@@ -436,6 +444,8 @@ export async function buildServer(config: ServerConfig) {
     return hash(authorization.slice(7));
   }
   function sessionUser(req: FastifyRequest): User {
+    const tokenUser = apiTokens.user(req);
+    if (tokenUser) return tokenUser;
     const row = db
       .prepare(
         "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1",
@@ -513,6 +523,13 @@ export async function buildServer(config: ServerConfig) {
     )
       fail(507, "AUDIT_STORAGE_LOW");
   }
+  apiTokens.register(app, {
+    admin,
+    userAuth,
+    availableStorage,
+    rate,
+    changed: () => terminals.tick(),
+  });
   function syncDir(path: string) {
     const fd = openSync(path, "r");
     try {
@@ -749,6 +766,14 @@ export async function buildServer(config: ServerConfig) {
     },
   });
   const terminals = registerTerminals(app, {
+    credentialUser: (tokenHash) => {
+      const row = db
+        .prepare(
+          "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1",
+        )
+        .get(tokenHash, Date.now());
+      return row ? store.user(row) : apiTokens.resolve(tokenHash);
+    },
     connections: deviceConnections,
     route: (id, backend) => networkRoutes.snapshot(id)[backend],
     store,

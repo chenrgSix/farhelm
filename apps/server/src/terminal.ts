@@ -45,6 +45,7 @@ interface Dependencies {
   store: Store;
   operator(req: FastifyRequest): User;
   userAuth(req: FastifyRequest): User;
+  credentialUser(tokenHash: string): User | undefined;
   requireScope(user: User, id: string): void;
   inScope(user: User, id: string): boolean;
   availableStorage(): void;
@@ -121,13 +122,15 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   function authorized(
     s: Pick<Session, "deviceId" | "userSession" | "actorId">,
   ) {
-    const row = db
-      .prepare(
-        "SELECT u.* FROM user_sessions t JOIN users u ON u.id=t.user_id JOIN devices d ON d.id=? WHERE t.token_hash=? AND u.id=? AND t.expires_at>? AND u.enabled=1 AND d.revoked_at IS NULL",
-      )
-      .get(s.deviceId, s.userSession, s.actorId, Date.now());
-    if (!row) return false;
-    const user = store.user(row);
+    const user = d.credentialUser(s.userSession);
+    if (
+      !user ||
+      user.id !== s.actorId ||
+      !db
+        .prepare("SELECT id FROM devices WHERE id=? AND revoked_at IS NULL")
+        .get(s.deviceId)
+    )
+      return false;
     return (
       !user.must_change_password &&
       hasPermission(user, "terminal.connect") &&
@@ -305,7 +308,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     };
   });
   app.post("/api/v1/terminal-sessions/:id/close", async (req) => {
-    const { row, user } = lookup(req),
+    const { row, user } = lookup(req, "terminal.connect"),
       b = object(req.body);
     version(b);
     keys(b, ["v"]);

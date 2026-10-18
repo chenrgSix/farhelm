@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface AuditContext {
-  source: "http" | "ssh" | "agent" | "system";
+  source: "http" | "api" | "ssh" | "agent" | "system";
+  api_token_id?: string;
+  api_token_name?: string;
   remote_address?: string;
   request_id?: string;
   method?: string;

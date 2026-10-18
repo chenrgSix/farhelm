@@ -108,7 +108,11 @@
         "network.route_selected",
         "network.platform_settings_updated",
         "network.device_address_updated",
-        "user.logout"
+        "user.logout",
+        "api_token.created",
+        "api_token.updated",
+        "api_token.revoked",
+        "api_token.request"
       ]
     },
     "detail": {
@@ -1106,6 +1110,108 @@
             }
           },
           "required": ["session_id"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "token_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "owner_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "devices.read",
+                  "terminal.connect",
+                  "tasks.read",
+                  "tasks.read_all",
+                  "tasks.execute",
+                  "recordings.read",
+                  "recordings.read_all",
+                  "audit.read",
+                  "audit.read_all",
+                  "health.manage",
+                  "network.manage"
+                ]
+              },
+              "uniqueItems": true,
+              "maxItems": 11,
+              "minItems": 1
+            },
+            "device_scope": {
+              "anyOf": [
+                {
+                  "const": "*"
+                },
+                {
+                  "type": "array",
+                  "maxItems": 1000,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "common.schema.json#/$defs/id"
+                  }
+                }
+              ]
+            },
+            "expires_at": {
+              "$ref": "common.schema.json#/$defs/timestamp"
+            }
+          },
+          "required": [
+            "token_id",
+            "owner_id",
+            "name",
+            "permissions",
+            "device_scope",
+            "expires_at"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "token_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "owner_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": ["token_id", "owner_id", "name"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "route": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "status_code": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            }
+          },
+          "required": ["method", "route", "status_code"]
         }
       ]
     },
@@ -1128,7 +1234,7 @@
           "additionalProperties": false,
           "properties": {
             "source": {
-              "enum": ["http", "ssh", "agent", "system"]
+              "enum": ["http", "ssh", "agent", "system", "api"]
             },
             "remote_address": {
               "type": "string",
@@ -1149,6 +1255,14 @@
             "user_agent": {
               "type": "string",
               "maxLength": 512
+            },
+            "api_token_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "api_token_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
             }
           },
           "required": ["source"]
@@ -2870,6 +2984,224 @@
         "properties": {
           "detail": {
             "$ref": "common.schema.json#/$defs/empty"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "api_token.created"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "token_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "owner_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "permissions": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "devices.read",
+                    "terminal.connect",
+                    "tasks.read",
+                    "tasks.read_all",
+                    "tasks.execute",
+                    "recordings.read",
+                    "recordings.read_all",
+                    "audit.read",
+                    "audit.read_all",
+                    "health.manage",
+                    "network.manage"
+                  ]
+                },
+                "uniqueItems": true,
+                "maxItems": 11,
+                "minItems": 1
+              },
+              "device_scope": {
+                "anyOf": [
+                  {
+                    "const": "*"
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 1000,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "common.schema.json#/$defs/id"
+                    }
+                  }
+                ]
+              },
+              "expires_at": {
+                "$ref": "common.schema.json#/$defs/timestamp"
+              }
+            },
+            "required": [
+              "token_id",
+              "owner_id",
+              "name",
+              "permissions",
+              "device_scope",
+              "expires_at"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "api_token.updated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "token_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "owner_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "permissions": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "devices.read",
+                    "terminal.connect",
+                    "tasks.read",
+                    "tasks.read_all",
+                    "tasks.execute",
+                    "recordings.read",
+                    "recordings.read_all",
+                    "audit.read",
+                    "audit.read_all",
+                    "health.manage",
+                    "network.manage"
+                  ]
+                },
+                "uniqueItems": true,
+                "maxItems": 11,
+                "minItems": 1
+              },
+              "device_scope": {
+                "anyOf": [
+                  {
+                    "const": "*"
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 1000,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "common.schema.json#/$defs/id"
+                    }
+                  }
+                ]
+              },
+              "expires_at": {
+                "$ref": "common.schema.json#/$defs/timestamp"
+              }
+            },
+            "required": [
+              "token_id",
+              "owner_id",
+              "name",
+              "permissions",
+              "device_scope",
+              "expires_at"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "api_token.revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "token_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "owner_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": ["token_id", "owner_id", "name"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "api_token.request"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "type": "string",
+                "maxLength": 16
+              },
+              "route": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "status_code": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 599
+              }
+            },
+            "required": ["method", "route", "status_code"]
           }
         }
       }

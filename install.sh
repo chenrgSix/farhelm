@@ -130,7 +130,10 @@ stage=$(mktemp -d "$prefix/.build.XXXXXXXX")
 chmod 755 "$stage"
 mkdir -p "$stage/apps" "$stage/deploy/server"
 # Copy only application inputs; never copy .dev, databases, credentials or caches.
-(cd "$source_dir"; tar --exclude=node_modules --exclude=dist --exclude=.DS_Store --exclude='.env*' -cf - apps/server apps/web lib) | (cd "$stage"; tar -xf -)
+runtime_sources=(apps/server apps/web lib)
+[[ ! -d $source_dir/contracts/v1 ]] || runtime_sources+=(contracts/v1)
+[[ ! -d $source_dir/skills/farhelm-api ]] || runtime_sources+=(skills/farhelm-api)
+(cd "$source_dir"; tar --exclude=node_modules --exclude=dist --exclude=__pycache__ --exclude=.DS_Store --exclude='.env*' -cf - "${runtime_sources[@]}") | (cd "$stage"; tar -xf -)
 cp "$source_dir/deploy/server/bootstrap.mjs" "$source_dir/deploy/server/healthcheck.mjs" "$stage/deploy/server/"
 chown -R farhelm:"$service_group" "$stage"
 printf 'Building server and web as the farhelm service account...\n'

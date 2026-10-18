@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "token": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "owner_id": "00000000-0000-4000-8000-000000000002",
+    "owner_username": "admin",
+    "name": "运维查询",
+    "permissions": ["devices.read"],
+    "device_scope": ["00000000-0000-4000-8000-000000000002"],
+    "expires_at": 1893456000000,
+    "prefix": "fh_api_abcdefgh",
+    "created_at": 1760000000000,
+    "updated_at": 1760000000000,
+    "revoked_at": null,
+    "last_used_at": null,
+    "last_used_address": null,
+    "revision": 0,
+    "status": "active"
+  },
+  "secret": "fh_api_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

@@ -1603,5 +1603,70 @@
     "path": "invalid/first-password-string.json",
     "schema": "access-user-create.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/api-token-create.json",
+    "schema": "api-token-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/api-token-update.json",
+    "schema": "api-token-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/api-token.json",
+    "schema": "api-token.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/api-token-response.json",
+    "schema": "api-token-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/api-tokens-response.json",
+    "schema": "api-tokens-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/api-token-hash-leak.json",
+    "schema": "api-token.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/api-token-invalid-permission.json",
+    "schema": "api-token-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/api-token-duplicate-scope.json",
+    "schema": "api-token-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/api-token-never-expires.json",
+    "schema": "api-token-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/audit-api_token.created.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-api_token.updated.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-api_token.revoked.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-api_token.request.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

@@ -1,6 +1,7 @@
 export type Role = "admin" | "ops" | "business" | "auditor";
 export type Scope = "*" | string[];
 export interface User {
+  api_token_id?: string;
   must_change_password?: boolean;
   id: string;
   username: string;

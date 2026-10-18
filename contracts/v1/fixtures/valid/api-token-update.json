@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "name": "运维查询",
+  "permissions": ["devices.read"],
+  "device_scope": ["00000000-0000-4000-8000-000000000002"],
+  "expires_at": 1893456000000,
+  "revision": 0
+}

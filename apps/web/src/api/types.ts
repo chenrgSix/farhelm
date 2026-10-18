@@ -10,6 +10,7 @@ export interface RuntimeSettings {
   web_protocol: "http" | "https";
 }
 export interface User {
+  api_token_id?: string;
   must_change_password?: boolean;
   runtime?: RuntimeSettings;
   id: string;
@@ -199,7 +200,9 @@ export interface AuditEntry {
   device_name?: string | null;
   target_name?: string | null;
   context?: {
-    source: "http" | "ssh" | "agent" | "system";
+    source: "http" | "api" | "ssh" | "agent" | "system";
+    api_token_id?: string;
+    api_token_name?: string;
     remote_address?: string;
     request_id?: string;
     method?: string;

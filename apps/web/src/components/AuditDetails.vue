@@ -10,6 +10,12 @@ defineProps<{ entry: AuditEntry }>();
   <details class="audit-details">
     <summary class="text-button">查看详情 #{{ entry.id }}</summary>
     <dl>
+      <template v-if="entry.context?.api_token_id"
+        ><dt>API Token</dt>
+        <dd>
+          {{ entry.context.api_token_name }} · {{ entry.context.api_token_id }}
+        </dd></template
+      >
       <template v-if="entry.actor_id"
         ><dt>操作人 ID</dt>
         <dd>{{ entry.actor_id }}</dd></template
