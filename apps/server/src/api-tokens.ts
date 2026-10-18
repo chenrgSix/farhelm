@@ -111,7 +111,9 @@ export class ApiTokens {
     },
   ) {
     const db = this.store.db;
-    app.addHook("preValidation", async (req) => {
+    // Identify the credential before body parsing and deployment-mode guards,
+    // so their rejections retain the token's audit attribution too.
+    app.addHook("onRequest", async (req) => {
       const authorization = req.headers.authorization;
       if (
         typeof authorization !== "string" ||

@@ -790,6 +790,96 @@ test("API tokens: audit storage failures roll back grants and revocation and pre
   }
 });
 
+test("API tokens: malformed JSON and deployment-mode rejections retain token identity in audit", async () => {
+  const f = await fixture();
+  try {
+    const grant = await f.create({ permissions: ["tasks.execute"] });
+    const malformed = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/commands",
+      headers: {
+        authorization: "Bearer " + grant.secret,
+        "content-type": "application/json",
+      },
+      payload: "{",
+    });
+    assert.equal(malformed.statusCode, 400);
+    let rows = (await f.api("GET", "/audit")).body.audit;
+    assert.ok(
+      rows.some(
+        (a: any) =>
+          a.action === "api_token.request" &&
+          a.detail.status_code === 400 &&
+          a.context.api_token_id === grant.token.id,
+      ),
+    );
+    const isolated = await buildServer({
+      dataDir: mkdtempSync(join(root, "http-")),
+      deviceAccess: "ssh-only",
+      webEnabled: true,
+      webProtocol: "http",
+      adminUsername: "admin",
+      adminPassword: password,
+    });
+    try {
+      const login = (
+        await isolated.app.inject({
+          method: "POST",
+          url: "/api/v1/login",
+          payload: { username: "admin", password },
+        })
+      ).json();
+      const headers = { authorization: "Bearer " + login.access_token };
+      const created = (
+        await isolated.app.inject({
+          method: "POST",
+          url: "/api/v1/api-tokens",
+          headers,
+          payload: f.input({
+            permissions: ["tasks.execute"],
+            device_scope: [],
+          }),
+        })
+      ).json();
+      const rejected = await isolated.app.inject({
+        method: "POST",
+        url: "/api/v1/commands",
+        headers: { authorization: "Bearer " + created.secret },
+        payload: command(),
+      });
+      assert.equal(rejected.statusCode, 403);
+      assert.equal(rejected.json().error, "AGENT_ACCESS_DISABLED");
+      rows = (
+        await isolated.app.inject({
+          method: "GET",
+          url: "/api/v1/audit",
+          headers,
+        })
+      ).json().audit;
+      assert.ok(
+        rows.some(
+          (a: any) =>
+            a.action === "api_token.request" &&
+            a.detail.status_code === 403 &&
+            a.context.api_token_id === created.token.id,
+        ),
+      );
+      assert.ok(
+        rows.some(
+          (a: any) =>
+            a.action === "authorization.denied" &&
+            a.actor_id === login.user.id &&
+            a.context.source === "api",
+        ),
+      );
+    } finally {
+      await isolated.close();
+    }
+  } finally {
+    await f.close();
+  }
+});
+
 test("API Skill client: redirects never forward credentials and uncertain writes are never automatically retried", async () => {
   let reachedTarget = 0,
     writes = 0;
