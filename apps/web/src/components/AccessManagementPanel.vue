@@ -592,7 +592,7 @@ onBeforeUnmount(() => {
                     :disabled="mode === 'password'"
                     required
                     maxlength="64"
-                    pattern="[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}"
+                    pattern="[A-Za-z0-9][A-Za-z0-9_.@\-]{0,63}"
                     autocomplete="off"
                 /></label>
                 <p v-if="mode === 'user'" class="field-hint">
