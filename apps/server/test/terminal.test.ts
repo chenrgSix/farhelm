@@ -439,6 +439,18 @@ test("management and personal password changes immediately revoke affected activ
   for (const change of ["disable", "scope", "password"] as const) {
     const f = await fixture();
     try {
+      const role = await f.api(
+        "POST",
+        "/api/v1/roles",
+        {
+          v: 1,
+          name: "终端运维",
+          description: "",
+          permissions: ["devices.read", "terminal.connect"],
+        },
+        f.admin,
+      );
+      assert.equal(role.status, 200);
       const created = await f.api(
         "POST",
         "/api/v1/users",
@@ -447,7 +459,7 @@ test("management and personal password changes immediately revoke affected activ
           username: "group-operator",
           password: "terminal-test-password1",
           enabled: true,
-          role_ids: ["ops"],
+          role_ids: [role.body.role.id],
           group_ids: [],
           device_scope: ["device"],
         },

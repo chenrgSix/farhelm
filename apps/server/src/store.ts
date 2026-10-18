@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { accountPassword, passwordHash, canonical, fail, str } from "./util.js";
 import type { User, Role, Scope, Task } from "./types.js";
-import type { Permission } from "./permissions.js";
+import { rolePermissions, type Permission } from "./permissions.js";
 export class Store {
   readonly db: DatabaseSync;
   readonly instance: string;
@@ -298,6 +298,14 @@ export class Store {
         "utf8",
       ),
     );
+    this.transaction(() =>
+      this.db.exec(
+        readFileSync(
+          new URL("../migrations/029_default_roles.sql", import.meta.url),
+          "utf8",
+        ),
+      ),
+    );
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",
@@ -405,6 +413,37 @@ export class Store {
     const id = randomUUID();
     const credentialHash = passwordHash(input.password);
     return this.transaction(() => {
+      // The private seeding API still accepts legacy role IDs. Materialize a
+      // custom role only when explicitly requested, never during startup.
+      if (
+        (input.role === "ops" || input.role === "auditor") &&
+        !this.db
+          .prepare("SELECT id FROM access_roles WHERE id=?")
+          .get(input.role)
+      ) {
+        const label = input.role === "ops" ? "运维人员" : "审计员";
+        let name = label;
+        for (
+          let n = 1;
+          this.db
+            .prepare("SELECT id FROM access_roles WHERE name=? COLLATE NOCASE")
+            .get(name);
+          n++
+        )
+          name = `${label}（${n}）`;
+        this.db
+          .prepare(
+            "INSERT INTO access_roles(id,name,description,permissions,builtin,created_at,updated_at) VALUES(?,?,?,?,0,?,?)",
+          )
+          .run(
+            input.role,
+            name,
+            "通过兼容接口按需创建的自定义角色",
+            canonical(rolePermissions(input.role)),
+            Date.now(),
+            Date.now(),
+          );
+      }
       this.db
         .prepare(
           "INSERT INTO users(id,username,password_hash,role,device_scope,created_at) VALUES(?,?,?,?,?,?)",

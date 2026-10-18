@@ -348,12 +348,20 @@ try {
       device_scope: [],
     })
   ).user;
+  const operatorRole = (
+    await api("POST", "/roles", {
+      v: 1,
+      name: "SSH 运维人员",
+      description: "按需授予 SSH 终端连接权限",
+      permissions: ["devices.read", "terminal.connect"],
+    })
+  ).role;
   const group = (
     await api("POST", "/groups", {
       v: 1,
       name: "SSH operators",
       description: "",
-      role_ids: ["ops"],
+      role_ids: [operatorRole.id],
       member_ids: [member.id],
       device_scope: [device.device_id],
     })
@@ -440,7 +448,7 @@ try {
     revision: group.revision,
     name: group.name,
     description: "",
-    role_ids: ["ops"],
+    role_ids: [operatorRole.id],
     member_ids: [member.id],
     device_scope: [],
   });

@@ -379,6 +379,9 @@ onBeforeUnmount(() => {
         创建{{ labels[tab] }}
       </button>
     </div>
+    <p v-if="tab === 'roles'" class="muted">
+      默认角色为管理员和普通用户，普通用户仅有查看权限。运维、审计权限可按需创建自定义角色。
+    </p>
     <p v-if="loading && !data" class="muted">正在读取权限配置…</p>
     <div v-if="data" class="access-table">
       <table v-if="tab === 'users'">

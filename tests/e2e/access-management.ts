@@ -5,7 +5,13 @@ import { token, hash } from "../../apps/server/src/util.ts";
 import { WebSocket } from "../../apps/server/node_modules/ws/wrapper.mjs";
 import { once } from "node:events";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 const root = resolve(import.meta.dirname, "../.."),
@@ -112,7 +118,10 @@ try {
       { timeout: 15000 },
     )
     .toBe(200);
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.FLEET_TEST_BROWSER_EXECUTABLE,
+  });
   const adminContext = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
@@ -159,7 +168,9 @@ try {
   const filter = admin.getByLabel("按设备组筛选", { exact: true });
   await filter.selectOption({ label: "生产组" });
   await expect(admin.getByText("默认 Linux", { exact: true })).toHaveCount(0);
-  await admin.getByLabel("选择当前筛选的全部设备", { exact: true }).check();
+  await admin
+    .getByRole("checkbox", { name: "选择当前筛选的全部设备", exact: true })
+    .check();
   await filter.selectOption({ label: "未分组" });
   await expect(admin.getByText("生产 Linux", { exact: true })).toHaveCount(0);
   await admin.getByLabel("选择设备 默认 Linux", { exact: true }).check();
@@ -189,6 +200,28 @@ try {
   await admin.getByRole("button", { name: "用户与权限", exact: true }).click();
   await expect(admin.getByRole("tab", { name: /设备组/ })).toHaveCount(0);
   await admin.getByRole("tab", { name: /角色/ }).click();
+  await expect(
+    admin.getByRole("tab", { name: "角色 2", exact: true }),
+  ).toBeVisible();
+  await expect(
+    admin.getByRole("button", { name: "查看角色 管理员", exact: true }),
+  ).toBeVisible();
+  await admin
+    .getByRole("button", { name: "查看角色 普通用户", exact: true })
+    .click();
+  await expect(admin.locator('input[value="devices.read"]')).toBeChecked();
+  await expect(
+    admin.locator('input[value="terminal.connect"]'),
+  ).not.toBeChecked();
+  await expect(admin.locator('input[value="tasks.execute"]')).not.toBeChecked();
+  await expect(
+    admin.locator('input[value="audit.read_all"]'),
+  ).not.toBeChecked();
+  await admin.getByRole("button", { name: "关闭", exact: true }).click();
+  await admin.screenshot({
+    path: join(output, "access-default-roles.png"),
+    fullPage: true,
+  });
   await admin.getByRole("button", { name: "创建角色", exact: true }).click();
   await admin.getByLabel("角色名称", { exact: true }).fill("终端专员");
   await admin.locator('input[value="terminal.connect"]').check();
@@ -311,6 +344,7 @@ try {
   const evidence = {
     ok: true,
     checks: [
+      "Exactly two built-in defaults; ordinary user is read-only with no terminal, command or cross-user audit grants",
       "UI creates custom role, user group, device group and account",
       "Group filters including ungrouped, visible select-all and selections across filters",
       "Atomic multi-device tag add/remove preserves other labels and supports empty and overlapping groups",
@@ -332,4 +366,5 @@ try {
   vite.kill("SIGTERM");
   agent.terminate();
   await server.close();
+  rmSync(temp, { recursive: true, force: true });
 }

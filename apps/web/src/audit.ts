@@ -160,7 +160,7 @@ const values: Record<string, string> = {
   AGENT_EXEC: "Agent 执行命令",
   admin: "管理员",
   ops: "运维人员",
-  business: "业务人员",
+  business: "普通用户",
   auditor: "审计员",
   web: "网页",
   ssh: "SSH",

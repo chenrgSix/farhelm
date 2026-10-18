@@ -140,6 +140,75 @@ test("legacy migration preserves accounts and device scope; existing devices sta
   );
   store.close();
 });
+test("only admin and read-only ordinary user are defaults; operational and audit grants are opt-in custom roles", async () => {
+  const f = await fixture();
+  try {
+    const defaults = (await f.all()).roles;
+    assert.deepEqual(
+      defaults.map((r: any) => r.name).sort(),
+      ["普通用户", "管理员"].sort(),
+    );
+    assert.ok(defaults.every((r: any) => r.builtin));
+    f.device("one");
+    f.device("two");
+    const user = await f.user("readonly", {
+      role_ids: ["business"],
+      device_scope: ["one"],
+    });
+    const auth = (await f.login(user.username)).body.access_token;
+    assert.deepEqual(user.effective_permissions, [
+      "devices.read",
+      "tasks.read",
+      "recordings.read",
+      "audit.read",
+    ]);
+    for (const path of ["/devices", "/tasks", "/terminal-sessions", "/audit"])
+      assert.equal(
+        (await f.api("GET", path, undefined, auth)).status,
+        200,
+        path,
+      );
+    assert.deepEqual(
+      (await f.api("GET", "/devices", undefined, auth)).body.devices.map(
+        (d: any) => d.id,
+      ),
+      ["one"],
+    );
+    for (const path of [
+      "/commands",
+      "/terminal-sessions",
+      "/roles",
+      "/api-tokens",
+    ])
+      assert.equal((await f.api("POST", path, {}, auth)).status, 403, path);
+    const audit = (await f.api("GET", "/audit", undefined, auth)).body.audit;
+    assert.ok(audit.every((event: any) => event.actor_id === user.id));
+    const role = (
+      await f.api("POST", "/roles", {
+        v: 1,
+        name: "审计专员",
+        description: "按需授权",
+        permissions: ["devices.read", "audit.read", "audit.read_all"],
+      })
+    ).body.role;
+    assert.equal(role.builtin, false);
+    await f.api("POST", "/groups", {
+      v: 1,
+      name: "审计组",
+      description: "",
+      role_ids: [role.id],
+      member_ids: [user.id],
+      device_scope: ["two"],
+    });
+    const refreshed = (await f.login(user.username)).body.access_token;
+    const me = (await f.api("GET", "/me", undefined, refreshed)).body;
+    assert.ok(me.permissions.includes("audit.read_all"));
+    assert.deepEqual(me.device_scope, ["one", "two"]);
+    assert.equal((await f.api("POST", "/commands", {}, refreshed)).status, 403);
+  } finally {
+    await f.close();
+  }
+});
 test("device groups are optional overlapping tags; changing tags never changes explicit or user-group authorization", async () => {
   const f = await fixture();
   try {
@@ -301,8 +370,8 @@ test("admin-only management, password reset, disabled users, immutable builtins,
       ["PUT", "/users/" + u.id],
       ["POST", "/users/" + u.id + "/password"],
       ["POST", "/roles"],
-      ["PUT", "/roles/ops"],
-      ["DELETE", "/roles/ops"],
+      ["PUT", "/roles/business"],
+      ["DELETE", "/roles/business"],
       ["POST", "/groups"],
       ["PUT", "/groups/x"],
       ["DELETE", "/groups/x"],
@@ -351,10 +420,11 @@ test("admin-only management, password reset, disabled users, immutable builtins,
     );
     assert.equal(
       (
-        await f.api("PUT", "/roles/ops", {
+        await f.api("PUT", "/roles/business", {
           v: 1,
-          revision: 0,
-          name: "ops",
+          revision: (await f.all()).roles.find((r: any) => r.id === "business")
+            .revision,
+          name: "普通用户",
           description: "",
           permissions: [],
         })
@@ -1083,15 +1153,15 @@ test("cross-user recording access is a separate explicit role grant, including u
     );
     assert.ok(
       all.roles
-        .find((r: any) => r.id === "auditor")
+        .find((r: any) => r.id === result.body.role.id)
         .permissions.includes("recordings.read_all"),
     );
-    for (const id of ["ops", "business"])
-      assert.ok(
-        !all.roles
-          .find((r: any) => r.id === id)
-          .permissions.includes("recordings.read_all"),
-      );
+    assert.ok(!all.roles.some((r: any) => ["ops", "auditor"].includes(r.id)));
+    assert.ok(
+      !all.roles
+        .find((r: any) => r.id === "business")
+        .permissions.includes("recordings.read_all"),
+    );
   } finally {
     await f.close();
   }
@@ -1101,6 +1171,9 @@ test("recording visibility migration preserves operational/custom roles and runs
   const dir = mkdtempSync(join(root, "recording-migration-"));
   let store = new Store(dir);
   // Reconstruct the persisted state immediately before this migration.
+  store.db.exec(
+    "INSERT INTO access_roles(id,name,description,permissions,builtin,created_at,updated_at) VALUES('ops','运维人员','','[\"devices.read\",\"terminal.connect\"]',1,0,0),('auditor','审计员','','[\"devices.read\",\"recordings.read\"]',1,0,0)",
+  );
   store.db
     .prepare("DELETE FROM meta WHERE key='recording_visibility_v1'")
     .run();
@@ -1318,7 +1391,7 @@ test("first-login policy is optional, strictly boolean, and survives an administ
       const u = await f.user(
         policy === undefined ? "legacy-client" : "opt-out",
         {
-          role_ids: ["ops"],
+          role_ids: ["business"],
           ...(policy === undefined ? {} : { must_change_password: policy }),
         },
       );

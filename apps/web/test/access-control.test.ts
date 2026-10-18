@@ -50,11 +50,36 @@ const data: AccessManagement = {
   ],
   roles: [
     {
+      id: "admin",
+      name: "管理员",
+      description: "管理整个平台",
+      permissions: [],
+      builtin: true,
+      revision: 3,
+      user_count: 1,
+      group_count: 0,
+    },
+    {
+      id: "business",
+      name: "普通用户",
+      description: "只读查看授权设备及本人记录",
+      permissions: [
+        "devices.read",
+        "tasks.read",
+        "recordings.read",
+        "audit.read",
+      ],
+      builtin: true,
+      revision: 1,
+      user_count: 0,
+      group_count: 0,
+    },
+    {
       id: "ops",
       name: "运维",
       description: "",
       permissions: ["devices.read", "terminal.connect"],
-      builtin: true,
+      builtin: false,
       revision: 0,
       user_count: 0,
       group_count: 1,
@@ -154,10 +179,47 @@ it("keeps device-group management out of account management", async () => {
   const { wrapper } = await setup();
   expect(wrapper.findAll('[role="tab"]').map((t) => t.text())).toEqual([
     "用户 1",
-    "角色 1",
+    "角色 3",
     "用户组 1",
   ]);
   expect(wrapper.text()).not.toContain("创建设备组");
+  wrapper.unmount();
+});
+it("shows two read-only builtins and keeps migrated roles editable; ordinary-user grants do not imply device access", async () => {
+  const { wrapper, request, button } = await setup();
+  await wrapper.get('[role="tab"]:nth-child(2)').trigger("click");
+  expect(wrapper.text()).toContain("默认角色为管理员和普通用户");
+  expect(wrapper.find('[aria-label="查看角色 管理员"]').exists()).toBe(true);
+  await wrapper.get('[aria-label="查看角色 普通用户"]').trigger("click");
+  expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+  expect(wrapper.get('input[value="tasks.execute"]').element).toHaveProperty(
+    "checked",
+    false,
+  );
+  expect(wrapper.get('input[value="audit.read_all"]').element).toHaveProperty(
+    "checked",
+    false,
+  );
+  await button("关闭").trigger("click");
+  await wrapper.get('[aria-label="编辑角色 运维"]').trigger("click");
+  expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+  await button("取消").trigger("click");
+  await wrapper.get('[role="tab"]:nth-child(1)').trigger("click");
+  await button("创建用户").trigger("click");
+  await wrapper.get('input[autocomplete="off"]').setValue("reader");
+  await wrapper.get('input[type="password"]').setValue("abcd1234");
+  await wrapper.get('[aria-label="分配角色 普通用户"]').setValue(true);
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith(
+    "/users",
+    expect.objectContaining({
+      body: expect.objectContaining({
+        role_ids: ["business"],
+        device_scope: [],
+      }),
+    }),
+  );
   wrapper.unmount();
 });
 it("stale saves cannot overwrite newer permissions; role permission dependencies are included", async () => {

@@ -721,6 +721,19 @@ test(
         payload: { username: "admin", password: "ssh-test-password1" },
       });
       const headers = { authorization: "Bearer " + login.json().access_token };
+      const roleResponse = await f.app.inject({
+        method: "POST",
+        url: "/api/v1/roles",
+        headers,
+        payload: {
+          v: 1,
+          name: "SSH 运维",
+          description: "",
+          permissions: ["devices.read", "terminal.connect"],
+        },
+      });
+      assert.equal(roleResponse.statusCode, 200);
+      const roleId = roleResponse.json().role.id;
       const created = await f.app.inject({
         method: "POST",
         url: "/api/v1/users",
@@ -730,7 +743,7 @@ test(
           username: "group-ssh",
           password: "ssh-test-password1",
           enabled: true,
-          role_ids: ["ops"],
+          role_ids: [roleId],
           group_ids: [],
           device_scope: [],
         },
@@ -744,7 +757,7 @@ test(
           v: 1,
           name: "SSH 运维组",
           description: "",
-          role_ids: ["ops"],
+          role_ids: [roleId],
           member_ids: [created.json().user.id],
           device_scope: ["device"],
         },
@@ -763,7 +776,7 @@ test(
           revision: group.revision,
           name: group.name,
           description: "",
-          role_ids: ["ops"],
+          role_ids: [roleId],
           member_ids: [created.json().user.id],
           device_scope: [],
         },
@@ -796,6 +809,18 @@ test("SSH rejects direct and menu logins requiring a first password change, then
         payload: { username: "admin", password: "ssh-test-password1" },
       })
     ).json().access_token;
+    const roleResponse = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/roles",
+      headers: { authorization: "Bearer " + admin },
+      payload: {
+        v: 1,
+        name: "SSH 运维",
+        description: "",
+        permissions: ["devices.read", "terminal.connect"],
+      },
+    });
+    assert.equal(roleResponse.statusCode, 200);
     const created = await f.app.inject({
       method: "POST",
       url: "/api/v1/users",
@@ -805,7 +830,7 @@ test("SSH rejects direct and menu logins requiring a first password change, then
         username: "first-ssh",
         password: "Initial-ssh1",
         enabled: true,
-        role_ids: ["ops"],
+        role_ids: [roleResponse.json().role.id],
         group_ids: [],
         device_scope: ["device"],
         must_change_password: true,

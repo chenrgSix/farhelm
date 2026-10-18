@@ -23,7 +23,7 @@ export const statusLabels: Record<TaskStatus, string> = {
 export const roleLabels = {
   admin: "管理员",
   ops: "运维人员",
-  business: "业务人员",
+  business: "普通用户",
   auditor: "审计员",
 };
 export function hasPermission(

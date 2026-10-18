@@ -484,7 +484,10 @@ test("API tokens: owner roles, groups, device grants, disabled accounts and forc
       "INSERT INTO group_members(group_id,user_id) VALUES('group',?)",
     ).run(f.owner.id);
     db.prepare(
-      "INSERT INTO group_roles(group_id,role_id) VALUES('group','ops')",
+      "INSERT INTO access_roles(id,name,description,permissions,builtin,created_at,updated_at) VALUES('operator','运维','','[\"devices.read\",\"tasks.read\",\"tasks.execute\"]',0,1,1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO group_roles(group_id,role_id) VALUES('group','operator')",
     ).run();
     assert.equal(
       (await f.api("POST", "/commands", command(), grant.secret, "allowed"))

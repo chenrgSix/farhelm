@@ -22,7 +22,7 @@ The UI uses explicit Bearer sessions. No CORS, cookies, query tokens or public u
 
 `buildServer(config)` from `src/server.ts` / `dist/server.js` returns `{app, store, close, testHooks, ssh}`. Call `await app.listen({host:'127.0.0.1',port:0})` in tests. Config accepts `dataDir`, `tlsCert`/`tlsKey` (paths, PEM strings or Buffers), optional `adminUsername`/`adminPassword`, `deviceTokenTtlMs` (default 300000), `sessionTtlMs` (28800000), `heartbeatTimeoutMs` (15000), `webDist`, `testMode`, `logger`, and `ssh: {host, port, publicHost?, publicPort?}` (omit to disable). With SSH configured, `buildServer` starts the TCP listener; tests may use port 0 and read `ssh.info().port`.
 
-The private test/admin seeding API is `store.seedUser({username,password,role,deviceScope})`. Roles: `admin`, `ops`, `business`, `auditor`; scope is `'*'` or explicit device ID array. This is an in-process API, not remotely callable. User/role lifecycle and SSO are future work. `store.db` is available for focused integration assertions and consistent SQLite backup tooling.
+The private test/admin seeding API is `store.seedUser({username,password,role,deviceScope})`. Default built-in roles: `admin` and `business` (普通用户, read-only). For compatibility, explicit `ops` / `auditor` seeding creates a custom role on demand; startup does not recreate them. Scope is `'*'` or explicit device ID array. This is an in-process API, not remotely callable. User, role and group lifecycle is managed through the access-control API; SSO is future work. `store.db` is available for focused integration assertions and consistent SQLite backup tooling.
 
 ## Durability and recovery
 
