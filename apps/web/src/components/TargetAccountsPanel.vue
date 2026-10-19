@@ -275,12 +275,13 @@ onBeforeUnmount(() => {
                 :placeholder="
                   editing
                     ? '留空保留已保存的密码'
-                    : '留空使用设备接入配置中已保存的 sudo 密码'
+                    : '留空沿用设备密码；未配置密码时使用免密 sudo'
                 "
             /></label>
             <p class="field-hint">
               Agent 须支持账号切换并启用终端提权。源账号须已有切换到目标账号的
-              sudo 权限。
+              sudo 权限。未配置密码时使用免密 sudo，需要 Agent 0.2.9
+              或更新版本。
             </p>
           </template>
           <template v-else>

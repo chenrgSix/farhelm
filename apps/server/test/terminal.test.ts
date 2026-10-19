@@ -2096,3 +2096,59 @@ test("simple root mode preserves default authorization, requires sudo permission
     await f.close();
   }
 });
+
+test("managed sudo accounts may omit passwords but require passwordless Agent support at connection time", async () => {
+  const f = await fixture();
+  try {
+    const saved = await f.api(
+      "POST",
+      "/api/v1/devices/device/accounts",
+      { v: 1, name: "Passwordless root", username: "root", method: "sudo" },
+      f.admin,
+    );
+    assert.equal(saved.status, 200, JSON.stringify(saved));
+    assert.equal("sudo_password" in saved.body.account, false);
+    const create = () =>
+      f.api(
+        "POST",
+        "/api/v1/terminal-sessions",
+        {
+          v: 1,
+          device_id: "device",
+          account_id: saved.body.account.id,
+          cols: 80,
+          rows: 24,
+        },
+        f.admin,
+      );
+    f.agent.send("agent.heartbeat", {
+      agent_version: "password-only",
+      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal((await create()).body.error, "SUDO_PASSWORD_REQUIRED");
+    f.agent.send("agent.heartbeat", {
+      agent_version: "nopasswd",
+      capabilities: [
+        "terminal.pty.v1",
+        "terminal.sudo.v1",
+        "terminal.sudo.nopasswd.v1",
+      ],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const created = await create();
+    assert.equal(created.status, 200, JSON.stringify(created));
+    const browser = await f.attach(created.body);
+    const request = await f.agent.wait("terminal.sudo.open");
+    assert.equal(request.sudo_password, "");
+    assert.equal(request.username, "root");
+    f.agent.send("terminal.opened", { session_id: request.session_id });
+    assert.deepEqual(await browser.wait("terminal.ready"), {
+      backend: "agent",
+      elevated: true,
+      username: "root",
+    });
+  } finally {
+    await f.close();
+  }
+});

@@ -331,8 +331,10 @@ export function registerTargetAccounts(
       if (b.sudo_password !== undefined)
         secret.sudo_password = str(b.sudo_password, 1, 1024);
       const password = secret.sudo_password ?? d.sudoPassword(deviceId);
-      if (!password) fail(400, "SUDO_PASSWORD_REQUIRED");
-      if (/[\r\n\0]/.test(password)) fail(400, "INVALID_SUDO_PASSWORD");
+      // Passwordless sudo is checked against the Agent capability when opening.
+      // Keep account configuration possible even while the device is offline.
+      if (password && /[\r\n\0]/.test(password))
+        fail(400, "INVALID_SUDO_PASSWORD");
     }
     d.store.transaction(() => {
       db.prepare(

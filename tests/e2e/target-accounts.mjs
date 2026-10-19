@@ -268,6 +268,31 @@ try {
       .n,
     0,
   );
+  const passwordlessAccount = (
+    await api("POST", `/devices/${device.id}/accounts`, {
+      v: 1,
+      name: "免密 root 示例",
+      username: "root",
+      method: "sudo",
+    })
+  ).account;
+  const namedPasswordless = await open(passwordlessAccount.id);
+  await namedPasswordless.ready();
+  namedPasswordless.send("printf '__NAMED_NOPASSWD_UID__'; id -u\r");
+  await until(
+    () => namedPasswordless.text().includes("__NAMED_NOPASSWD_UID__0"),
+    "named passwordless root account",
+  );
+  namedPasswordless.send("exit\r");
+  await until(
+    () => namedPasswordless.messages.some((m) => m.type === "terminal.closed"),
+    "named passwordless closed",
+  );
+  await api(
+    "DELETE",
+    `/devices/${device.id}/accounts/${passwordlessAccount.id}`,
+    { v: 1, revision: passwordlessAccount.revision },
+  );
   await docker([
     "exec",
     "--user",
