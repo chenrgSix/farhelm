@@ -189,6 +189,52 @@ try {
     device = (await api("GET", "/devices")).devices[0];
     return device?.control_online;
   }, "real Agent enrollment");
+  const principals = ["group-member", "direct-role", "inherited-role"].map(
+    (username) =>
+      server.store.seedUser({
+        username,
+        password: "accounts-e2e-login1",
+        role: "ops",
+        deviceScope: [device.id],
+      }),
+  );
+  const targetRole = (
+    await api("POST", "/roles", {
+      v: 1,
+      name: "目标账号运维角色",
+      description: "",
+      permissions: ["devices.read", "terminal.connect", "terminal.sudo"],
+    })
+  ).role;
+  const sourceRole = (
+    await api("POST", "/roles", {
+      v: 1,
+      name: "源账号权限",
+      description: "",
+      permissions: ["devices.read", "terminal.connect", "terminal.sudo"],
+    })
+  ).role;
+  const targetGroup = (
+    await api("POST", "/groups", {
+      v: 1,
+      name: "目标账号运维组",
+      description: "",
+      role_ids: [sourceRole.id],
+      member_ids: [principals[0].id],
+      device_scope: [],
+    })
+  ).group;
+  await api("POST", "/groups", {
+    v: 1,
+    name: "角色继承组",
+    description: "",
+    role_ids: [targetRole.id],
+    member_ids: [principals[2].id],
+    device_scope: [],
+  });
+  server.store.db
+    .prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)")
+    .run(principals[1].id, targetRole.id);
   const account = (
     await api("POST", `/devices/${device.id}/accounts`, {
       v: 1,
@@ -196,6 +242,8 @@ try {
       username: "root",
       method: "sudo",
       allowed_users: [],
+      allowed_groups: [targetGroup.id],
+      allowed_roles: [targetRole.id],
       sudo_password: secret,
     })
   ).account;
@@ -259,42 +307,75 @@ try {
     revision: bad.revision,
     sudo_password: secret,
   });
-  const ssh = new Client();
-  clients.push(ssh);
-  ssh.on("error", () => {});
-  const ready = once(ssh, "ready");
-  ssh.connect({
-    host: "127.0.0.1",
-    port: server.ssh.info().port,
-    username: "admin",
-    password: "accounts-e2e-login1",
-    hostVerifier: (raw) =>
-      "SHA256:" +
-        require("node:crypto")
-          .createHash("sha256")
-          .update(raw)
-          .digest("base64")
-          .replace(/=+$/, "") ===
-      server.ssh.info().fingerprint,
-  });
-  await ready;
-  const channel = await new Promise((resolve, reject) =>
-    ssh.shell({ term: "xterm", cols: 80, rows: 24 }, (e, c) =>
-      e ? reject(e) : resolve(c),
-    ),
-  );
-  let text = "";
-  channel.on("data", (b) => (text += b.toString()));
-  await until(() => text.includes("输入设备编号"), "SSH device menu");
-  channel.write("1\r");
-  await until(() => text.includes("输入账号编号"), "SSH account menu");
-  channel.write("2\r");
-  await until(() => text.includes("root@"), "SSH sudo shell");
-  channel.write("printf '__SSH_UID__'; id -u\r");
-  await until(() => text.includes("__SSH_UID__0"), "SSH real root identity");
-  assert.equal(text.includes(secret), false);
-  channel.write("exit\r");
-  await once(channel, "close");
+  for (const principal of principals) {
+    const auth = (
+      await api(
+        "POST",
+        "/login",
+        { username: principal.username, password: "accounts-e2e-login1" },
+        "",
+      )
+    ).access_token;
+    const visible = await api(
+      "GET",
+      `/devices/${device.id}/accounts`,
+      undefined,
+      auth,
+    );
+    assert.equal(visible.accounts.length, 1, principal.username);
+    const granted = await open(account.id, auth);
+    await granted.ready();
+    granted.send("printf '__GRANT_UID__'; id -u\r");
+    await until(
+      () => granted.text().includes("__GRANT_UID__0"),
+      principal.username + " web root shell",
+    );
+    granted.send("exit\r");
+    await until(
+      () => granted.messages.some((m) => m.type === "terminal.closed"),
+      "granted shell exit",
+    );
+    await api("POST", "/logout", { v: 1 }, auth);
+  }
+  for (const principal of principals) {
+    const ssh = new Client();
+    clients.push(ssh);
+    ssh.on("error", () => {});
+    const ready = once(ssh, "ready");
+    ssh.connect({
+      host: "127.0.0.1",
+      port: server.ssh.info().port,
+      username: principal.username,
+      password: "accounts-e2e-login1",
+      hostVerifier: (raw) =>
+        "SHA256:" +
+          require("node:crypto")
+            .createHash("sha256")
+            .update(raw)
+            .digest("base64")
+            .replace(/=+$/, "") ===
+        server.ssh.info().fingerprint,
+    });
+    await ready;
+    const channel = await new Promise((resolve, reject) =>
+      ssh.shell({ term: "xterm", cols: 80, rows: 24 }, (e, c) =>
+        e ? reject(e) : resolve(c),
+      ),
+    );
+    let text = "";
+    channel.on("data", (b) => (text += b.toString()));
+    await until(() => text.includes("输入设备编号"), "SSH device menu");
+    channel.write("1\r");
+    await until(() => text.includes("输入账号编号"), "SSH account menu");
+    channel.write("2\r");
+    await until(() => text.includes("root@"), "SSH sudo shell");
+    channel.write("printf '__SSH_UID__'; id -u\r");
+    await until(() => text.includes("__SSH_UID__0"), "SSH real root identity");
+    assert.equal(text.includes(secret), false);
+    channel.write("exit\r");
+    await once(channel, "close");
+    ssh.end();
+  }
   const revocable = await open(account.id);
   await revocable.ready();
   revocable.send("printf '__ROOT_PID__'; echo $$; sleep 300 & wait\r");
@@ -361,6 +442,14 @@ try {
       .getByLabel("源账号的 sudo 密码", { exact: true })
       .fill(secret);
     await management
+      .getByRole("group", { name: "允许使用的用户组", exact: true })
+      .getByRole("checkbox", { name: targetGroup.name, exact: true })
+      .check();
+    await management
+      .getByRole("group", { name: "允许使用的角色", exact: true })
+      .getByRole("checkbox", { name: targetRole.name, exact: true })
+      .check();
+    await management
       .getByRole("button", { name: "保存目标账号", exact: true })
       .click();
     await management.getByRole("status").waitFor();
@@ -370,11 +459,31 @@ try {
         .inputValue(),
       "",
     );
+    const configured = (
+      await api("GET", `/devices/${device.id}/accounts`)
+    ).accounts.find((a) => a.name === "浏览器 root");
+    assert.deepEqual(configured.allowed_groups, [targetGroup.id]);
+    assert.deepEqual(configured.allowed_roles, [targetRole.id]);
+    await management
+      .locator(".account-row")
+      .filter({ hasText: "浏览器 root" })
+      .getByRole("button", { name: "编辑", exact: true })
+      .click();
+    const groupChoice = management
+      .getByRole("group", { name: "允许使用的用户组", exact: true })
+      .getByRole("checkbox", { name: targetGroup.name, exact: true });
+    const roleChoice = management
+      .getByRole("group", { name: "允许使用的角色", exact: true })
+      .getByRole("checkbox", { name: targetRole.name, exact: true });
+    assert.equal(await groupChoice.isChecked(), true);
+    assert.equal(await roleChoice.isChecked(), true);
+    await roleChoice.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: join(root, ".test-output/target-accounts-desktop.png"),
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
+    await groupChoice.scrollIntoViewIfNeeded();
     assert.ok(
       await management.evaluate((el) => {
         const r = el.getBoundingClientRect();
@@ -456,6 +565,8 @@ try {
         usePty: true,
         webProtocol: true,
         sshDeviceAndAccountMenu: true,
+        groupAndRoleAuthorization: true,
+        inheritedRoleAuthorization: true,
         wrongPasswordRejected: true,
         rootSessionRevocation: true,
         realBrowser: !!browser,

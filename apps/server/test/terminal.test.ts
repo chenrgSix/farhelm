@@ -954,3 +954,385 @@ test("target account ACL, sudo permission, private credential delivery and revoc
     await f.close();
   }
 });
+
+test("target account grants combine users, groups and direct or inherited roles without bypassing permissions or scope", async () => {
+  const f = await fixture();
+  try {
+    const db = f.store.db;
+    const seed = (username: string, scope: string[] = ["device"]) =>
+      f.store.seedUser({
+        username,
+        password: "terminal-test-password1",
+        role: "ops",
+        deviceScope: scope,
+      });
+    const direct = seed("grant-direct"),
+      member = seed("grant-member"),
+      roleUser = seed("grant-role"),
+      inherited = seed("grant-inherited"),
+      outsider = seed("grant-outsider"),
+      noSudo = seed("grant-no-sudo"),
+      noScope = seed("grant-no-scope", []);
+    const role = (
+      await f.api(
+        "POST",
+        "/api/v1/roles",
+        {
+          v: 1,
+          name: "Target role",
+          description: "",
+          permissions: ["devices.read", "terminal.connect", "terminal.sudo"],
+        },
+        f.admin,
+      )
+    ).body.role;
+    const otherRole = (
+      await f.api(
+        "POST",
+        "/api/v1/roles",
+        {
+          v: 1,
+          name: "Unrelated privilege",
+          description: "",
+          permissions: ["devices.read", "terminal.connect", "terminal.sudo"],
+        },
+        f.admin,
+      )
+    ).body.role;
+    for (const u of [direct, member, roleUser, inherited, noScope])
+      db.prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)").run(
+        u.id,
+        u === roleUser ? role.id : otherRole.id,
+      );
+    db.prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)").run(
+      outsider.id,
+      otherRole.id,
+    );
+    const group = (
+      await f.api(
+        "POST",
+        "/api/v1/groups",
+        {
+          v: 1,
+          name: "Allowed group",
+          description: "",
+          role_ids: [],
+          member_ids: [member.id, noSudo.id, noScope.id],
+          device_scope: [],
+        },
+        f.admin,
+      )
+    ).body.group;
+    const inheritance = (
+      await f.api(
+        "POST",
+        "/api/v1/groups",
+        {
+          v: 1,
+          name: "Inheritance group",
+          description: "",
+          role_ids: [role.id],
+          member_ids: [inherited.id],
+          device_scope: [],
+        },
+        f.admin,
+      )
+    ).body.group;
+    const body = {
+      v: 1,
+      name: "Shared root",
+      username: "root",
+      method: "sudo",
+      allowed_users: [direct.id],
+      allowed_groups: [group.id],
+      allowed_roles: [role.id],
+      sudo_password: "fixture-password9",
+    };
+    const saved = await f.api(
+      "POST",
+      "/api/v1/devices/device/accounts",
+      body,
+      f.admin,
+    );
+    assert.equal(saved.status, 200, JSON.stringify(saved));
+    const account = saved.body.account;
+    assert.deepEqual(account.allowed_groups, [group.id]);
+    assert.deepEqual(account.allowed_roles, [role.id]);
+    const snapshot = (
+      await f.api("GET", "/api/v1/devices/device/accounts", undefined, f.admin)
+    ).body;
+    assert.ok(snapshot.groups.some((g: any) => g.id === group.id));
+    assert.ok(snapshot.roles.some((r: any) => r.id === role.id));
+    for (const u of [
+      direct,
+      member,
+      roleUser,
+      inherited,
+      outsider,
+      noSudo,
+      noScope,
+    ]) {
+      const auth = await f.login(u.username);
+      const listed = await f.api(
+        "GET",
+        "/api/v1/devices/device/accounts",
+        undefined,
+        auth,
+      );
+      const created = await f.api(
+        "POST",
+        "/api/v1/terminal-sessions",
+        {
+          v: 1,
+          device_id: "device",
+          account_id: account.id,
+          cols: 80,
+          rows: 24,
+        },
+        auth,
+      );
+      if ([direct, member, roleUser, inherited].includes(u)) {
+        assert.equal(listed.body.accounts.length, 1, u.username);
+        assert.equal(
+          created.body.error,
+          "SUDO_NOT_SUPPORTED_UPDATE_AGENT",
+          u.username,
+        );
+        assert.equal(
+          listed.body.groups,
+          undefined,
+          "non-admins cannot list platform groups",
+        );
+        assert.equal(
+          listed.body.roles,
+          undefined,
+          "non-admins cannot list platform roles",
+        );
+      } else {
+        assert.equal(created.status, 403, u.username);
+        if (u !== noScope)
+          assert.deepEqual(listed.body.accounts, [], u.username);
+      }
+    }
+    for (const [field, values, code] of [
+      ["allowed_groups", [group.id, group.id], "INVALID_ACCOUNT_GROUPS"],
+      ["allowed_groups", ["missing-group"], "INVALID_ACCOUNT_GROUPS"],
+      ["allowed_groups", null, "INVALID_ACCOUNT_GROUPS"],
+      ["allowed_roles", ["missing-role"], "INVALID_ACCOUNT_ROLES"],
+      ["allowed_roles", [role.id, role.id], "INVALID_ACCOUNT_ROLES"],
+    ] as const) {
+      const bad = await f.api(
+        "POST",
+        "/api/v1/devices/device/accounts",
+        { ...body, [field]: values },
+        f.admin,
+      );
+      assert.equal(bad.body.error, code);
+    }
+    const legacyEdit = await f.api(
+      "PUT",
+      `/api/v1/devices/device/accounts/${account.id}`,
+      {
+        v: 1,
+        revision: account.revision,
+        name: account.name,
+        username: "root",
+        method: "sudo",
+        allowed_users: [direct.id],
+      },
+      f.admin,
+    );
+    assert.equal(legacyEdit.status, 200, JSON.stringify(legacyEdit));
+    assert.deepEqual(legacyEdit.body.account.allowed_groups, [group.id]);
+    assert.deepEqual(legacyEdit.body.account.allowed_roles, [role.id]);
+    // Reopening the database must preserve both existing user grants and the new relations.
+    const reopened = new Store(f.store.dataDir);
+    assert.equal(
+      reopened.db
+        .prepare("SELECT COUNT(*) AS n FROM target_account_groups")
+        .get()!.n,
+      1,
+    );
+    assert.equal(
+      reopened.db
+        .prepare("SELECT COUNT(*) AS n FROM target_account_roles")
+        .get()!.n,
+      1,
+    );
+    reopened.close();
+    assert.equal(
+      (
+        await f.api(
+          "DELETE",
+          `/api/v1/groups/${group.id}`,
+          { v: 1, revision: group.revision },
+          f.admin,
+        )
+      ).status,
+      200,
+    );
+    db.prepare("DELETE FROM user_roles WHERE role_id=?").run(role.id);
+    db.prepare("DELETE FROM group_roles WHERE role_id=?").run(role.id);
+    assert.equal(
+      (
+        await f.api(
+          "DELETE",
+          `/api/v1/roles/${role.id}`,
+          { v: 1, revision: role.revision },
+          f.admin,
+        )
+      ).status,
+      200,
+    );
+    const after = (
+      await f.api("GET", "/api/v1/devices/device/accounts", undefined, f.admin)
+    ).body.accounts[0];
+    assert.deepEqual(after.allowed_groups, []);
+    assert.deepEqual(after.allowed_roles, []);
+    assert.deepEqual(after.allowed_users, [direct.id]);
+    assert.ok(inheritance.id);
+  } finally {
+    await f.close();
+  }
+});
+
+for (const kind of ["group", "inherited-role"] as const) {
+  test(`revoking a target account ${kind} grant closes its active terminal and invalidates pending tickets`, async () => {
+    const f = await fixture();
+    try {
+      const user = f.store.seedUser({
+        username: "revocable-member",
+        password: "terminal-test-password1",
+        role: "ops",
+        deviceScope: ["device"],
+      });
+      const role = (
+        await f.api(
+          "POST",
+          "/api/v1/roles",
+          {
+            v: 1,
+            name: "Privileged member",
+            description: "",
+            permissions: ["devices.read", "terminal.connect", "terminal.sudo"],
+          },
+          f.admin,
+        )
+      ).body.role;
+      const group = (
+        await f.api(
+          "POST",
+          "/api/v1/groups",
+          {
+            v: 1,
+            name: "Revocable group",
+            description: "",
+            role_ids: [role.id],
+            member_ids: [user.id],
+            device_scope: [],
+          },
+          f.admin,
+        )
+      ).body.group;
+      const account = (
+        await f.api(
+          "POST",
+          "/api/v1/devices/device/accounts",
+          {
+            v: 1,
+            name: "Revocable root",
+            username: "root",
+            method: "sudo",
+            allowed_users: [],
+            allowed_groups: kind === "group" ? [group.id] : [],
+            allowed_roles: kind === "inherited-role" ? [role.id] : [],
+            sudo_password: "fixture-password9",
+          },
+          f.admin,
+        )
+      ).body.account;
+      f.agent.send("agent.heartbeat", {
+        agent_version: "test-sudo",
+        capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const auth = await f.login(user.username);
+      const create = () =>
+        f.api(
+          "POST",
+          "/api/v1/terminal-sessions",
+          {
+            v: 1,
+            device_id: "device",
+            account_id: account.id,
+            cols: 80,
+            rows: 24,
+          },
+          auth,
+        );
+      const active = await create();
+      assert.equal(active.status, 200, JSON.stringify(active));
+      const browser = await f.attach(active.body);
+      const opening = await f.agent.wait("terminal.sudo.open");
+      f.agent.send("terminal.opened", { session_id: opening.session_id });
+      await browser.wait("terminal.ready");
+      const pending = await create();
+      assert.equal(pending.status, 200);
+      const updated = await f.api(
+        "PUT",
+        `/api/v1/groups/${group.id}`,
+        {
+          v: 1,
+          revision: group.revision,
+          name: group.name,
+          description: "",
+          role_ids: kind === "inherited-role" ? [] : [role.id],
+          member_ids: kind === "group" ? [] : [user.id],
+          device_scope: [],
+        },
+        f.admin,
+      );
+      assert.equal(updated.status, 200, JSON.stringify(updated));
+      await browser.wait("terminal.closed");
+      assert.ok(
+        f.store.db
+          .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
+          .get(pending.body.session_id)!.ended_at,
+      );
+      const denied = await f.attach(pending.body);
+      await once(denied.ws, "close");
+      assert.equal((await create()).status, 401, "old login is invalidated");
+      const fresh = await f.login(user.username);
+      assert.deepEqual(
+        (
+          await f.api(
+            "GET",
+            "/api/v1/devices/device/accounts",
+            undefined,
+            fresh,
+          )
+        ).body.accounts,
+        [],
+      );
+      assert.equal(
+        (
+          await f.api(
+            "POST",
+            "/api/v1/terminal-sessions",
+            {
+              v: 1,
+              device_id: "device",
+              account_id: account.id,
+              cols: 80,
+              rows: 24,
+            },
+            fresh,
+          )
+        ).status,
+        403,
+      );
+    } finally {
+      await f.close();
+    }
+  });
+}

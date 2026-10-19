@@ -1269,6 +1269,15 @@
             },
             "method": {
               "enum": ["ssh", "sudo"]
+            },
+            "allowed_users": {
+              "$ref": "target-account.schema.json#/properties/allowed_users"
+            },
+            "allowed_groups": {
+              "$ref": "target-account.schema.json#/properties/allowed_groups"
+            },
+            "allowed_roles": {
+              "$ref": "target-account.schema.json#/properties/allowed_roles"
             }
           },
           "required": ["account_id", "username", "method"]
@@ -3318,6 +3327,15 @@
               },
               "method": {
                 "enum": ["ssh", "sudo"]
+              },
+              "allowed_users": {
+                "$ref": "target-account.schema.json#/properties/allowed_users"
+              },
+              "allowed_groups": {
+                "$ref": "target-account.schema.json#/properties/allowed_groups"
+              },
+              "allowed_roles": {
+                "$ref": "target-account.schema.json#/properties/allowed_roles"
               }
             },
             "required": ["account_id", "username", "method"]

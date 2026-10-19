@@ -34,6 +34,22 @@
       "items": {
         "$ref": "common.schema.json#/$defs/id"
       }
+    },
+    "allowed_groups": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      }
+    },
+    "allowed_roles": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      }
     }
   },
   "required": [

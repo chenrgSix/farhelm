@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api } from "../api/client";
 type Account = {
   id: string;
@@ -8,6 +8,8 @@ type Account = {
   method: "ssh" | "sudo";
   revision: number;
   allowed_users: string[];
+  allowed_groups: string[];
+  allowed_roles: string[];
 };
 const props = defineProps<{
   deviceId: string;
@@ -20,7 +22,9 @@ const emit = defineEmits<{
   changed: [];
 }>();
 const accounts = ref<Account[]>([]),
-  users = ref<{ id: string; username: string }[]>([]);
+  users = ref<{ id: string; username: string }[]>([]),
+  groups = ref<{ id: string; name: string }[]>([]),
+  roles = ref<{ id: string; name: string }[]>([]);
 const loaded = ref(false),
   busy = ref(false),
   error = ref(""),
@@ -32,7 +36,34 @@ const name = ref(""),
   password = ref(""),
   key = ref(""),
   passphrase = ref("");
-const allowed = ref<string[]>([]);
+const grants = ref({
+  users: [] as string[],
+  groups: [] as string[],
+  roles: [] as string[],
+});
+const grantPickers = computed(() => [
+  {
+    key: "users" as const,
+    label: "允许使用的用户",
+    unit: "位用户",
+    empty: "暂无可选的平台用户。",
+    options: users.value.map((u) => ({ id: u.id, name: u.username })),
+  },
+  {
+    key: "groups" as const,
+    label: "允许使用的用户组",
+    unit: "个用户组",
+    empty: "暂无用户组，可在「用户与权限」中创建。",
+    options: groups.value,
+  },
+  {
+    key: "roles" as const,
+    label: "允许使用的角色",
+    unit: "个角色",
+    empty: "暂无可选的角色。",
+    options: roles.value,
+  },
+]);
 const path = `/devices/${encodeURIComponent(props.deviceId)}/accounts`;
 let disposed = false;
 const errors: Record<string, string> = {
@@ -45,6 +76,9 @@ const errors: Record<string, string> = {
   INVALID_SUDO_PASSWORD: "密码不能包含换行或空字符。",
   SSH_PRIVATE_KEY_REQUIRED: "请填写目标账号的 SSH 私钥。",
   SSH_PRIVATE_KEY_INVALID_OR_PASSPHRASE_REQUIRED: "SSH 私钥或私钥口令无效。",
+  INVALID_ACCOUNT_USERS: "所选用户已停用或不存在，请重新打开面板。",
+  INVALID_ACCOUNT_GROUPS: "所选用户组不存在，请重新打开面板。",
+  INVALID_ACCOUNT_ROLES: "所选角色不存在，请重新打开面板。",
 };
 function report(e: unknown) {
   const text = e instanceof Error ? e.message : "请求失败";
@@ -56,10 +90,14 @@ async function load() {
     const result = await api.request<{
       accounts: Account[];
       users?: typeof users.value;
+      groups?: typeof groups.value;
+      roles?: typeof roles.value;
     }>(path);
     if (disposed) return;
     accounts.value = result.accounts;
     users.value = result.users ?? [];
+    groups.value = result.groups ?? [];
+    roles.value = result.roles ?? [];
     loaded.value = true;
     if (!props.manage && !result.accounts.length) emit("selected");
   } catch (e) {
@@ -71,7 +109,11 @@ function edit(account?: Account) {
   name.value = account?.name ?? "";
   username.value = account?.username ?? "root";
   method.value = account?.method ?? "sudo";
-  allowed.value = [...(account?.allowed_users ?? [])];
+  grants.value = {
+    users: [...(account?.allowed_users ?? [])],
+    groups: [...(account?.allowed_groups ?? [])],
+    roles: [...(account?.allowed_roles ?? [])],
+  };
   password.value = key.value = passphrase.value = "";
   error.value = message.value = "";
 }
@@ -88,7 +130,9 @@ async function save() {
         name: name.value.trim(),
         username: username.value.trim(),
         method: method.value,
-        allowed_users: allowed.value,
+        allowed_users: grants.value.users,
+        allowed_groups: grants.value.groups,
+        allowed_roles: grants.value.roles,
         ...(method.value === "sudo"
           ? password.value
             ? { sudo_password: password.value }
@@ -270,21 +314,34 @@ onBeforeUnmount(() => {
               地址、端口和主机指纹沿用设备的 SSH 接入配置；私钥应对应目标账号。
             </p>
           </template>
-          <fieldset class="user-picker" aria-describedby="account-users-hint">
-            <legend>允许使用的用户</legend>
-            <div v-if="users.length" class="user-options">
-              <label v-for="user in users" :key="user.id" class="user-option">
-                <input v-model="allowed" type="checkbox" :value="user.id" />
-                <span>{{ user.username }}</span>
+          <fieldset
+            v-for="picker in grantPickers"
+            :key="picker.key"
+            class="user-picker"
+            aria-describedby="account-users-hint"
+          >
+            <legend>{{ picker.label }}</legend>
+            <div v-if="picker.options.length" class="user-options">
+              <label
+                v-for="option in picker.options"
+                :key="option.id"
+                class="user-option"
+              >
+                <input
+                  v-model="grants[picker.key]"
+                  type="checkbox"
+                  :value="option.id"
+                />
+                <span>{{ option.name }}</span>
               </label>
             </div>
-            <p v-else class="field-hint">暂无可选的平台用户。</p>
+            <p v-else class="field-hint">{{ picker.empty }}</p>
             <p class="field-hint" aria-live="polite">
-              已选择 {{ allowed.length }} 位用户
+              已选择 {{ grants[picker.key].length }} {{ picker.unit }}
             </p>
           </fieldset>
           <p id="account-users-hint" class="field-hint">
-            勾选允许使用此账号的平台用户；未勾选时仅管理员可用。其他用户还须有本设备的终端权限；sudo
+            用户、用户组或角色匹配任意一项即可使用此账号，全部未勾选时仅管理员可用。角色包含直接分配及通过用户组继承的角色。其他用户还须有本设备的终端权限；sudo
             切换或 root 账号另需「使用 sudo／特权账号」权限。网页和 SSH
             入口共用此授权。
           </p>

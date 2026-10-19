@@ -5,5 +5,7 @@
   "username": "root",
   "method": "sudo",
   "revision": 1,
-  "allowed_users": ["ops"]
+  "allowed_users": ["ops"],
+  "allowed_groups": ["operations"],
+  "allowed_roles": ["operator"]
 }

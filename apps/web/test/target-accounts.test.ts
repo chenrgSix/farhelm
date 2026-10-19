@@ -11,6 +11,8 @@ const account = {
   method: "sudo",
   revision: 3,
   allowed_users: ["ops"],
+  allowed_groups: ["operations"],
+  allowed_roles: ["operator-role"],
 };
 const props = { deviceId: "device", deviceName: "服务器" };
 it("keeps default-only devices compatible and selects the default without opening a session itself", async () => {
@@ -39,6 +41,8 @@ it("saves account-specific sudo credentials and selected users, then clears the 
     .mockResolvedValueOnce({
       accounts: [],
       users: [{ id: "ops", username: "operator" }],
+      groups: [{ id: "operations", name: "运维组" }],
+      roles: [{ id: "operator-role", name: "运维角色" }],
     })
     .mockResolvedValueOnce({ account })
     .mockResolvedValue({ accounts: [account], users: [] });
@@ -51,6 +55,14 @@ it("saves account-specific sudo credentials and selected users, then clears the 
     .setValue("生产 root");
   await wrapper.get('input[type="password"]').setValue("fixture-password9");
   await wrapper.get('input[type="checkbox"][value="ops"]').setValue(true);
+  await wrapper
+    .get('input[type="checkbox"][value="operations"]')
+    .setValue(true);
+  await wrapper
+    .get('input[type="checkbox"][value="operator-role"]')
+    .setValue(true);
+  expect(wrapper.text()).toContain("已选择 1 个用户组");
+  expect(wrapper.text()).toContain("已选择 1 个角色");
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(request.mock.calls[1]).toEqual([
@@ -63,6 +75,8 @@ it("saves account-specific sudo credentials and selected users, then clears the 
         username: "root",
         method: "sudo",
         allowed_users: ["ops"],
+        allowed_groups: ["operations"],
+        allowed_roles: ["operator-role"],
         sudo_password: "fixture-password9",
       },
     },
@@ -75,9 +89,12 @@ it("saves account-specific sudo credentials and selected users, then clears the 
   wrapper.unmount();
 });
 it("preserves stored credentials when editing with blank password and sends the current revision", async () => {
-  const request = vi
-    .spyOn(api, "request")
-    .mockResolvedValue({ accounts: [account], users: [] });
+  const request = vi.spyOn(api, "request").mockResolvedValue({
+    accounts: [account],
+    users: [],
+    groups: [{ id: "operations", name: "运维组" }],
+    roles: [{ id: "operator-role", name: "运维角色" }],
+  });
   const wrapper = mount(TargetAccountsPanel, {
     props: { ...props, manage: true },
   });
@@ -86,12 +103,21 @@ it("preserves stored credentials when editing with blank password and sends the 
     .findAll("button")
     .find((b) => b.text() === "编辑")!
     .trigger("click");
+  expect(
+    wrapper.get<HTMLInputElement>('input[value="operations"]').element.checked,
+  ).toBe(true);
+  expect(
+    wrapper.get<HTMLInputElement>('input[value="operator-role"]').element
+      .checked,
+  ).toBe(true);
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(request.mock.calls[1][1]?.body).toMatchObject({
     revision: 3,
     method: "sudo",
     allowed_users: ["ops"],
+    allowed_groups: ["operations"],
+    allowed_roles: ["operator-role"],
   });
   expect(request.mock.calls[1][1]?.body).not.toHaveProperty("sudo_password");
   wrapper.unmount();

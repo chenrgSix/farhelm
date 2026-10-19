@@ -326,6 +326,12 @@ export class Store {
         "utf8",
       ),
     );
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/032_target_account_grants.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

@@ -16,8 +16,13 @@ export interface TargetAccount {
   method: "ssh" | "sudo";
   revision: number;
   allowed_users: string[];
+  allowed_groups: string[];
+  allowed_roles: string[];
 }
-type Row = Omit<TargetAccount, "allowed_users"> & {
+type Row = Omit<
+  TargetAccount,
+  "allowed_users" | "allowed_groups" | "allowed_roles"
+> & {
   allowed_users: string;
   secrets: string;
 };
@@ -44,13 +49,46 @@ export function registerTargetAccounts(
   }
   function publicAccount(r: Row): TargetAccount {
     const { secrets: _, ...account } = r;
-    return { ...account, allowed_users: JSON.parse(r.allowed_users) };
+    return {
+      ...account,
+      allowed_users: JSON.parse(r.allowed_users),
+      allowed_groups: groupGrants(r.id),
+      allowed_roles: roleGrants(r.id),
+    };
+  }
+  function groupGrants(id: string) {
+    return (
+      db
+        .prepare(
+          "SELECT group_id FROM target_account_groups WHERE account_id=? ORDER BY group_id",
+        )
+        .all(id) as { group_id: string }[]
+    ).map((r) => r.group_id);
+  }
+  function roleGrants(id: string) {
+    return (
+      db
+        .prepare(
+          "SELECT role_id FROM target_account_roles WHERE account_id=? ORDER BY role_id",
+        )
+        .all(id) as { role_id: string }[]
+    ).map((r) => r.role_id);
   }
   function allowed(user: User, r: Row) {
     return (
       hasPermission(user, "terminal.connect") &&
       (user.role === "admin" ||
-        JSON.parse(r.allowed_users).includes(user.id)) &&
+        JSON.parse(r.allowed_users).includes(user.id) ||
+        !!db
+          .prepare(
+            "SELECT 1 FROM target_account_groups a JOIN group_members m ON m.group_id=a.group_id WHERE a.account_id=? AND m.user_id=?",
+          )
+          .get(r.id, user.id) ||
+        !!db
+          .prepare(
+            "SELECT 1 FROM target_account_roles a WHERE a.account_id=? AND (EXISTS(SELECT 1 FROM user_roles u WHERE u.role_id=a.role_id AND u.user_id=?) OR EXISTS(SELECT 1 FROM group_roles g JOIN group_members m ON m.group_id=g.group_id WHERE g.role_id=a.role_id AND m.user_id=?))",
+          )
+          .get(r.id, user.id, user.id)) &&
       (!(r.method === "sudo" || r.username === "root") ||
         hasPermission(user, "terminal.sudo"))
     );
@@ -103,6 +141,14 @@ export function registerTargetAccounts(
                 "SELECT id,username FROM users WHERE enabled=1 ORDER BY username",
               )
               .all(),
+            groups: db
+              .prepare("SELECT id,name FROM access_groups ORDER BY name,id")
+              .all(),
+            roles: db
+              .prepare(
+                "SELECT id,name FROM access_roles ORDER BY builtin DESC,name,id",
+              )
+              .all(),
           }
         : {}),
     };
@@ -118,6 +164,8 @@ export function registerTargetAccounts(
       "username",
       "method",
       "allowed_users",
+      "allowed_groups",
+      "allowed_roles",
       "private_key",
       "passphrase",
       "sudo_password",
@@ -162,6 +210,44 @@ export function registerTargetAccounts(
       )
         fail(400, "INVALID_ACCOUNT_USERS");
     }
+    function references(
+      value: unknown,
+      table: "access_groups" | "access_roles",
+      code: string,
+    ) {
+      if (
+        !Array.isArray(value) ||
+        value.length > 100 ||
+        new Set(value).size !== value.length
+      )
+        fail(400, code);
+      return value.map((id) => {
+        if (
+          !db.prepare(`SELECT 1 FROM ${table} WHERE id=?`).get(str(id, 1, 128))
+        )
+          fail(400, code);
+        return id as string;
+      });
+    }
+    // Older clients may omit these fields when updating an existing account.
+    const groups = references(
+      b.allowed_groups === undefined
+        ? previous
+          ? groupGrants(accountId)
+          : []
+        : b.allowed_groups,
+      "access_groups",
+      "INVALID_ACCOUNT_GROUPS",
+    );
+    const roles = references(
+      b.allowed_roles === undefined
+        ? previous
+          ? roleGrants(accountId)
+          : []
+        : b.allowed_roles,
+      "access_roles",
+      "INVALID_ACCOUNT_ROLES",
+    );
     const secret =
       previous && previous.method === b.method
         ? credentials.open(accountId, previous.secrets)
@@ -212,10 +298,27 @@ export function registerTargetAccounts(
         JSON.stringify(b.allowed_users),
         credentials.seal(accountId, secret),
       );
+      db.prepare("DELETE FROM target_account_groups WHERE account_id=?").run(
+        accountId,
+      );
+      for (const id of groups)
+        db.prepare(
+          "INSERT INTO target_account_groups(account_id,group_id) VALUES(?,?)",
+        ).run(accountId, id);
+      db.prepare("DELETE FROM target_account_roles WHERE account_id=?").run(
+        accountId,
+      );
+      for (const id of roles)
+        db.prepare(
+          "INSERT INTO target_account_roles(account_id,role_id) VALUES(?,?)",
+        ).run(accountId, id);
       d.store.audit("account.configured", user.id, deviceId, null, {
         account_id: accountId,
         username,
         method: b.method,
+        allowed_users: b.allowed_users,
+        allowed_groups: groups,
+        allowed_roles: roles,
       });
     });
     return { v: 1, account: publicAccount(row(accountId)!) };
