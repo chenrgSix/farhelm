@@ -53,7 +53,9 @@ async function copy() {
       <div class="panel-heading">
         <div>
           <h2 id="ssh-heading">SSH 连接 · {{ device.name }}</h2>
-          <p class="muted">通过平台入口连接这台设备</p>
+          <p class="muted">
+            通过平台入口连接这台设备，登录后选择获授权的目标账号
+          </p>
         </div>
         <button
           class="icon-button"

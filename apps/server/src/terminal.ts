@@ -10,6 +10,10 @@ import type { Store } from "./store.js";
 import { historyPage } from "./history.js";
 import type { User } from "./types.js";
 import type { TargetTerminal } from "./ssh-target.js";
+import type {
+  registerTargetAccounts,
+  TargetAccount,
+} from "./target-accounts.js";
 import {
   fail,
   hash,
@@ -39,9 +43,12 @@ interface Session {
   peer?: TerminalPeer;
   ready: boolean;
   backend: "agent" | "ssh";
+  elevated: boolean;
+  account?: TargetAccount;
   target?: TargetTerminal;
 }
 interface Dependencies {
+  accounts?: ReturnType<typeof registerTargetAccounts>;
   store: Store;
   operator(req: FastifyRequest): User;
   userAuth(req: FastifyRequest): User;
@@ -53,6 +60,7 @@ interface Dependencies {
   requireConnect?(): void;
   route?(id: string, backend: "agent" | "ssh"): unknown;
   connections: {
+    sudoPassword?(id: string): string | undefined;
     kind(id: string): "agent" | "ssh";
     hasSsh(id: string): boolean;
     canSsh?(id: string): boolean;
@@ -61,12 +69,15 @@ interface Dependencies {
       cols: number,
       rows: number,
       receive: (type: string, body: Record<string, any>) => void,
+      account?: { username: string; privateKey: string; passphrase?: string },
     ): TargetTerminal;
   };
-  agent(
-    id: string,
-  ):
-    | { send(type: string, body: unknown): boolean; terminal: boolean }
+  agent(id: string):
+    | {
+        send(type: string, body: unknown): boolean;
+        terminal: boolean;
+        sudo?: boolean;
+      }
     | undefined;
   rate: RateLimiter;
   consoleOrigin?: string;
@@ -120,7 +131,10 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     );
   }
   function authorized(
-    s: Pick<Session, "deviceId" | "userSession" | "actorId">,
+    s: Pick<Session, "deviceId" | "userSession" | "actorId"> & {
+      elevated?: boolean;
+      account?: TargetAccount;
+    },
   ) {
     const user = d.credentialUser(s.userSession);
     if (
@@ -131,9 +145,22 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         .get(s.deviceId)
     )
       return false;
+    if (s.account) {
+      try {
+        const current = d.accounts?.requireAccount(
+          user,
+          s.deviceId,
+          s.account.id,
+        );
+        if (!current || current.revision !== s.account.revision) return false;
+      } catch {
+        return false;
+      }
+    }
     return (
       !user.must_change_password &&
       hasPermission(user, "terminal.connect") &&
+      (!s.elevated || hasPermission(user, "terminal.sudo")) &&
       d.inScope(user, s.deviceId)
     );
   }
@@ -219,6 +246,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     cols: number,
     rows: number,
     transport: "web" | "ssh",
+    elevated = false,
+    accountId?: string,
   ) {
     d.requireConnect?.();
     integer(cols, 20, 500);
@@ -227,9 +256,45 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       fail(403, "EXEC_ROLE_REQUIRED");
     d.requireScope(user, deviceId);
     rate.check("terminal-create:" + user.id, 20);
-    if (!authorized({ deviceId, actorId: user.id, userSession }))
+    const account = accountId
+      ? d.accounts?.requireAccount(user, deviceId, accountId)
+      : undefined;
+    if (accountId && !account) fail(403, "TARGET_ACCOUNT_DENIED");
+    elevated = elevated || account?.method === "sudo";
+    if (
+      (elevated || account?.username === "root") &&
+      !hasPermission(user, "terminal.sudo")
+    )
+      fail(403, "SUDO_PERMISSION_REQUIRED");
+    if (
+      !authorized({
+        deviceId,
+        actorId: user.id,
+        userSession,
+        elevated,
+        account,
+      })
+    )
       fail(403, "TERMINAL_NOT_AUTHORIZED");
-    const selectedBackend = backend(deviceId);
+    const selectedBackend = account
+      ? account.method === "sudo"
+        ? "agent"
+        : "ssh"
+      : backend(deviceId);
+    if (account?.method === "ssh" && d.connections.canSsh?.(deviceId) === false)
+      fail(409, "SSH_NOT_CONFIGURED");
+    if (elevated) {
+      if (selectedBackend !== "agent") fail(409, "SUDO_AGENT_REQUIRED");
+      if (!d.agent(deviceId)?.terminal) fail(409, "DEVICE_OFFLINE");
+      if (!d.agent(deviceId)?.sudo)
+        fail(409, "SUDO_NOT_SUPPORTED_UPDATE_AGENT");
+      if (
+        !(account
+          ? d.accounts?.secret(account.id).sudo_password
+          : d.connections.sudoPassword?.(deviceId))
+      )
+        fail(409, "SUDO_PASSWORD_REQUIRED");
+    }
     if (selectedBackend === "agent") d.requireAvailable?.(deviceId);
     if (!selectedBackend) {
       const agent = d.agent(deviceId);
@@ -251,9 +316,28 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       db.prepare(
         "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,transport,backend) VALUES(?,?,?,'OPENING',?,?,?,?,?)",
       ).run(id, deviceId, user.id, cols, rows, now, transport, selectedBackend);
-      record(id, "open", { cols, rows });
+      record(id, "open", {
+        cols,
+        rows,
+        ...(elevated ? { elevated: true } : {}),
+        ...(account
+          ? {
+              account_id: account.id,
+              username: account.username,
+              method: account.method,
+            }
+          : {}),
+      });
       store.audit("terminal.created", user.id, deviceId, null, {
         session_id: id,
+        ...(elevated ? { elevated: true } : {}),
+        ...(account
+          ? {
+              account_id: account.id,
+              username: account.username,
+              method: account.method,
+            }
+          : {}),
       });
     });
     const session: Session = {
@@ -266,6 +350,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       created: now,
       ready: false,
       backend: selectedBackend,
+      elevated,
+      account,
     };
     sessions.set(id, session);
     return { session, ticket };
@@ -274,7 +360,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     const user = d.operator(req),
       b = object(req.body);
     version(b);
-    keys(b, ["v", "device_id", "cols", "rows"]);
+    keys(b, ["v", "device_id", "cols", "rows", "account_id"]);
     const deviceId = str(b.device_id, 1, 128),
       cols = integer(b.cols, 20, 500),
       rows = integer(b.rows, 5, 200);
@@ -285,6 +371,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       cols,
       rows,
       "web",
+      false,
+      b.account_id === undefined ? undefined : str(b.account_id, 1, 128),
     );
     return {
       v: 1,
@@ -380,14 +468,48 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       : d.agent(s.deviceId)?.send(type, { session_id: s.id, ...body });
   }
   function openTarget(s: Session, cols: number, rows: number) {
+    if (!authorized(s)) return safeEnd(s, "AUTHORIZATION_EXPIRED");
     if (s.backend === "ssh") {
       try {
-        s.target = d.connections.open(s.deviceId, cols, rows, (type, body) =>
-          receive(s.deviceId, type, { ...body, session_id: s.id }, "ssh"),
+        const secret = s.account ? d.accounts!.secret(s.account.id) : undefined;
+        s.target = d.connections.open(
+          s.deviceId,
+          cols,
+          rows,
+          (type, body) =>
+            receive(s.deviceId, type, { ...body, session_id: s.id }, "ssh"),
+          s.account && secret
+            ? {
+                username: s.account.username,
+                privateKey: secret.private_key!,
+                passphrase: secret.passphrase,
+              }
+            : undefined,
         );
       } catch {
         safeEnd(s, "SSH_CONNECT_FAILED");
       }
+      return;
+    }
+    if (s.elevated) {
+      if (!d.agent(s.deviceId)?.terminal) return safeEnd(s, "DEVICE_OFFLINE");
+      if (!d.agent(s.deviceId)?.sudo)
+        return safeEnd(s, "SUDO_NOT_SUPPORTED_UPDATE_AGENT");
+      const password = s.account
+        ? d.accounts?.secret(s.account.id).sudo_password
+        : d.connections.sudoPassword?.(s.deviceId);
+      if (!password) return safeEnd(s, "SUDO_PASSWORD_REQUIRED");
+      if (/[\r\n\0]/.test(password)) return safeEnd(s, "INVALID_SUDO_PASSWORD");
+      if (
+        !d.agent(s.deviceId)?.send("terminal.sudo.open", {
+          session_id: s.id,
+          cols,
+          rows,
+          sudo_password: password,
+          username: s.account?.username ?? "root",
+        })
+      )
+        safeEnd(s, "DEVICE_OFFLINE");
       return;
     }
     if (
@@ -485,10 +607,24 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           store.audit("terminal.opened", s.actorId, s.deviceId, null, {
             network_route: d.route?.(s.deviceId, s.backend) ?? null,
             session_id: s.id,
+            ...(s.elevated ? { elevated: true } : {}),
+            ...(s.account
+              ? {
+                  account_id: s.account.id,
+                  username: s.account.username,
+                  method: s.account.method,
+                }
+              : {}),
           });
         });
         s.ready = true;
-        if (!sendClient(s, "terminal.ready", { backend: s.backend }))
+        if (
+          !sendClient(s, "terminal.ready", {
+            backend: s.backend,
+            ...(s.elevated ? { elevated: true } : {}),
+            ...(s.account ? { username: s.account.username } : {}),
+          })
+        )
           end(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
       } else if (type === "terminal.output") {
         keys(b, ["session_id", "seq", "data"]);
@@ -536,6 +672,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       cols: number,
       rows: number,
       peer: TerminalPeer,
+      accountId?: string,
     ) {
       const { session: s } = create(
         user,
@@ -544,6 +681,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         cols,
         rows,
         "ssh",
+        false,
+        accountId,
       );
       s.ticketHash = null;
       s.peer = peer;

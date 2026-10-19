@@ -55,6 +55,9 @@ import DeviceActions from "./components/DeviceActions.vue";
 import ChangePasswordPanel from "./components/ChangePasswordPanel.vue";
 import ApiTokensPanel from "./components/ApiTokensPanel.vue";
 import AccessManagementPanel from "./components/AccessManagementPanel.vue";
+const TargetAccountsPanel = defineAsyncComponent(
+  () => import("./components/TargetAccountsPanel.vue"),
+);
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -172,10 +175,14 @@ const tasksReady = computed(
     !!overviewTaskList.updatedAt.value &&
     !taskError.value,
 );
+const accountTarget = ref<{ device: Device; manage: boolean } | null>(null);
 const terminalTarget = ref<{
   id: string;
   name: string;
   recording?: TerminalSession;
+  elevated?: boolean;
+  accountId?: string;
+  username?: string;
 } | null>(null);
 const deviceGroupFilter = ref("");
 const selectedDeviceIds = ref<string[]>([]);
@@ -327,6 +334,7 @@ function clearSession(message = "", preserveSaved = false) {
   deviceGroupFilter.value = "";
   selectedTask.value = null;
   terminalTarget.value = null;
+  accountTarget.value = null;
   healthTarget.value = null;
   networkTarget.value = null;
   networkRouteTarget.value = null;
@@ -604,7 +612,10 @@ async function revoke(device: Device) {
 function handleDeviceAction(kind: string, device: Device) {
   switch (kind) {
     case "terminal":
-      terminalTarget.value = { id: device.id, name: device.name };
+      accountTarget.value = { device, manage: false };
+      break;
+    case "accounts":
+      accountTarget.value = { device, manage: true };
       break;
     case "connection":
       connectionTarget.value = device;
@@ -1657,12 +1668,34 @@ onBeforeUnmount(() => {
           ><span>只审计经过平台的操作</span>
         </footer>
       </main>
+      <TargetAccountsPanel
+        v-if="accountTarget"
+        :device-id="accountTarget.device.id"
+        :device-name="accountTarget.device.name"
+        :manage="accountTarget.manage"
+        @close="accountTarget = null"
+        @selected="
+          (account) => {
+            terminalTarget = {
+              id: accountTarget!.device.id,
+              name: accountTarget!.device.name,
+              accountId: account?.id,
+              username: account?.username,
+              elevated: account?.method === 'sudo',
+            };
+            accountTarget = null;
+          }
+        "
+      />
       <TerminalPanel
         v-if="terminalTarget"
         :key="terminalTarget.recording?.id ?? terminalTarget.id"
         :device-id="terminalTarget.id"
         :device-name="terminalTarget.name"
         :recording="terminalTarget.recording"
+        :elevated="terminalTarget.elevated"
+        :account-id="terminalTarget.accountId"
+        :username="terminalTarget.username"
         @close="
           terminalTarget = null;
           refresh();

@@ -51,6 +51,10 @@ struct Open {
     session_id: String,
     cols: u16,
     rows: u16,
+    #[serde(default)]
+    sudo_password: Option<String>,
+    #[serde(default)]
+    username: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,14 +88,36 @@ impl Terminals {
     }
     pub async fn receive(&mut self, kind: &str, body: Value) -> Result<()> {
         self.entries.retain(|_, e| !e.task.is_finished());
-        if kind == "terminal.open" {
-            let open: Open = serde_json::from_value(body)?;
+        if kind == "terminal.open" || kind == "terminal.sudo.open" {
+            let mut open: Open = serde_json::from_value(body)?;
+            ensure!(
+                (kind == "terminal.sudo.open") == open.sudo_password.is_some(),
+                "invalid sudo terminal request"
+            );
+            ensure!(
+                kind == "terminal.sudo.open" || open.username.is_none(),
+                "unexpected target username"
+            );
+            let password = open
+                .sudo_password
+                .take()
+                .map(crate::sudo::Password::new)
+                .transpose()?;
             ensure!(
                 uuid::Uuid::parse_str(&open.session_id).is_ok(),
                 "invalid terminal ID"
             );
             size(open.cols, open.rows)?;
             if !self.seen.insert(open.session_id.clone()) {
+                return Ok(());
+            }
+            if password.is_some() && !self.cfg.terminal_allow_privilege_escalation {
+                self.output
+                    .send((
+                        "terminal.closed".into(),
+                        json!({"session_id":open.session_id,"reason":"SUDO_DISABLED"}),
+                    ))
+                    .await?;
                 return Ok(());
             }
             if !self.cfg.execution_enabled || self.entries.len() >= 4 || self.seen.len() > 1024 {
@@ -108,9 +134,15 @@ impl Terminals {
             let output = self.output.clone();
             let allow_privilege_escalation = self.cfg.terminal_allow_privilege_escalation;
             let task = tokio::spawn(async move {
-                let reason = run(&open, receiver, output.clone(), allow_privilege_escalation)
-                    .await
-                    .unwrap_or("PTY_FAILURE");
+                let reason = run(
+                    &open,
+                    receiver,
+                    output.clone(),
+                    allow_privilege_escalation,
+                    password,
+                )
+                .await
+                .unwrap_or("PTY_FAILURE");
                 let _ = output
                     .send((
                         "terminal.closed".into(),
@@ -210,7 +242,12 @@ impl Drop for Pty {
         let _ = self.child.start_kill();
     }
 }
-fn spawn(cols: u16, rows: u16, allow_privilege_escalation: bool) -> Result<Pty> {
+fn spawn(
+    cols: u16,
+    rows: u16,
+    allow_privilege_escalation: bool,
+    sudo: Option<&crate::sudo::Channel>,
+) -> Result<Pty> {
     ensure!(
         unsafe { libc::geteuid() } != 0,
         "terminal as root forbidden"
@@ -260,12 +297,25 @@ fn spawn(cols: u16, rows: u16, allow_privilege_escalation: bool) -> Result<Pty> 
     } else {
         "/bin/sh"
     };
-    let mut command = Command::new(shell);
-    if shell == "/bin/bash" {
+    let mut command = Command::new(if sudo.is_some() {
+        "/usr/bin/sudo"
+    } else {
+        shell
+    });
+    if let Some(sudo) = sudo {
+        command
+            .args(["-A", "-k", "-p", "", "-u", &sudo.username, "--"])
+            .arg(std::env::current_exe()?)
+            .arg("--sudo-shell")
+            .arg(&sudo.path)
+            .arg(&sudo.username);
+    } else if shell == "/bin/bash" {
         command.args(["--noprofile", "--norc"]);
     }
+    if sudo.is_none() {
+        command.arg("-i");
+    }
     command
-        .arg("-i")
         .current_dir(&home)
         .env_clear()
         .env("HOME", &home)
@@ -286,6 +336,11 @@ fn spawn(cols: u16, rows: u16, allow_privilege_escalation: bool) -> Result<Pty> 
         .stdout(Stdio::from(slave.try_clone()?))
         .stderr(Stdio::from(slave))
         .kill_on_drop(true);
+    if let Some(sudo) = sudo {
+        command
+            .env("SUDO_ASKPASS", std::env::current_exe()?)
+            .env("FLEET_SUDO_ASKPASS_SOCKET", &sudo.path);
+    }
     unsafe {
         command.as_std_mut().pre_exec(move || {
             if libc::setsid() == -1
@@ -344,8 +399,36 @@ async fn run(
     mut input: mpsc::Receiver<Control>,
     output: mpsc::Sender<Output>,
     allow_privilege_escalation: bool,
+    password: Option<crate::sudo::Password>,
 ) -> Result<&'static str> {
-    let pty = spawn(open.cols, open.rows, allow_privilege_escalation)?;
+    let mut channel = password
+        .map(|password| {
+            crate::sudo::Channel::new(
+                open.username.clone().unwrap_or_else(|| "root".into()),
+                password,
+            )
+        })
+        .transpose()?;
+    let mut pty = match spawn(
+        open.cols,
+        open.rows,
+        allow_privilege_escalation,
+        channel.as_ref(),
+    ) {
+        Ok(pty) => pty,
+        Err(_) if channel.is_some() => return Ok("SUDO_AUTH_FAILED"),
+        Err(error) => return Err(error),
+    };
+    if let Some(channel) = &mut channel {
+        tokio::select! {
+            result = tokio::time::timeout(Duration::from_secs(15), channel.authenticate(pty.pid)) => match result {
+                Ok(Ok(())) => {}, Ok(Err(_)) => return Ok("SUDO_AUTH_FAILED"), Err(_) => return Ok("SUDO_AUTH_TIMEOUT"),
+            },
+            _ = pty.child.wait() => return Ok("SUDO_AUTH_FAILED"),
+            _ = input.recv() => return Ok("CONTROL_CLOSED"),
+        }
+    }
+    drop(channel);
     output
         .send((
             "terminal.opened".into(),
@@ -388,6 +471,35 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn sudo_cannot_bypass_the_local_opt_in_or_use_normal_terminal_frames() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            connect_ip: None,
+            server: url::Url::parse("https://localhost:8444").unwrap(),
+            state: temp.path().into(),
+            ca_pem: None,
+            enrollment_token: None,
+            name: "sudo-disabled".into(),
+            execution_enabled: true,
+            terminal_allow_privilege_escalation: false,
+            heartbeat_ms: 1000,
+            fault: None,
+        };
+        let (output, mut events) = mpsc::channel(8);
+        let mut terminals = Terminals::new(cfg, output);
+        let body = json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"username":"root","sudo_password":"public-test-password"});
+        assert!(terminals
+            .receive("terminal.open", body.clone())
+            .await
+            .is_err());
+        terminals.receive("terminal.sudo.open", body).await.unwrap();
+        let (kind, body) = events.recv().await.unwrap();
+        assert_eq!(kind, "terminal.closed");
+        assert_eq!(body["reason"], "SUDO_DISABLED");
+        assert!(!body.to_string().contains("public-test-password"));
+    }
 
     async fn input(manager: &mut Terminals, id: &str, text: &str) {
         manager

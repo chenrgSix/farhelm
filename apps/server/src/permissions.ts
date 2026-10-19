@@ -3,6 +3,7 @@ import type { Role, User } from "./types.js";
 export const PERMISSIONS = [
   "devices.read",
   "terminal.connect",
+  "terminal.sudo",
   "tasks.read",
   "tasks.read_all",
   "tasks.execute",
@@ -24,7 +25,9 @@ export function rolePermissions(role: Role): Permission[] {
   return role === "admin"
     ? [...PERMISSIONS]
     : role === "ops"
-      ? PERMISSIONS.filter((p) => !p.endsWith(".read_all"))
+      ? PERMISSIONS.filter(
+          (p) => !p.endsWith(".read_all") && p !== "terminal.sudo",
+        )
       : role === "auditor"
         ? [
             ...READ_PERMISSIONS,

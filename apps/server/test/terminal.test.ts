@@ -750,3 +750,207 @@ test("logout revokes only the current token, its active terminal and pending tic
     await f.close();
   }
 });
+
+test("target account ACL, sudo permission, private credential delivery and revocation share the terminal path", async () => {
+  const f = await fixture();
+  try {
+    const opsUser = f.store.seedUser({
+      username: "account-ops",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const ops = await f.login("account-ops");
+    const password = "sudo-public-fixture-!中文$'";
+    const saved = await f.api(
+      "POST",
+      "/api/v1/devices/device/accounts",
+      {
+        v: 1,
+        name: "Root account",
+        username: "root",
+        method: "sudo",
+        allowed_users: [opsUser.id],
+        sudo_password: password,
+      },
+      f.admin,
+    );
+    assert.equal(saved.status, 200, JSON.stringify(saved));
+    const account = saved.body.account;
+    assert.equal(JSON.stringify(saved).includes(password), false);
+    assert.equal(
+      (await f.api("GET", "/api/v1/devices/device/accounts", undefined, ops))
+        .body.accounts.length,
+      0,
+      "ordinary terminal access grants no sudo access",
+    );
+    const create = (auth = f.admin) =>
+      f.api(
+        "POST",
+        "/api/v1/terminal-sessions",
+        {
+          v: 1,
+          device_id: "device",
+          account_id: account.id,
+          cols: 80,
+          rows: 24,
+        },
+        auth,
+      );
+    assert.equal((await create(ops)).status, 403);
+    const role = f.store.db
+      .prepare("SELECT permissions FROM access_roles WHERE id='ops'")
+      .get()!;
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(
+        JSON.stringify([
+          ...JSON.parse(role.permissions as string),
+          "terminal.sudo",
+        ]),
+      );
+    assert.equal(
+      (await f.api("GET", "/api/v1/devices/device/accounts", undefined, ops))
+        .body.accounts.length,
+      1,
+    );
+    assert.equal(
+      (await create(ops)).body.error,
+      "SUDO_NOT_SUPPORTED_UPDATE_AGENT",
+    );
+    f.agent.send("agent.heartbeat", {
+      agent_version: "test-sudo",
+      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const created = await create(ops);
+    assert.equal(created.status, 200, JSON.stringify(created));
+    assert.equal(JSON.stringify(created).includes(password), false);
+    const browser = await f.attach(created.body);
+    const request = await f.agent.wait("terminal.sudo.open");
+    assert.equal(request.sudo_password, password);
+    assert.equal(request.username, "root");
+    assert.equal(
+      f.agent.messages.some((m) => m.type === "terminal.input"),
+      false,
+      "password is never injected as terminal input",
+    );
+    f.agent.send("terminal.opened", { session_id: request.session_id });
+    assert.deepEqual(await browser.wait("terminal.ready"), {
+      backend: "agent",
+      elevated: true,
+      username: "root",
+    });
+    assert.equal(JSON.stringify(browser.messages).includes(password), false);
+    const db = f.store.db;
+    assert.equal(
+      JSON.stringify(db.prepare("SELECT * FROM audit").all()).includes(
+        password,
+      ),
+      false,
+    );
+    assert.equal(
+      JSON.stringify(
+        db.prepare("SELECT * FROM terminal_recordings").all(),
+      ).includes(password),
+      false,
+    );
+    assert.equal(
+      JSON.stringify(
+        db.prepare("SELECT * FROM target_accounts").all(),
+      ).includes(password),
+      false,
+    );
+    assert.equal(
+      (
+        await f.api(
+          "PUT",
+          `/api/v1/devices/device/accounts/${account.id}`,
+          { ...account, v: 1 },
+          f.admin,
+        )
+      ).status,
+      400,
+    );
+    const edit = {
+      v: 1,
+      revision: account.revision,
+      name: account.name,
+      username: "root",
+      method: "sudo",
+      allowed_users: [opsUser.id],
+    };
+    assert.equal(
+      (
+        await f.api(
+          "PUT",
+          `/api/v1/devices/device/accounts/${account.id}`,
+          edit,
+          f.admin,
+        )
+      ).body.error,
+      "CONNECTION_HAS_ACTIVE_SESSIONS",
+    );
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(role.permissions);
+    assert.equal(
+      (await browser.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    const updated = await f.api(
+      "PUT",
+      `/api/v1/devices/device/accounts/${account.id}`,
+      edit,
+      f.admin,
+    );
+    assert.equal(updated.status, 200, JSON.stringify(updated));
+    assert.equal(
+      (
+        await f.api(
+          "PUT",
+          `/api/v1/devices/device/accounts/${account.id}`,
+          edit,
+          f.admin,
+        )
+      ).body.error,
+      "TARGET_ACCOUNT_CHANGED_RELOAD",
+    );
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('other','other-key','other',1)",
+      )
+      .run();
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/api/v1/terminal-sessions",
+          {
+            v: 1,
+            device_id: "other",
+            account_id: account.id,
+            cols: 80,
+            rows: 24,
+          },
+          f.admin,
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/api/v1/terminal-sessions",
+          { v: 1, device_id: "device", elevated: true, cols: 80, rows: 24 },
+          ops,
+        )
+      ).status,
+      400,
+      "there is no ACL bypass through a raw elevation flag",
+    );
+  } finally {
+    await f.close();
+  }
+});

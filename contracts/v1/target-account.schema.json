@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/target-account.schema.json",
+  "title": "Farhelm target account",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "username": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+    },
+    "method": {
+      "enum": ["ssh", "sudo"]
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "allowed_users": {
+      "type": "array",
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "device_id",
+    "name",
+    "username",
+    "method",
+    "revision",
+    "allowed_users"
+  ]
+}

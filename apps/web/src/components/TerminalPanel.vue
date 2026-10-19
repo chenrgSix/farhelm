@@ -11,6 +11,9 @@ const props = defineProps<{
   deviceId: string;
   deviceName: string;
   recording?: TerminalSession;
+  elevated?: boolean;
+  accountId?: string;
+  username?: string;
 }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const host = ref<HTMLDivElement>();
@@ -23,6 +26,27 @@ const records = ref<
 >([]);
 const speed = ref(2);
 const playing = ref(false);
+const sudoErrors: Record<string, string> = {
+  TARGET_ACCOUNT_DENIED: "目标账号未授权或授权已变更，请重新选择。",
+  SUDO_PERMISSION_REQUIRED: "当前账号没有使用 sudo 打开 root 终端的权限。",
+  SUDO_AGENT_REQUIRED:
+    "root 提权需要在线 Agent；SSH 设备请使用其已配置的登录账号。",
+  SUDO_NOT_SUPPORTED_UPDATE_AGENT: "此 Agent 尚不支持密码提权，请升级 Agent。",
+  SUDO_PASSWORD_REQUIRED: "请先由管理员在设备接入配置中保存 sudo 密码。",
+  INVALID_SUDO_PASSWORD:
+    "已保存的 sudo 密码含不支持的换行或空字符，请重新配置。",
+  SUDO_DISABLED:
+    "Agent 尚未允许终端提权，请启用该 Agent 的终端 sudo 配置并重启。",
+  SUDO_AUTH_FAILED:
+    "sudo 提权失败：请检查已保存的密码、账号的 sudo 权限及 sudo 安装情况。",
+  SUDO_AUTH_TIMEOUT: "sudo 认证超时，请检查目标机器的认证配置后重试。",
+};
+function terminalError(value: string) {
+  return (
+    Object.entries(sudoErrors).find(([code]) => value.includes(code))?.[1] ??
+    value
+  );
+}
 let terminal: Terminal;
 let fit: FitAddon;
 let socket: WebSocket | undefined;
@@ -147,6 +171,11 @@ async function connect() {
           device_id: props.deviceId,
           cols: Math.max(20, Math.min(500, terminal.cols)),
           rows: Math.max(5, Math.min(200, terminal.rows)),
+          ...(props.accountId
+            ? { account_id: props.accountId }
+            : props.elevated
+              ? { elevated: true }
+              : {}),
         },
       },
     );
@@ -177,8 +206,17 @@ async function connect() {
       try {
         const message = JSON.parse(event.data);
         if (message.type === "terminal.ready") {
+          if (
+            (props.elevated && message.body.elevated !== true) ||
+            (props.username && message.body.username !== props.username)
+          )
+            throw new Error("提权身份尚未确认，已断开终端。");
           connected.value = true;
-          state.value = "已连接";
+          state.value = props.username
+            ? `已连接 · ${props.username}`
+            : props.elevated
+              ? "已连接 · root"
+              : "已连接";
           backend.value = ["agent", "ssh"].includes(message.body.backend)
             ? message.body.backend
             : undefined;
@@ -202,6 +240,7 @@ async function connect() {
             !["SHELL_EXIT", "USER_DISCONNECTED"].includes(message.body.reason)
           )
             error.value =
+              sudoErrors[message.body.reason] ??
               (
                 {
                   SSH_HOST_KEY_MISMATCH:
@@ -239,7 +278,7 @@ async function connect() {
     };
   } catch (e) {
     if (disposed || run !== generation) return;
-    error.value = e instanceof Error ? e.message : "连接失败";
+    error.value = terminalError(e instanceof Error ? e.message : "连接失败");
     state.value = "连接失败";
   }
 }

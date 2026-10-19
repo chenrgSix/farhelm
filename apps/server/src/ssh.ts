@@ -24,6 +24,7 @@ interface Dependencies {
   ): SshLogin;
   currentUser(login: SshLogin): User;
   devices(login: SshLogin, page: number): SshDevicePage;
+  accounts?(login: SshLogin, deviceId: string): { id: string; name: string }[];
   release(sessionHash: string): void;
   terminals: ReturnType<typeof registerTerminals>;
 }
@@ -248,6 +249,17 @@ export function createSshGateway(
               channel.write(Buffer.from(body.data, "base64"));
             } else if (type === "terminal.closed") {
               closed = true;
+              const errors: Record<string, string> = {
+                SUDO_DISABLED: "Agent 未启用终端提权，请由管理员配置后重启。",
+                SUDO_AUTH_FAILED:
+                  "sudo 认证失败，请检查密码、目标账号和 sudo 权限。",
+                SUDO_AUTH_TIMEOUT: "sudo 认证超时，请检查目标机器。",
+                SUDO_PASSWORD_REQUIRED: "未配置 sudo 密码，请联系管理员。",
+                SUDO_NOT_SUPPORTED_UPDATE_AGENT:
+                  "Agent 版本不支持账号切换，请升级。",
+              };
+              if (errors[body.reason])
+                channel.stderr.write(errors[body.reason] + "\r\n");
               // This is transport completion, not a remote command exit status.
               channel.exit(
                 body.reason === "SHELL_EXIT" ||
@@ -269,7 +281,7 @@ export function createSshGateway(
           },
         };
         const authenticated = login;
-        function connect(deviceId: string) {
+        function connect(deviceId: string, accountId?: string) {
           if (!size) throw new Error("PTY required");
           const { cols, rows } = size;
           channel!.pause();
@@ -284,14 +296,55 @@ export function createSshGateway(
                 cols,
                 rows,
                 peer,
+                accountId,
               ),
           );
           menu = undefined;
           if (!closed) deadline(socket, 3600000);
         }
+        function chooseAccount(deviceId: string) {
+          const list = () => [
+            { id: "_default", name: "默认账号（沿用设备接入配置）" },
+            ...(d.accounts?.(authenticated, deviceId) ?? []),
+          ];
+          if (list().length === 1) return connect(deviceId);
+          deadline(socket, 300000);
+          menu = createDeviceMenu(channel!, {
+            kind: "account",
+            list(page) {
+              const accounts = list();
+              return {
+                devices: accounts
+                  .slice(page * 25, (page + 1) * 25)
+                  .map((a) => ({ ...a, status: "online" as const })),
+                hasMore: accounts.length > (page + 1) * 25,
+              };
+            },
+            select(accountId) {
+              try {
+                connect(
+                  deviceId,
+                  accountId === "_default" ? undefined : accountId,
+                );
+                return undefined;
+              } catch (error) {
+                channel!.resume();
+                if (error instanceof ApiError)
+                  return `目标账号暂不可用（${error.code}），请检查授权、Agent 版本和账号配置。`;
+                throw error;
+              }
+            },
+            close(code) {
+              channel!.exit(code);
+              peer.close();
+            },
+          });
+          menu.start();
+          channel!.resume();
+        }
         if (authenticated.deviceId) {
           try {
-            connect(authenticated.deviceId);
+            chooseAccount(authenticated.deviceId);
           } catch {
             channel.stderr.end(
               "Farhelm terminal unavailable; check device status and permissions in the console.\r\n",
@@ -305,7 +358,7 @@ export function createSshGateway(
             list: (page) => d.devices(authenticated, page),
             select(deviceId) {
               try {
-                connect(deviceId);
+                chooseAccount(deviceId);
                 return undefined;
               } catch (error) {
                 const messages: Record<string, string> = {

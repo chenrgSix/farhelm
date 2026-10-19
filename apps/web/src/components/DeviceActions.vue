@@ -4,7 +4,14 @@ import type { Device, User } from "../api/types";
 import { canExecute, hasPermission } from "../model";
 
 type Action =
-  "connection" | "install" | "network" | "health" | "ssh" | "exec" | "revoke";
+  | "accounts"
+  | "connection"
+  | "install"
+  | "network"
+  | "health"
+  | "ssh"
+  | "exec"
+  | "revoke";
 const props = withDefaults(
   defineProps<{
     device: Device;
@@ -29,6 +36,11 @@ const actions = computed(() => {
     props.agentEnabled !== false && props.device.connection_kind !== "ssh";
   const options: { kind: Action; label: string; visible: boolean }[] = [
     { kind: "connection", label: "接入配置", visible: admin },
+    {
+      kind: "accounts",
+      label: "目标账号",
+      visible: admin,
+    },
     {
       kind: "install",
       label: "安装 Agent",

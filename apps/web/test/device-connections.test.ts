@@ -115,7 +115,7 @@ it("Agent sudo password remains write-only, omitted blanks preserve it, and expl
     revision: 1,
     sudo_password: null,
   });
-  expect(wrapper.text()).toContain("不会自动执行 sudo");
+  expect(wrapper.text()).toContain("保存后不可查看");
   wrapper.unmount();
 });
 it("maps host-key mismatch to actionable text without retrying or replacing the trusted fingerprint", async () => {

@@ -28,6 +28,7 @@
         "enum": [
           "devices.read",
           "terminal.connect",
+          "terminal.sudo",
           "tasks.read",
           "tasks.read_all",
           "tasks.execute",
@@ -40,7 +41,7 @@
         ]
       },
       "uniqueItems": true,
-      "maxItems": 11
+      "maxItems": 12
     }
   },
   "required": ["v", "revision", "name", "description", "permissions"]

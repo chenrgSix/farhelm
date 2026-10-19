@@ -47,6 +47,7 @@ import {
   type Permission,
 } from "./permissions.js";
 import { registerTerminals } from "./terminal.js";
+import { registerTargetAccounts } from "./target-accounts.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerNetworkRoutes } from "./network-routes.js";
@@ -94,6 +95,7 @@ interface Connection {
   lastHeartbeat: number;
   ready: boolean;
   terminal: boolean;
+  sudo: boolean;
   health: boolean;
   address: boolean;
   trust: boolean;
@@ -765,7 +767,17 @@ export async function buildServer(config: ServerConfig) {
       };
     },
   });
+  const targetAccounts = registerTargetAccounts(app, {
+    store,
+    admin,
+    reader: (req) => permitted(req, "terminal.connect"),
+    requireScope,
+    requireDevice,
+    hasSsh: deviceConnections.hasSsh,
+    sudoPassword: deviceConnections.sudoPassword,
+  });
   const terminals = registerTerminals(app, {
+    accounts: targetAccounts,
     credentialUser: (tokenHash) => {
       const row = db
         .prepare(
@@ -805,6 +817,7 @@ export async function buildServer(config: ServerConfig) {
         return undefined;
       return {
         terminal: c.terminal && networkRoutes.allowed(id),
+        sudo: c.sudo,
         send: (type, body) => send(c, type, body),
       };
     },
@@ -991,6 +1004,12 @@ export async function buildServer(config: ServerConfig) {
             };
           },
           currentUser: sshUser,
+          accounts(login, deviceId) {
+            return targetAccounts.list(sshUser(login), deviceId).map((a) => ({
+              id: a.id,
+              name: `${a.name} · ${a.username} · ${a.method === "sudo" ? "sudo 切换" : "直接 SSH"}`,
+            }));
+          },
           devices(login, page) {
             rate.check("ssh-menu:" + login.sessionHash, 120);
             const user = sshUser(login);
@@ -1783,6 +1802,7 @@ export async function buildServer(config: ServerConfig) {
         lastHeartbeat: Date.now(),
         ready: false,
         terminal: false,
+        sudo: false,
         health: false,
         address: false,
         trust: false,
@@ -1838,6 +1858,7 @@ export async function buildServer(config: ServerConfig) {
                 fail(400, "INVALID_CAPABILITIES");
               c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
+              c.sudo = b.capabilities.includes("terminal.sudo.v1");
               c.health = b.capabilities.includes("health.probes.v1");
               c.address = b.capabilities.includes("agent.address.v1");
               c.trust = b.capabilities.includes("agent.trust.v1");

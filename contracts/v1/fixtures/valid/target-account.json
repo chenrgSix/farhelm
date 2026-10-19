@@ -1,0 +1,9 @@
+{
+  "id": "00000000-0000-4000-8000-000000000077",
+  "device_id": "device",
+  "name": "root ops",
+  "username": "root",
+  "method": "sudo",
+  "revision": 1,
+  "allowed_users": ["ops"]
+}

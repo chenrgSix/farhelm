@@ -20,6 +20,7 @@ export function createDeviceMenu(
     list(page: number): SshDevicePage;
     select(id: string): string | undefined;
     close(code: number): void;
+    kind?: "account";
   },
 ) {
   let active = true,
@@ -29,7 +30,7 @@ export function createDeviceMenu(
     afterCR = false;
   let snapshot: SshDevicePage = { devices: [], hasMore: false };
   const rate = new RateLimiter();
-  const prompt = "\r\n输入设备编号（r 刷新 / n 下一页 / p 上一页 / q 退出）：";
+  const prompt = `\r\n输入${actions.kind === "account" ? "账号" : "设备"}编号（r 刷新 / n 下一页 / p 上一页 / q 退出）：`;
   function close(code: number) {
     active = false;
     actions.close(code);
@@ -49,7 +50,7 @@ export function createDeviceMenu(
       snapshot = actions.list(page);
     }
     write(
-      `\r\n可访问设备 · 第 ${page + 1} 页\r\n` +
+      `\r\n${actions.kind === "account" ? "可使用目标账号" : "可访问设备"} · 第 ${page + 1} 页\r\n` +
         (snapshot.devices.length
           ? snapshot.devices
               .map(

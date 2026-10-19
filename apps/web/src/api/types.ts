@@ -322,6 +322,7 @@ export interface NetworkProbeResponse {
 export type Permission =
   | "devices.read"
   | "terminal.connect"
+  | "terminal.sudo"
   | "tasks.read"
   | "tasks.read_all"
   | "tasks.execute"

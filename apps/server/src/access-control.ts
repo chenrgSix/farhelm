@@ -29,6 +29,11 @@ export const permissionCatalog = [
     description: "通过网页或 SSH 入口操作授权设备",
   },
   {
+    id: "terminal.sudo",
+    label: "使用 sudo／特权账号",
+    description: "使用已授权的 sudo 切换账号或 root 账号，不授予查看凭据的权限",
+  },
+  {
     id: "tasks.read",
     label: "查看本人任务",
     description: "查看本人在授权设备上的任务及输出",
@@ -324,6 +329,11 @@ export function registerAccessControl(
       fail(400, "INVALID_PERMISSION");
     if (permissions.length && !permissions.includes("devices.read"))
       fail(400, "DEVICE_READ_PERMISSION_REQUIRED");
+    if (
+      permissions.includes("terminal.sudo") &&
+      !permissions.includes("terminal.connect")
+    )
+      fail(400, "TERMINAL_CONNECT_PERMISSION_REQUIRED");
     if (
       permissions.includes("tasks.execute") &&
       !permissions.includes("tasks.read")

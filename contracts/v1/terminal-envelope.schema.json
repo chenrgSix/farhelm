@@ -102,6 +102,13 @@
           "properties": {
             "backend": {
               "enum": ["agent", "ssh"]
+            },
+            "elevated": {
+              "type": "boolean"
+            },
+            "username": {
+              "type": "string",
+              "maxLength": 32
             }
           },
           "required": []
@@ -425,6 +432,55 @@
             }
           },
           "required": ["reason", "audit_complete"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.sudo.open"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "cols": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 500
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 200
+            },
+            "username": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+            },
+            "sudo_password": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^[^\\r\\n\\u0000]+$"
+            }
+          },
+          "required": [
+            "session_id",
+            "cols",
+            "rows",
+            "username",
+            "sudo_password"
+          ]
         }
       },
       "required": ["v", "type", "body"]

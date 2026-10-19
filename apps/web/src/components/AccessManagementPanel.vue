@@ -172,6 +172,7 @@ function selectDeviceGroup(group: ManagedDeviceGroup, selected: boolean) {
 function permissionChanged() {
   const selected = new Set(draft.value.permissions);
   if (selected.size) selected.add("devices.read");
+  if (selected.has("terminal.sudo")) selected.add("terminal.connect");
   if (selected.has("tasks.execute") || selected.has("tasks.read_all"))
     selected.add("tasks.read");
   if (selected.has("audit.read_all")) selected.add("audit.read");
@@ -665,6 +666,8 @@ onBeforeUnmount(() => {
                     type="checkbox"
                     :value="permission.id"
                     :disabled="
+                      (permission.id === 'terminal.connect' &&
+                        draft.permissions.includes('terminal.sudo')) ||
                       (permission.id === 'devices.read' &&
                         draft.permissions.some((p) => p !== 'devices.read')) ||
                       (permission.id === 'tasks.read' &&

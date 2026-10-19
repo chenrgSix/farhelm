@@ -867,3 +867,65 @@ test("SSH rejects direct and menu logins requiring a first password change, then
     await f.close();
   }
 });
+
+test("SSH direct-device login selects the same authorized target account before opening sudo", async () => {
+  const f = await fixture();
+  try {
+    const login = (
+      await f.app.inject({
+        method: "POST",
+        url: "/api/v1/login",
+        payload: { username: "admin", password: "ssh-test-password1" },
+      })
+    ).json().access_token;
+    const saved = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/devices/device/accounts",
+      headers: { authorization: "Bearer " + login },
+      payload: {
+        v: 1,
+        name: "Root via sudo",
+        username: "root",
+        method: "sudo",
+        allowed_users: [],
+        sudo_password: "fixture-only-sudo",
+      },
+    });
+    assert.equal(saved.statusCode, 200, saved.body);
+    f.send("agent.heartbeat", {
+      agent_version: "ssh-sudo-test",
+      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const c = await f.connect();
+    const channel = await new Promise<ClientChannel>((resolve, reject) =>
+      c.shell({ term: "xterm", cols: 80, rows: 24 }, (error, stream) =>
+        error ? reject(error) : resolve(stream),
+      ),
+    );
+    let text = "";
+    channel.on("data", (chunk) => (text += chunk.toString()));
+    await until(() => text.includes("输入账号编号"), "target account menu");
+    assert.ok(text.includes("Root via sudo"));
+    channel.write("2\r");
+    const request = await f.wait("terminal.sudo.open").catch((error) => {
+      throw new Error(
+        `${error.message}; output=${text}; sessions=${JSON.stringify(f.store.db.prepare("SELECT id,status,reason FROM terminal_sessions").all())}`,
+      );
+    });
+    assert.equal(request.username, "root");
+    assert.equal(request.sudo_password, "fixture-only-sudo");
+    f.send("terminal.opened", { session_id: request.session_id });
+    f.send("terminal.output", {
+      session_id: request.session_id,
+      seq: 1,
+      data: Buffer.from("root session confirmed\r\n").toString("base64"),
+    });
+    await f.wait("terminal.ack");
+    await until(() => text.includes("root session confirmed"), "root output");
+    assert.equal(text.includes("fixture-only-sudo"), false);
+    channel.close();
+  } finally {
+    await f.close();
+  }
+});

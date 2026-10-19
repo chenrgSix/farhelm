@@ -320,6 +320,12 @@ export class Store {
         ),
       );
     }
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/031_target_accounts.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

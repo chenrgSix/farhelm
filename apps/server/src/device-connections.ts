@@ -140,8 +140,11 @@ export function registerDeviceConnections(
     let config: Record<string, any> = old ? JSON.parse(old.config_json) : {};
     if (type === "agent") {
       if (b.sudo_password === null) delete credential.sudo_password;
-      else if (b.sudo_password !== undefined)
+      else if (b.sudo_password !== undefined) {
         credential.sudo_password = str(b.sudo_password, 1, 1024);
+        if (/[\r\n\0]/.test(credential.sudo_password))
+          fail(400, "INVALID_SUDO_PASSWORD");
+      }
     } else if (b.sudo_password !== undefined) {
       fail(400, "SSH_SUDO_FIELD_NOT_ALLOWED");
     }
@@ -386,6 +389,7 @@ export function registerDeviceConnections(
       cols: number,
       rows: number,
       receive: (type: string, body: Record<string, any>) => void,
+      account?: { username: string; privateKey: string; passphrase?: string },
     ) {
       const revision = saved(id)?.revision,
         selected = routeTargets(id);
@@ -402,51 +406,56 @@ export function registerDeviceConnections(
           return;
         }
         const candidate = selected.targets[index]!;
-        active = targets.open(candidate.config, cols, rows, (type, body) => {
-          if (stopped) return;
-          if (
-            type === "terminal.closed" &&
-            !opened &&
-            canFallback(body.reason) &&
-            index + 1 < selected.targets.length
-          ) {
-            index++;
-            start();
-            return;
-          }
-          try {
-            if (type === "terminal.opened") {
-              opened = true;
-              checked(id, revision, null);
-              // Persist the selected path before allowing shell output to reach users.
-              d.store.audit("network.route_selected", null, id, null, {
-                backend: "ssh",
-                channel: candidate.channel,
-                endpoint: `${candidate.config.host}:${candidate.config.port}`,
-                reason: candidate.reason,
-              });
-              void d.routes
-                .sshObserved(
-                  id,
-                  selected.revision,
-                  candidate.channel,
-                  candidate.config.host,
-                  candidate.config.port,
-                  candidate.reason,
-                )
-                .catch(() => {});
-            } else if (
+        active = targets.open(
+          { ...candidate.config, ...account },
+          cols,
+          rows,
+          (type, body) => {
+            if (stopped) return;
+            if (
               type === "terminal.closed" &&
-              body.reason !== "SHELL_EXIT"
-            )
-              checked(id, revision, body.reason);
-          } catch {
-            active?.close();
-            receive("terminal.closed", { reason: "AUDIT_STORAGE_FAILURE" });
-            return;
-          }
-          receive(type, body);
-        });
+              !opened &&
+              canFallback(body.reason) &&
+              index + 1 < selected.targets.length
+            ) {
+              index++;
+              start();
+              return;
+            }
+            try {
+              if (type === "terminal.opened") {
+                opened = true;
+                checked(id, revision, null);
+                // Persist the selected path before allowing shell output to reach users.
+                d.store.audit("network.route_selected", null, id, null, {
+                  backend: "ssh",
+                  channel: candidate.channel,
+                  endpoint: `${candidate.config.host}:${candidate.config.port}`,
+                  reason: candidate.reason,
+                });
+                void d.routes
+                  .sshObserved(
+                    id,
+                    selected.revision,
+                    candidate.channel,
+                    candidate.config.host,
+                    candidate.config.port,
+                    candidate.reason,
+                  )
+                  .catch(() => {});
+              } else if (
+                type === "terminal.closed" &&
+                body.reason !== "SHELL_EXIT"
+              )
+                checked(id, revision, body.reason);
+            } catch {
+              active?.close();
+              receive("terminal.closed", { reason: "AUDIT_STORAGE_FAILURE" });
+              return;
+            }
+            receive(type, body);
+          },
+        );
       };
       queueMicrotask(start);
       return {
@@ -458,6 +467,10 @@ export function registerDeviceConnections(
           return active?.send(type, body) ?? false;
         },
       };
+    },
+    sudoPassword(id: string) {
+      const row = saved(id);
+      return row ? secrets.open(id, row.secrets).sudo_password : undefined;
     },
     close: () => targets.close(),
   };

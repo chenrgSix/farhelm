@@ -1673,5 +1673,20 @@
     "path": "invalid/agent-install-http-url.json",
     "schema": "agent-install-request.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/target-account.json",
+    "schema": "target-account.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/target-account-secret.json",
+    "schema": "target-account.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/terminal-sudo-open.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": true
   }
 ]

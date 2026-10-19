@@ -1,8 +1,14 @@
 use anyhow::Result;
 use farhelm_agent::{config::Config, connection, executor, identity::Identity, journal::Journal};
 
+fn main() -> Result<()> {
+    if let Some(result) = farhelm_agent::sudo::helper() {
+        return result;
+    }
+    run()
+}
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn run() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some("--build-info") {
         println!("{}", farhelm_agent::upgrade::build_info());
         return Ok(());

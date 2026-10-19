@@ -34,6 +34,42 @@ const hostKey = keypair().privateKey,
 const hostParsed = ssh2.utils.parseKey(hostKey) as ssh2.ParsedKey;
 const loginParsed = ssh2.utils.parseKey(loginKey) as ssh2.ParsedKey;
 const hostFingerprint = fingerprint(hostParsed.getPublicSSH());
+test("a managed direct SSH account uses its own username and key with the device's pinned endpoint", async () => {
+  const f = await fixture(15000, "root");
+  try {
+    const account = await f.api("POST", `/devices/${f.id}/accounts`, {
+      v: 1,
+      name: "Direct root",
+      username: "root",
+      method: "ssh",
+      allowed_users: [],
+      private_key: loginKey,
+    });
+    assert.equal(account.status, 200, JSON.stringify(account.body));
+    assert.equal(JSON.stringify(account.body).includes("PRIVATE KEY"), false);
+    const terminal = await f.web(f.admin, f.id, account.body.account.id);
+    assert.deepEqual(await terminal.wait("terminal.ready"), {
+      backend: "ssh",
+      username: "root",
+    });
+    await until(() => terminal.output().includes("TARGET_SSH_READY"));
+    terminal.send("terminal.input", {
+      data: Buffer.from("output\r").toString("base64"),
+    });
+    await until(() => terminal.output().includes("TARGET_OUTPUT"));
+    terminal.send("terminal.input", {
+      data: Buffer.from("exit\r").toString("base64"),
+    });
+    assert.equal((await terminal.wait("terminal.closed")).reason, "SHELL_EXIT");
+    const events = f.store.db
+      .prepare("SELECT data FROM terminal_recordings WHERE session_id=?")
+      .all(terminal.id);
+    assert.ok(JSON.stringify(events).includes(account.body.account.id));
+    assert.equal(JSON.stringify(events).includes("PRIVATE KEY"), false);
+  } finally {
+    await f.close();
+  }
+});
 async function until(fn: () => unknown, label = "condition") {
   for (let n = 0; n < 300; n++) {
     if (await fn()) return;
@@ -41,7 +77,10 @@ async function until(fn: () => unknown, label = "condition") {
   }
   throw new Error("Timed out: " + label);
 }
-async function fixture(heartbeatTimeoutMs = 15000) {
+async function fixture(
+  heartbeatTimeoutMs = 15000,
+  targetUsername = "linux-user",
+) {
   const downstream = new Set<Connection>();
   const shells: ServerChannel[] = [],
     inputs: Buffer[] = [],
@@ -55,7 +94,7 @@ async function fixture(heartbeatTimeoutMs = 15000) {
       authentications++;
       if (
         ctx.method === "publickey" &&
-        ctx.username === "linux-user" &&
+        ctx.username === targetUsername &&
         ctx.key.data.equals(loginParsed.getPublicSSH()) &&
         (!ctx.signature ||
           loginParsed.verify(ctx.blob!, ctx.signature, ctx.hashAlgo) === true)
@@ -142,11 +181,17 @@ async function fixture(heartbeatTimeoutMs = 15000) {
   const path = `/devices/${id}/connection`;
   const browsers: WebSocket[] = [],
     clients: ssh2.Client[] = [];
-  async function web(auth = admin, targetId = id) {
+  async function web(auth = admin, targetId = id, accountId?: string) {
     const created = await api(
       "POST",
       "/terminal-sessions",
-      { v: 1, device_id: targetId, cols: 100, rows: 32 },
+      {
+        v: 1,
+        device_id: targetId,
+        cols: 100,
+        rows: 32,
+        ...(accountId ? { account_id: accountId } : {}),
+      },
       auth,
     );
     assert.equal(created.status, 200, JSON.stringify(created.body));

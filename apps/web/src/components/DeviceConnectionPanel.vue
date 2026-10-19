@@ -151,7 +151,7 @@ async function save() {
         ? "配置已保存，可测试连接或关闭面板进入终端。"
         : sshEnabled.value
           ? "备用 SSH 已保存，连接时优先使用 Agent，不可用时尝试 SSH。"
-          : "配置已保存。sudo 密码仅加密保管，不会自动填入终端。";
+          : "配置已保存。获授权用户可使用此密码打开 root 终端，密码不会返回浏览器。";
     emit("changed");
   } catch (e) {
     if (!disposed) report(e);
@@ -363,8 +363,9 @@ async function testConnection() {
                 />清除已保存的 sudo 密码</label
               >
               <p class="field-hint">
-                仅管理员可设置或替换，保存后不可查看。目前仅加密保管；后续再配置使用及查看权限，不会自动执行
-                sudo。
+                仅管理员可设置或替换，保存后不可查看。可供目标账号配置复用，获授权用户通过平台代用密码完成
+                sudo 切换，前端不接收密码明文。Agent 运行账号须已有 sudo
+                权限，并启用终端提权。
               </p>
             </template>
           </fieldset>

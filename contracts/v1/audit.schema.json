@@ -112,7 +112,9 @@
         "api_token.created",
         "api_token.updated",
         "api_token.revoked",
-        "api_token.request"
+        "api_token.request",
+        "account.configured",
+        "account.deleted"
       ]
     },
     "detail": {
@@ -313,6 +315,19 @@
           "properties": {
             "session_id": {
               "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "elevated": {
+              "type": "boolean"
+            },
+            "account_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "username": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "method": {
+              "enum": ["ssh", "sudo"]
             }
           },
           "required": ["session_id"]
@@ -323,6 +338,19 @@
           "properties": {
             "session_id": {
               "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "elevated": {
+              "type": "boolean"
+            },
+            "account_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "username": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "method": {
+              "enum": ["ssh", "sudo"]
             }
           },
           "required": ["session_id"]
@@ -699,6 +727,7 @@
                     "enum": [
                       "devices.read",
                       "terminal.connect",
+                      "terminal.sudo",
                       "tasks.read",
                       "tasks.read_all",
                       "tasks.execute",
@@ -711,7 +740,7 @@
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 11
+                  "maxItems": 12
                 },
                 "member_ids": {
                   "type": "array",
@@ -1107,6 +1136,19 @@
                   "type": "null"
                 }
               ]
+            },
+            "elevated": {
+              "type": "boolean"
+            },
+            "account_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "username": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "method": {
+              "enum": ["ssh", "sudo"]
             }
           },
           "required": ["session_id"]
@@ -1132,6 +1174,7 @@
                 "enum": [
                   "devices.read",
                   "terminal.connect",
+                  "terminal.sudo",
                   "tasks.read",
                   "tasks.read_all",
                   "tasks.execute",
@@ -1144,7 +1187,7 @@
                 ]
               },
               "uniqueItems": true,
-              "maxItems": 11,
+              "maxItems": 12,
               "minItems": 1
             },
             "device_scope": {
@@ -1212,6 +1255,23 @@
             }
           },
           "required": ["method", "route", "status_code"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "username": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "method": {
+              "enum": ["ssh", "sudo"]
+            }
+          },
+          "required": ["account_id", "username", "method"]
         }
       ]
     },
@@ -1658,6 +1718,19 @@
             "properties": {
               "session_id": {
                 "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "elevated": {
+                "type": "boolean"
+              },
+              "account_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "username": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "method": {
+                "enum": ["ssh", "sudo"]
               }
             },
             "required": ["session_id"]
@@ -1740,6 +1813,19 @@
                     "type": "null"
                   }
                 ]
+              },
+              "elevated": {
+                "type": "boolean"
+              },
+              "account_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "username": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "method": {
+                "enum": ["ssh", "sudo"]
               }
             },
             "required": ["session_id"]
@@ -2365,6 +2451,7 @@
                       "enum": [
                         "devices.read",
                         "terminal.connect",
+                        "terminal.sudo",
                         "tasks.read",
                         "tasks.read_all",
                         "tasks.execute",
@@ -2377,7 +2464,7 @@
                       ]
                     },
                     "uniqueItems": true,
-                    "maxItems": 11
+                    "maxItems": 12
                   },
                   "member_ids": {
                     "type": "array",
@@ -3019,6 +3106,7 @@
                   "enum": [
                     "devices.read",
                     "terminal.connect",
+                    "terminal.sudo",
                     "tasks.read",
                     "tasks.read_all",
                     "tasks.execute",
@@ -3031,7 +3119,7 @@
                   ]
                 },
                 "uniqueItems": true,
-                "maxItems": 11,
+                "maxItems": 12,
                 "minItems": 1
               },
               "device_scope": {
@@ -3096,6 +3184,7 @@
                   "enum": [
                     "devices.read",
                     "terminal.connect",
+                    "terminal.sudo",
                     "tasks.read",
                     "tasks.read_all",
                     "tasks.execute",
@@ -3108,7 +3197,7 @@
                   ]
                 },
                 "uniqueItems": true,
-                "maxItems": 11,
+                "maxItems": 12,
                 "minItems": 1
               },
               "device_scope": {
@@ -3202,6 +3291,66 @@
               }
             },
             "required": ["method", "route", "status_code"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "account.configured"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "account_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "username": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "method": {
+                "enum": ["ssh", "sudo"]
+              }
+            },
+            "required": ["account_id", "username", "method"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "account.deleted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "account_id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "username": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "method": {
+                "enum": ["ssh", "sudo"]
+              }
+            },
+            "required": ["account_id", "username", "method"]
           }
         }
       }
