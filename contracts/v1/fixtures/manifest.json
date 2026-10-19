@@ -1698,5 +1698,50 @@
     "path": "invalid/audit-account-duplicate-grants.json",
     "schema": "audit.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/login-account.json",
+    "schema": "login-account.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/login-accounts-response.json",
+    "schema": "login-accounts-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-authorization.json",
+    "schema": "access-authorization.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-authorizations-response.json",
+    "schema": "access-authorizations-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/access-authorization-create.json",
+    "schema": "access-authorization-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/authorization-audit-detail.json",
+    "schema": "authorization-audit-detail.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/effective-authorization-response.json",
+    "schema": "effective-authorization-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/access-authorization-null-subject.json",
+    "schema": "access-authorization-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/login-account-credential-leak.json",
+    "schema": "login-account.schema.json",
+    "valid": false
   }
 ]

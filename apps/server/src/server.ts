@@ -48,6 +48,7 @@ import {
 } from "./permissions.js";
 import { registerTerminals } from "./terminal.js";
 import { registerTargetAccounts } from "./target-accounts.js";
+import { registerAccessAuthorizations } from "./access-authorizations-api.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerNetworkRoutes } from "./network-routes.js";
@@ -866,6 +867,13 @@ export async function buildServer(config: ServerConfig) {
     }
     return row;
   }
+  registerAccessAuthorizations(app, {
+    store,
+    admin,
+    accounts: targetAccounts,
+    changed: () => terminals.tick(),
+    availableStorage,
+  });
   registerAccessControl(app, {
     store,
     admin,
@@ -1005,10 +1013,12 @@ export async function buildServer(config: ServerConfig) {
           },
           currentUser: sshUser,
           accounts(login, deviceId) {
-            return targetAccounts.list(sshUser(login), deviceId).map((a) => ({
-              id: a.id,
-              name: `${a.name} · ${a.username} · ${a.method === "sudo" ? "sudo 切换" : "直接 SSH"}`,
-            }));
+            return targetAccounts
+              .loginAccounts(sshUser(login), deviceId)
+              .map((a) => ({
+                id: a.id,
+                name: `${a.name} · ${a.username} · ${a.method === "default" ? "沿用接入配置" : a.method === "sudo" ? "sudo 切换" : "直接 SSH"}`,
+              }));
           },
           devices(login, page) {
             rate.check("ssh-menu:" + login.sessionHash, 120);

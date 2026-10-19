@@ -9,6 +9,11 @@ import { WebSocket } from "ws";
 import { buildServer } from "../src/server.js";
 import { hash, token } from "../src/util.js";
 import { Store } from "../src/store.js";
+import {
+  AccountAuthorizations,
+  defaultAccountId,
+} from "../src/account-authorizations.js";
+import { assertValid } from "../../../tests/contracts/validate.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "fleet-terminal-test-"));
 execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
@@ -1063,6 +1068,17 @@ test("target account grants combine users, groups and direct or inherited roles 
     ).body;
     assert.ok(snapshot.groups.some((g: any) => g.id === group.id));
     assert.ok(snapshot.roles.some((r: any) => r.id === role.id));
+    const blocked = (
+      await f.api(
+        "GET",
+        `/api/v1/access-authorizations/effective/${noScope.id}`,
+        undefined,
+        f.admin,
+      )
+    ).body;
+    assertValid("effective-authorization-response", blocked);
+    assert.equal(blocked.accounts[0].allowed, false);
+    assert.ok(blocked.accounts[0].missing.includes("原设备范围"));
     for (const u of [
       direct,
       member,
@@ -1336,3 +1352,645 @@ for (const kind of ["group", "inherited-role"] as const) {
     }
   });
 }
+
+test("unified default-account authorization is enforced for omitted and explicit account IDs and revokes active sessions", async () => {
+  const f = await fixture();
+  try {
+    const u = f.store.seedUser({
+      username: "default-user",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const auth = await f.login(u.username);
+    const listed = await f.api(
+      "GET",
+      "/api/v1/devices/device/login-accounts",
+      undefined,
+      auth,
+    );
+    assertValid("login-accounts-response", listed.body);
+    assert.equal(listed.body.accounts.length, 1);
+    assert.equal(listed.body.accounts[0].id, defaultAccountId("device"));
+    const created = await f.create(auth);
+    assert.equal(created.status, 200);
+    const browser = await f.attach(created.body);
+    const opening = await f.agent.wait("terminal.open");
+    f.agent.send("terminal.opened", { session_id: opening.session_id });
+    await browser.wait("terminal.ready");
+    const snapshot = await f.api(
+      "GET",
+      "/api/v1/access-authorizations",
+      undefined,
+      f.admin,
+    );
+    assertValid("access-authorizations-response", snapshot.body);
+    const rule = snapshot.body.rules.find(
+      (r: any) =>
+        r.account_id === defaultAccountId("device") &&
+        r.subject_type === "device_scope",
+    );
+    assert.ok(rule);
+    assert.equal(
+      (
+        await f.api(
+          "DELETE",
+          `/api/v1/access-authorizations/${rule.id}`,
+          { v: 1, revision: rule.revision },
+          f.admin,
+        )
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await browser.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    assert.equal(
+      (await f.create(auth)).status,
+      403,
+      "omitted account cannot bypass default policy",
+    );
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/api/v1/terminal-sessions",
+          {
+            v: 1,
+            device_id: "device",
+            account_id: defaultAccountId("device"),
+            cols: 80,
+            rows: 24,
+          },
+          auth,
+        )
+      ).status,
+      403,
+    );
+    assert.deepEqual(
+      (
+        await f.api(
+          "GET",
+          "/api/v1/devices/device/login-accounts",
+          undefined,
+          auth,
+        )
+      ).body.accounts,
+      [],
+    );
+    const reopened = new Store(f.store.dataDir);
+    new AccountAuthorizations(reopened.db).ensureDefault("device");
+    assert.equal(
+      reopened.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM account_authorizations WHERE account_id IS NULL AND device_id='device'",
+        )
+        .get()!.n,
+      0,
+      "removed inheritance is never restored on restart",
+    );
+    reopened.close();
+    const restore = await f.api(
+      "POST",
+      "/api/v1/access-authorizations",
+      {
+        v: 1,
+        device_id: "device",
+        account_ids: [defaultAccountId("device")],
+        subject_type: "device_scope",
+        subject_id: null,
+      },
+      f.admin,
+    );
+    assert.equal(restore.status, 200, JSON.stringify(restore));
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          "/api/v1/devices/device/login-accounts",
+          undefined,
+          auth,
+        )
+      ).body.accounts.length,
+      1,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("new access rules grant only the selected login account, expose effective sources and preserve rules during credential edits", async () => {
+  const f = await fixture();
+  try {
+    const db = f.store.db;
+    const u = f.store.seedUser({
+      username: "new-rule-user",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: [],
+    });
+    const perms = JSON.parse(
+      db.prepare("SELECT permissions FROM access_roles WHERE id='ops'").get()!
+        .permissions as string,
+    );
+    db.prepare("UPDATE access_roles SET permissions=? WHERE id='ops'").run(
+      JSON.stringify([...perms, "terminal.sudo"]),
+    );
+    const auth = await f.login(u.username);
+    const saved = await f.api(
+      "POST",
+      "/api/v1/devices/device/accounts",
+      {
+        v: 1,
+        name: "Rule root",
+        username: "root",
+        method: "sudo",
+        sudo_password: "fixture-password9",
+      },
+      f.admin,
+    );
+    assert.equal(saved.status, 200, JSON.stringify(saved));
+    const account = saved.body.account;
+    const payload = {
+      v: 1,
+      device_id: "device",
+      account_ids: [account.id],
+      subject_type: "role",
+      subject_id: "ops",
+    };
+    assertValid("access-authorization-create", payload);
+    assert.equal(
+      (await f.api("POST", "/api/v1/access-authorizations", payload, auth))
+        .status,
+      403,
+      "only admins configure rules",
+    );
+    for (const invalid of [
+      { ...payload, account_ids: [account.id, account.id] },
+      { ...payload, subject_id: "missing-role" },
+      { ...payload, subject_type: "device_scope", subject_id: null },
+    ])
+      assert.equal(
+        (await f.api("POST", "/api/v1/access-authorizations", invalid, f.admin))
+          .status,
+        400,
+      );
+    db.prepare(
+      "INSERT INTO devices(id,public_key,name,created_at) VALUES('cross-device','cross-key','cross',1)",
+    ).run();
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/api/v1/access-authorizations",
+          { ...payload, device_id: "cross-device" },
+          f.admin,
+        )
+      ).body.error,
+      "INVALID_AUTHORIZATION_ACCOUNTS",
+    );
+    db.exec(
+      "CREATE TRIGGER fail_authorization_audit BEFORE INSERT ON audit WHEN NEW.action='access.authorization_created' BEGIN SELECT RAISE(ABORT,'test audit failure'); END",
+    );
+    assert.equal(
+      (await f.api("POST", "/api/v1/access-authorizations", payload, f.admin))
+        .status,
+      500,
+    );
+    assert.equal(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM account_authorizations WHERE account_id=?",
+        )
+        .get(account.id)!.n,
+      0,
+      "failed audit rolls back the grant",
+    );
+    assert.deepEqual(
+      f.store.user(db.prepare("SELECT * FROM users WHERE id=?").get(u.id))
+        .device_scope,
+      [],
+    );
+    db.exec("DROP TRIGGER fail_authorization_audit");
+    const granted = await f.api(
+      "POST",
+      "/api/v1/access-authorizations",
+      payload,
+      f.admin,
+    );
+    assert.equal(granted.status, 200, JSON.stringify(granted));
+    const repeated = await f.api(
+      "POST",
+      "/api/v1/access-authorizations",
+      payload,
+      f.admin,
+    );
+    assert.deepEqual(
+      repeated.body.rule_ids,
+      granted.body.rule_ids,
+      "retry cannot duplicate the same grant",
+    );
+    const listed = await f.api(
+      "GET",
+      "/api/v1/devices/device/login-accounts",
+      undefined,
+      auth,
+    );
+    assert.deepEqual(
+      listed.body.accounts.map((a: any) => a.id),
+      [account.id],
+      "new resource scope must not activate legacy default inheritance",
+    );
+    assert.equal((await f.create(auth)).status, 403);
+    const effective = await f.api(
+      "GET",
+      `/api/v1/access-authorizations/effective/${u.id}`,
+      undefined,
+      f.admin,
+    );
+    assertValid("effective-authorization-response", effective.body);
+    assert.equal(effective.body.accounts.length, 1);
+    assert.equal(effective.body.accounts[0].allowed, true);
+    assert.ok(effective.body.accounts[0].reasons.length);
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          `/api/v1/access-authorizations/effective/${u.id}`,
+          undefined,
+          auth,
+        )
+      ).status,
+      403,
+    );
+    const edit = await f.api(
+      "PUT",
+      `/api/v1/devices/device/accounts/${account.id}`,
+      {
+        v: 1,
+        revision: account.revision,
+        name: "Renamed root",
+        username: "root",
+        method: "sudo",
+      },
+      f.admin,
+    );
+    assert.equal(edit.status, 200, JSON.stringify(edit));
+    assert.equal(
+      db
+        .prepare("SELECT legacy_scope FROM account_authorizations WHERE id=?")
+        .get(granted.body.rule_ids[0])!.legacy_scope,
+      0,
+      "credential-only edits preserve rule semantics and IDs",
+    );
+    const legacyCompatible = await f.api(
+      "PUT",
+      `/api/v1/devices/device/accounts/${account.id}`,
+      {
+        v: 1,
+        revision: edit.body.account.revision,
+        name: "Renamed again",
+        username: "root",
+        method: "sudo",
+        allowed_users: [],
+        allowed_groups: [],
+        allowed_roles: ["ops"],
+      },
+      f.admin,
+    );
+    assert.equal(
+      legacyCompatible.status,
+      200,
+      JSON.stringify(legacyCompatible),
+    );
+    assert.equal(
+      db
+        .prepare("SELECT legacy_scope FROM account_authorizations WHERE id=?")
+        .get(granted.body.rule_ids[0])!.legacy_scope,
+      0,
+      "unchanged explicit ACL from old clients also preserves rule IDs and resource scope",
+    );
+    f.agent.send("agent.heartbeat", {
+      agent_version: "test-sudo",
+      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const create = () =>
+      f.api(
+        "POST",
+        "/api/v1/terminal-sessions",
+        {
+          v: 1,
+          device_id: "device",
+          account_id: account.id,
+          cols: 80,
+          rows: 24,
+        },
+        auth,
+      );
+    const active = await create();
+    assert.equal(active.status, 200, JSON.stringify(active));
+    const browser = await f.attach(active.body);
+    const opening = await f.agent.wait("terminal.sudo.open");
+    f.agent.send("terminal.opened", { session_id: opening.session_id });
+    await browser.wait("terminal.ready");
+    const pending = await create();
+    assert.equal(pending.status, 200);
+    assert.equal(
+      (
+        await f.api(
+          "DELETE",
+          `/api/v1/access-authorizations/${granted.body.rule_ids[0]}`,
+          { v: 1, revision: 1 },
+          f.admin,
+        )
+      ).status,
+      200,
+    );
+    await browser.wait("terminal.closed");
+    assert.ok(
+      db
+        .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
+        .get(pending.body.session_id)!.ended_at,
+    );
+    assert.equal((await create()).status, 403);
+    assert.deepEqual(
+      f.store.user(db.prepare("SELECT * FROM users WHERE id=?").get(u.id))
+        .device_scope,
+      [],
+    );
+    for (const audit of (
+      await f.api("GET", "/api/v1/audit", undefined, f.admin)
+    ).body.audit)
+      assertValid("audit", audit);
+  } finally {
+    await f.close();
+  }
+});
+
+test("authorization migration keeps credentials and legacy scope intersections and is idempotent", async () => {
+  const f = await fixture();
+  let reopened: Store | undefined;
+  try {
+    const db = f.store.db;
+    const user = f.store.seedUser({
+      username: "legacy-allowed",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const outside = f.store.seedUser({
+      username: "legacy-outside",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: [],
+    });
+    const account = (
+      await f.api(
+        "POST",
+        "/api/v1/devices/device/accounts",
+        {
+          v: 1,
+          name: "Legacy sudo",
+          username: "root",
+          method: "sudo",
+          allowed_users: [user.id, outside.id],
+          allowed_roles: ["ops"],
+          sudo_password: "fixture-password9",
+        },
+        f.admin,
+      )
+    ).body.account;
+    const ciphertext = db
+      .prepare("SELECT secrets FROM target_accounts WHERE id=?")
+      .get(account.id)!.secrets;
+    db.exec(
+      "DELETE FROM account_authorizations;DELETE FROM default_account_policies;DELETE FROM meta WHERE key='account_authorizations_v1'",
+    );
+    reopened = new Store(f.store.dataDir);
+    const policy = new AccountAuthorizations(reopened.db);
+    assert.equal(
+      reopened.db
+        .prepare("SELECT secrets FROM target_accounts WHERE id=?")
+        .get(account.id)!.secrets,
+      ciphertext,
+    );
+    assert.equal(policy.allowed(user, "device", account.id), true);
+    assert.equal(
+      policy.allowed(outside, "device", account.id),
+      false,
+      "old account ACL cannot grant new device scope",
+    );
+    assert.equal(policy.allowed(user, "device", null), true);
+    assert.equal(policy.allowed(outside, "device", null), false);
+    const count = reopened.db
+      .prepare("SELECT COUNT(*) AS n FROM account_authorizations")
+      .get()!.n;
+    reopened.close();
+    reopened = new Store(f.store.dataDir);
+    assert.equal(
+      reopened.db
+        .prepare("SELECT COUNT(*) AS n FROM account_authorizations")
+        .get()!.n,
+      count,
+    );
+  } finally {
+    reopened?.close();
+    await f.close();
+  }
+});
+
+test("new user, group and inherited-role rules supply resource scope without changing legacy device grants", async () => {
+  const f = await fixture();
+  try {
+    const db = f.store.db;
+    const seed = (username: string) =>
+      f.store.seedUser({
+        username,
+        password: "terminal-test-password1",
+        role: "ops",
+        deviceScope: [],
+      });
+    const single = seed("explicit-user"),
+      member = seed("explicit-group"),
+      direct = seed("explicit-role"),
+      inherited = seed("explicit-inherited");
+    const role = (
+      await f.api(
+        "POST",
+        "/api/v1/roles",
+        {
+          v: 1,
+          name: "Rule privilege",
+          description: "",
+          permissions: ["devices.read", "terminal.connect", "terminal.sudo"],
+        },
+        f.admin,
+      )
+    ).body.role;
+    for (const u of [single, direct])
+      db.prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)").run(
+        u.id,
+        role.id,
+      );
+    const group = (
+      await f.api(
+        "POST",
+        "/api/v1/groups",
+        {
+          v: 1,
+          name: "Explicit group",
+          description: "",
+          role_ids: [role.id],
+          member_ids: [member.id, inherited.id],
+          device_scope: [],
+        },
+        f.admin,
+      )
+    ).body.group;
+    for (const [kind, id, members] of [
+      ["user", single.id, [single]],
+      ["group", group.id, [member, inherited]],
+      ["role", role.id, [single, member, direct, inherited]],
+    ] as const) {
+      const account = (
+        await f.api(
+          "POST",
+          "/api/v1/devices/device/accounts",
+          {
+            v: 1,
+            name: `Rule ${kind}`,
+            username: "root",
+            method: "sudo",
+            sudo_password: "fixture-password9",
+          },
+          f.admin,
+        )
+      ).body.account;
+      assert.equal(
+        (
+          await f.api(
+            "POST",
+            "/api/v1/access-authorizations",
+            {
+              v: 1,
+              device_id: "device",
+              account_ids: [account.id],
+              subject_type: kind,
+              subject_id: id,
+            },
+            f.admin,
+          )
+        ).status,
+        200,
+      );
+      for (const u of members) {
+        const auth = await f.login(u.username);
+        const listed = (
+          await f.api(
+            "GET",
+            "/api/v1/devices/device/login-accounts",
+            undefined,
+            auth,
+          )
+        ).body.accounts;
+        assert.ok(listed.some((a: any) => a.id === account.id));
+        assert.equal(
+          listed.some((a: any) => a.is_default),
+          false,
+        );
+        assert.equal(
+          (
+            await f.api(
+              "POST",
+              "/api/v1/terminal-sessions",
+              {
+                v: 1,
+                device_id: "device",
+                account_id: account.id,
+                cols: 80,
+                rows: 24,
+              },
+              auth,
+            )
+          ).body.error,
+          "SUDO_NOT_SUPPORTED_UPDATE_AGENT",
+        );
+      }
+    }
+    for (const u of [single, member, direct, inherited])
+      assert.equal(
+        db.prepare("SELECT device_scope FROM users WHERE id=?").get(u.id)!
+          .device_scope,
+        "[]",
+      );
+  } finally {
+    await f.close();
+  }
+});
+
+test("explicit default root grants require privilege permission while existing default authorization is preserved", async () => {
+  const f = await fixture();
+  try {
+    const legacy = f.store.seedUser({
+      username: "existing-default-root",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const fresh = f.store.seedUser({
+      username: "new-default-root",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: [],
+    });
+    // Only the configured identity is read here; the fake Agent handles the terminal protocol.
+    f.store.db
+      .prepare(
+        "INSERT INTO device_connections(device_id,config_json,secrets,revision,updated_at,actor_id) VALUES(?,?,?,1,1,(SELECT id FROM users WHERE username='admin'))",
+      )
+      .run(
+        "device",
+        JSON.stringify({ username: "root" }),
+        "unused-test-credential",
+      );
+    const auth = await f.login(legacy.username);
+    const ticket = await f.create(auth);
+    assert.equal(
+      ticket.status,
+      200,
+      "existing Linux access does not gain a new privilege requirement",
+    );
+    const added = await f.api(
+      "POST",
+      "/api/v1/access-authorizations",
+      {
+        v: 1,
+        device_id: "device",
+        account_ids: [defaultAccountId("device")],
+        subject_type: "user",
+        subject_id: fresh.id,
+      },
+      f.admin,
+    );
+    assert.equal(added.status, 200);
+    const freshAuth = await f.login(fresh.username);
+    assert.equal(
+      (await f.create(freshAuth)).body.error,
+      "SUDO_PERMISSION_REQUIRED",
+    );
+    const effective = (
+      await f.api(
+        "GET",
+        `/api/v1/access-authorizations/effective/${fresh.id}`,
+        undefined,
+        f.admin,
+      )
+    ).body.accounts;
+    assert.equal(effective[0].allowed, false);
+    assert.ok(effective[0].missing.includes("sudo／特权账号权限"));
+  } finally {
+    await f.close();
+  }
+});

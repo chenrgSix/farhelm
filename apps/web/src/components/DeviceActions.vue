@@ -38,7 +38,7 @@ const actions = computed(() => {
     { kind: "connection", label: "接入配置", visible: admin },
     {
       kind: "accounts",
-      label: "目标账号",
+      label: "登录账号",
       visible: admin,
     },
     {

@@ -73,7 +73,7 @@ it("supports arrows and Escape while skipping disabled actions", async () => {
   document.activeElement!.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   );
-  expect(document.activeElement?.textContent).toBe("目标账号");
+  expect(document.activeElement?.textContent).toBe("登录账号");
   menu.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   );

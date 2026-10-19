@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/login-account.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "username": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "method": {
+      "enum": ["default", "ssh", "sudo"]
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "is_default": {
+      "type": "boolean"
+    },
+    "allowed_users": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      }
+    },
+    "allowed_groups": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      }
+    },
+    "allowed_roles": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "device_id",
+    "name",
+    "username",
+    "method",
+    "revision",
+    "is_default"
+  ]
+}

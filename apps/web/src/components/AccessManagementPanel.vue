@@ -15,9 +15,13 @@ import type {
   ManagedDeviceGroup,
   Permission,
 } from "../api/types";
-const props = defineProps<{ currentUserId: string; devices: Device[] }>();
+const props = defineProps<{
+  currentUserId: string;
+  devices: Device[];
+  section?: "users" | "roles" | "groups";
+}>();
 const data = ref<AccessManagement>();
-const tab = ref<"users" | "roles" | "groups">("users");
+const tab = ref<"users" | "roles" | "groups">(props.section ?? "users");
 const search = ref("");
 const loading = ref(false),
   saving = ref(false),
@@ -333,9 +337,9 @@ onBeforeUnmount(() => {
   <section class="panel access-panel" aria-label="用户与权限管理">
     <div class="access-heading">
       <div>
-        <h2>用户与权限</h2>
+        <h2>{{ props.section ? labels[props.section] : "用户与角色" }}</h2>
         <p class="muted">
-          按角色分配操作权限，通过用户组授权，按设备标签批量选择
+          用户组组织人员，角色分配操作权限。设备与登录账号的新增授权统一在「访问授权」中配置。
         </p>
       </div>
       <button
@@ -348,7 +352,12 @@ onBeforeUnmount(() => {
     </div>
     <p v-if="error" class="notice danger" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
-    <div class="access-tabs" role="tablist" aria-label="权限管理分类">
+    <div
+      v-if="!props.section"
+      class="access-tabs"
+      role="tablist"
+      aria-label="权限管理分类"
+    >
       <button
         v-for="key in ['users', 'roles', 'groups'] as const"
         :key="key"
@@ -738,81 +747,85 @@ onBeforeUnmount(() => {
                   }}{{ member.enabled ? "" : "（停用）" }}</label
                 >
               </fieldset>
-              <fieldset
+              <details
                 v-if="mode === 'user' || mode === 'group'"
-                class="access-options"
+                class="legacy-device-scope"
               >
-                <legend>
-                  {{ mode === "user" ? "直接授权设备" : "组授权设备" }}
-                </legend>
-                <p v-if="adminGrant" class="field-hint">
-                  管理员角色拥有全部设备权限，不受下方范围限制。
-                </p>
-                <label class="access-check"
-                  ><input
-                    v-model="draft.all_devices"
-                    type="checkbox"
-                  />全部设备（含以后添加的设备）</label
-                >
-                <div v-if="!draft.all_devices" class="access-device-list">
-                  <strong>按设备组批量选择</strong
-                  ><label
-                    v-for="group in data?.device_groups"
-                    :key="group.id"
-                    class="access-check"
-                    ><input
-                      type="checkbox"
-                      :checked="
-                        group.device_ids.length > 0 &&
-                        group.device_ids.every((id) =>
-                          draft.device_ids.includes(id),
-                        )
-                      "
-                      :indeterminate="
-                        group.device_ids.some((id) =>
-                          draft.device_ids.includes(id),
-                        ) &&
-                        !group.device_ids.every((id) =>
-                          draft.device_ids.includes(id),
-                        )
-                      "
-                      :disabled="!group.device_ids.length"
-                      :aria-label="`批量选择设备组 ${group.name}`"
-                      @change="
-                        selectDeviceGroup(
-                          group,
-                          ($event.target as HTMLInputElement).checked,
-                        )
-                      "
-                    />{{ group.name }}
-                    <small>{{ group.device_ids.length }} 台</small></label
-                  >
-                  <p class="field-hint">
-                    只勾选组内当前设备，保存后调整设备组不会自动改变授权。
-                  </p>
-                  <strong>已选设备与单台选择</strong>
-                </div>
-                <div v-if="!draft.all_devices" class="access-device-list">
-                  <label
-                    v-for="device in devices"
-                    :key="device.id"
-                    class="access-check"
-                    ><input
-                      v-model="draft.device_ids"
-                      type="checkbox"
-                      :value="device.id"
-                      :aria-label="`授权设备 ${device.name}`"
-                    />{{ device.name }}
-                    <small>{{ device.id.slice(0, 12) }}</small></label
-                  >
-                  <p v-if="!devices.length" class="field-hint">
-                    尚无设备，创建后可再授权。
-                  </p>
-                </div>
+                <summary>原设备授权（已保留，可展开维护）</summary>
                 <p class="field-hint">
-                  未选择设备时，仅保留其他来源的设备授权。组角色与直接角色合并后，可用于所有已授权设备。
+                  此配置继续控制原设备范围和默认账号的继承授权。新增设备／账号授权请使用「访问授权」。
                 </p>
-              </fieldset>
+                <fieldset class="access-options">
+                  <legend>原设备范围（兼容配置）</legend>
+                  <p v-if="adminGrant" class="field-hint">
+                    管理员角色拥有全部设备权限，不受下方范围限制。
+                  </p>
+                  <label class="access-check"
+                    ><input
+                      v-model="draft.all_devices"
+                      type="checkbox"
+                    />全部设备（含以后添加的设备）</label
+                  >
+                  <div v-if="!draft.all_devices" class="access-device-list">
+                    <strong>按设备组批量选择</strong
+                    ><label
+                      v-for="group in data?.device_groups"
+                      :key="group.id"
+                      class="access-check"
+                      ><input
+                        type="checkbox"
+                        :checked="
+                          group.device_ids.length > 0 &&
+                          group.device_ids.every((id) =>
+                            draft.device_ids.includes(id),
+                          )
+                        "
+                        :indeterminate="
+                          group.device_ids.some((id) =>
+                            draft.device_ids.includes(id),
+                          ) &&
+                          !group.device_ids.every((id) =>
+                            draft.device_ids.includes(id),
+                          )
+                        "
+                        :disabled="!group.device_ids.length"
+                        :aria-label="`批量选择设备组 ${group.name}`"
+                        @change="
+                          selectDeviceGroup(
+                            group,
+                            ($event.target as HTMLInputElement).checked,
+                          )
+                        "
+                      />{{ group.name }}
+                      <small>{{ group.device_ids.length }} 台</small></label
+                    >
+                    <p class="field-hint">
+                      只勾选组内当前设备，保存后调整设备组不会自动改变授权。
+                    </p>
+                    <strong>已选设备与单台选择</strong>
+                  </div>
+                  <div v-if="!draft.all_devices" class="access-device-list">
+                    <label
+                      v-for="device in devices"
+                      :key="device.id"
+                      class="access-check"
+                      ><input
+                        v-model="draft.device_ids"
+                        type="checkbox"
+                        :value="device.id"
+                        :aria-label="`授权设备 ${device.name}`"
+                      />{{ device.name }}
+                      <small>{{ device.id.slice(0, 12) }}</small></label
+                    >
+                    <p v-if="!devices.length" class="field-hint">
+                      尚无设备，创建后可再授权。
+                    </p>
+                  </div>
+                  <p class="field-hint">
+                    未选择设备时，仅保留其他来源的设备授权。组角色与直接角色合并后，可用于所有已授权设备。
+                  </p>
+                </fieldset>
+              </details>
             </fieldset>
             <p v-if="editing && !editing.builtin" class="field-hint">
               修改用户、角色或用户组授权会使受影响用户的现有登录和终端连接失效；设备标签不影响权限。当前管理员不能停用自己或移除自己的管理员权限。

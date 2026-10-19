@@ -3,10 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api } from "../api/client";
 import type { Device, DeviceConnection } from "../api/types";
 const props = withDefaults(
-  defineProps<{ device?: Device; agentEnabled?: boolean }>(),
+  defineProps<{
+    device?: Device;
+    agentEnabled?: boolean;
+    initialTab?: "endpoint" | "account";
+  }>(),
   { agentEnabled: true },
 );
 const emit = defineEmits<{ close: []; changed: [] }>();
+const tab = ref(props.initialTab ?? "endpoint");
 const kind = props.device?.connection_kind ?? (props.device ? "agent" : "ssh");
 const sshEnabled = ref(kind === "ssh" || !props.agentEnabled);
 const deviceId = ref(props.device?.id ?? "");
@@ -199,7 +204,9 @@ async function testConnection() {
         <div>
           <h2 id="connection-heading">
             {{
-              props.device ? `接入配置 · ${props.device.name}` : "添加 SSH 设备"
+              props.device
+                ? `${tab === "account" ? "默认登录账号" : "接入配置"} · ${props.device.name}`
+                : "添加 SSH 设备"
             }}
           </h2>
           <p class="muted">
@@ -219,6 +226,29 @@ async function testConnection() {
           ×
         </button>
       </header>
+      <nav
+        v-if="props.device"
+        class="connection-tabs"
+        aria-label="设备配置分类"
+      >
+        <button
+          type="button"
+          :class="['button', tab === 'endpoint' ? 'primary' : 'secondary']"
+          @click="tab = 'endpoint'"
+        >
+          接入方式</button
+        ><button
+          type="button"
+          :class="['button', tab === 'account' ? 'primary' : 'secondary']"
+          @click="tab = 'account'"
+        >
+          默认登录账号
+        </button>
+      </nav>
+      <p v-if="tab === 'account' && kind === 'agent'" class="field-hint">
+        默认身份是 Agent 的运行账号，平台不改变该进程身份。备用 SSH
+        使用下方保存的账号；sudo 密码可由其他登录账号代用。
+      </p>
       <form class="connection-form" @submit.prevent="save">
         <p v-if="error" class="text-warning" role="alert">{{ error }}</p>
         <p v-if="message" class="connection-message" role="status">
@@ -227,7 +257,9 @@ async function testConnection() {
         <p v-if="!loaded">正在读取配置…</p>
         <template v-else>
           <fieldset :disabled="busy">
-            <template v-if="kind === 'agent' && agentEnabled">
+            <template
+              v-if="kind === 'agent' && agentEnabled && tab === 'endpoint'"
+            >
               <label class="connection-check"
                 ><input
                   v-model="sshEnabled"
@@ -252,7 +284,10 @@ async function testConnection() {
                   :disabled="!!deviceId"
                   autocomplete="off"
               /></label>
-              <div class="connection-address">
+              <div
+                v-show="!props.device || tab === 'endpoint'"
+                class="connection-address"
+              >
                 <label
                   >SSH 地址<input
                     v-model="host"
@@ -272,45 +307,51 @@ async function testConnection() {
                     @input="confirmed = false"
                 /></label>
               </div>
-              <label
-                >SSH 账号<input
-                  v-model="username"
-                  required
-                  maxlength="128"
-                  autocomplete="off"
-                  placeholder="目标机器的 Linux 用户名"
-              /></label>
-              <label
-                >SSH 私钥{{
-                  state?.has_private_key ? "（已保存，留空保持不变）" : ""
-                }}<textarea
-                  v-model="privateKey"
-                  :required="!state?.has_private_key"
-                  rows="5"
-                  maxlength="32768"
-                  spellcheck="false"
-                  autocomplete="off"
-                  placeholder="粘贴 OpenSSH 或 PEM 格式私钥"
-                />
-              </label>
-              <label
-                >私钥口令（可选{{
-                  state?.has_passphrase ? "，已保存" : ""
-                }}）<input
-                  v-model="passphrase"
-                  type="password"
-                  maxlength="1024"
-                  autocomplete="new-password"
-                  :disabled="clearPassphrase"
-                  placeholder="仅加密私钥需要；更换私钥时重新填写"
-              /></label>
-              <label v-if="state?.has_passphrase" class="connection-check"
-                ><input
-                  v-model="clearPassphrase"
-                  type="checkbox"
-                />清除已保存的私钥口令</label
+              <div v-show="!props.device || tab === 'account' || !state?.ssh">
+                <h3>默认 SSH 登录账号</h3>
+                <label
+                  >SSH 账号<input
+                    v-model="username"
+                    required
+                    maxlength="128"
+                    autocomplete="off"
+                    placeholder="目标机器的 Linux 用户名"
+                /></label>
+                <label
+                  >SSH 私钥{{
+                    state?.has_private_key ? "（已保存，留空保持不变）" : ""
+                  }}<textarea
+                    v-model="privateKey"
+                    :required="!state?.has_private_key"
+                    rows="5"
+                    maxlength="32768"
+                    spellcheck="false"
+                    autocomplete="off"
+                    placeholder="粘贴 OpenSSH 或 PEM 格式私钥"
+                  />
+                </label>
+                <label
+                  >私钥口令（可选{{
+                    state?.has_passphrase ? "，已保存" : ""
+                  }}）<input
+                    v-model="passphrase"
+                    type="password"
+                    maxlength="1024"
+                    autocomplete="new-password"
+                    :disabled="clearPassphrase"
+                    placeholder="仅加密私钥需要；更换私钥时重新填写"
+                /></label>
+                <label v-if="state?.has_passphrase" class="connection-check"
+                  ><input
+                    v-model="clearPassphrase"
+                    type="checkbox"
+                  />清除已保存的私钥口令</label
+                >
+              </div>
+              <div
+                v-show="!props.device || tab === 'endpoint'"
+                class="connection-host-key"
               >
-              <div class="connection-host-key">
                 <label
                   >主机指纹<input
                     v-model="fingerprint"
@@ -340,10 +381,13 @@ async function testConnection() {
                 >
               </div>
               <p class="field-hint">
-                私钥和口令加密保存，保存后不再返回浏览器。有设备终端权限的用户可通过平台连接，无需获知私钥。
+                私钥和口令加密保存，保存后不再返回浏览器。获授默认登录账号且具备终端权限的用户可由平台代用凭据连接。
               </p>
             </template>
-            <template v-if="kind === 'agent' && agentEnabled">
+            <div
+              v-if="kind === 'agent' && agentEnabled"
+              v-show="tab === 'account'"
+            >
               <label
                 >sudo 密码（可选{{
                   state?.has_sudo_password ? "，已保存" : ""
@@ -367,7 +411,7 @@ async function testConnection() {
                 sudo 切换，前端不接收密码明文。Agent 运行账号须已有 sudo
                 权限，并启用终端提权。
               </p>
-            </template>
+            </div>
           </fieldset>
           <div class="connection-actions">
             <button
@@ -402,6 +446,11 @@ async function testConnection() {
 </template>
 
 <style scoped>
+.connection-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
 .connection-overlay {
   position: fixed;
   inset: 0;

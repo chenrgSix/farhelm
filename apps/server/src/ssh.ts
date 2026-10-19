@@ -303,11 +303,16 @@ export function createSshGateway(
           if (!closed) deadline(socket, 3600000);
         }
         function chooseAccount(deviceId: string) {
-          const list = () => [
-            { id: "_default", name: "默认账号（沿用设备接入配置）" },
-            ...(d.accounts?.(authenticated, deviceId) ?? []),
-          ];
-          if (list().length === 1) return connect(deviceId);
+          const list = () =>
+            d.accounts?.(authenticated, deviceId) ?? [
+              { id: "_default", name: "默认登录账号" },
+            ];
+          if (!list().length) throw new ApiError(403, "TARGET_ACCOUNT_DENIED");
+          if (list().length === 1)
+            return connect(
+              deviceId,
+              list()[0]!.id === "_default" ? undefined : list()[0]!.id,
+            );
           deadline(socket, 300000);
           menu = createDeviceMenu(channel!, {
             kind: "account",

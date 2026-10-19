@@ -25,8 +25,10 @@ export const auditActionLabels: Record<string, string> = {
   "task.accepted": "Agent 接收任务",
   "task.started": "任务开始执行",
   "task.finished": "任务执行结束",
-  "account.configured": "配置目标账号",
-  "account.deleted": "删除目标账号",
+  "access.authorization_created": "新增访问授权",
+  "access.authorization_deleted": "删除访问授权",
+  "account.configured": "配置登录账号",
+  "account.deleted": "删除登录账号",
   "terminal.created": "创建终端会话",
   "terminal.opened": "终端连接成功",
   "terminal.closed": "终端会话结束",
@@ -74,6 +76,10 @@ export const auditActionLabels: Record<string, string> = {
   "user.password_change_failed": "本人改密验证失败",
 };
 const labels: Record<string, string> = {
+  rule_id: "授权规则 ID",
+  account_id: "登录账号 ID",
+  subject_type: "授权对象类型",
+  subject_id: "授权对象 ID",
   token_id: "Token ID",
   owner_id: "所属账号 ID",
   status_code: "HTTP 状态码",
@@ -139,7 +145,6 @@ const labels: Record<string, string> = {
   user: "系统账号",
   fingerprint: "证书/主机密钥指纹",
   method: "方式",
-  account_id: "目标账号 ID",
   elevated: "sudo 切换",
   route: "接口",
   mode: "模式",
@@ -220,6 +225,17 @@ function format(key: string, value: unknown): string {
   )
     return formatTime(value);
   if (key === "device_scope" && value === "*") return "全部设备";
+  if (key === "subject_type")
+    return (
+      (
+        {
+          user: "用户",
+          group: "用户组",
+          role: "角色",
+          device_scope: "继承原设备授权",
+        } as Record<string, string>
+      )[String(value)] ?? String(value)
+    );
   if (Array.isArray(value))
     return value.length
       ? key === "argv"

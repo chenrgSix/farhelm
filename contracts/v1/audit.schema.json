@@ -114,7 +114,9 @@
         "api_token.revoked",
         "api_token.request",
         "account.configured",
-        "account.deleted"
+        "account.deleted",
+        "access.authorization_created",
+        "access.authorization_deleted"
       ]
     },
     "detail": {
@@ -1281,6 +1283,9 @@
             }
           },
           "required": ["account_id", "username", "method"]
+        },
+        {
+          "$ref": "authorization-audit-detail.schema.json"
         }
       ]
     },
@@ -3369,6 +3374,25 @@
               }
             },
             "required": ["account_id", "username", "method"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "access.authorization_created",
+              "access.authorization_deleted"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "$ref": "authorization-audit-detail.schema.json"
           }
         }
       }

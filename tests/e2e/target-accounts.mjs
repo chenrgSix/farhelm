@@ -376,6 +376,230 @@ try {
     await once(channel, "close");
     ssh.end();
   }
+  // New resource grants work without legacy device scope and never grant the default account.
+  const restricted = server.store.seedUser({
+    username: "rule-only-user",
+    password: "accounts-e2e-login1",
+    role: "ops",
+    deviceScope: [],
+  });
+  server.store.db
+    .prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)")
+    .run(restricted.id, targetRole.id);
+  const grant = (
+    await api("POST", "/access-authorizations", {
+      v: 1,
+      device_id: device.id,
+      account_ids: [account.id],
+      subject_type: "user",
+      subject_id: restricted.id,
+    })
+  ).rule_ids[0];
+  const restrictedAuth = (
+    await api(
+      "POST",
+      "/login",
+      { username: restricted.username, password: "accounts-e2e-login1" },
+      "",
+    )
+  ).access_token;
+  const unified = await api(
+    "GET",
+    `/devices/${device.id}/login-accounts`,
+    undefined,
+    restrictedAuth,
+  );
+  assert.deepEqual(
+    unified.accounts.map((a) => a.id),
+    [account.id],
+  );
+  const implicit = await fetch(origin + "/api/v1/terminal-sessions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + restrictedAuth,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ v: 1, device_id: device.id, cols: 80, rows: 24 }),
+  });
+  assert.equal(
+    implicit.status,
+    403,
+    "omitting account_id cannot access default account",
+  );
+  const restrictedWeb = await open(account.id, restrictedAuth);
+  await restrictedWeb.ready();
+  restrictedWeb.send("printf '__RULE_UID__'; id -u\r");
+  await until(
+    () => restrictedWeb.text().includes("__RULE_UID__0"),
+    "new access rule real root shell",
+  );
+  restrictedWeb.send("exit\r");
+  await until(
+    () => restrictedWeb.messages.some((m) => m.type === "terminal.closed"),
+    "rule shell exit",
+  );
+  const restrictedSsh = new Client();
+  clients.push(restrictedSsh);
+  restrictedSsh.on("error", () => {});
+  const restrictedReady = once(restrictedSsh, "ready");
+  restrictedSsh.connect({
+    host: "127.0.0.1",
+    port: server.ssh.info().port,
+    username: restricted.username + ":" + device.id,
+    password: "accounts-e2e-login1",
+    hostVerifier: (raw) =>
+      "SHA256:" +
+        require("node:crypto")
+          .createHash("sha256")
+          .update(raw)
+          .digest("base64")
+          .replace(/=+$/, "") ===
+      server.ssh.info().fingerprint,
+  });
+  await restrictedReady;
+  const restrictedChannel = await new Promise((resolve, reject) =>
+    restrictedSsh.shell({ term: "xterm", cols: 80, rows: 24 }, (e, c) =>
+      e ? reject(e) : resolve(c),
+    ),
+  );
+  let restrictedText = "";
+  restrictedChannel.on("data", (b) => (restrictedText += b.toString()));
+  await until(
+    () => restrictedText.includes("root@"),
+    "SSH automatically selects the sole authorized account",
+  );
+  restrictedChannel.write("printf '__RULE_SSH_UID__'; id -u\r");
+  await until(
+    () => restrictedText.includes("__RULE_SSH_UID__0"),
+    "SSH new rule actual root identity",
+  );
+  const restrictedClosed = once(restrictedChannel, "close");
+  await api("DELETE", `/access-authorizations/${grant}`, { v: 1, revision: 1 });
+  await restrictedClosed;
+  restrictedSsh.end();
+  await api("POST", "/logout", { v: 1 }, restrictedAuth);
+  // Existing default access remains until its visible compatibility rule is explicitly removed.
+  const defaultOnly = server.store.seedUser({
+    username: "default-only-user",
+    password: "accounts-e2e-login1",
+    role: "ops",
+    deviceScope: [device.id],
+  });
+  const defaultAuth = (
+    await api(
+      "POST",
+      "/login",
+      { username: defaultOnly.username, password: "accounts-e2e-login1" },
+      "",
+    )
+  ).access_token;
+  const defaultLogin = (
+    await api(
+      "GET",
+      `/devices/${device.id}/login-accounts`,
+      undefined,
+      defaultAuth,
+    )
+  ).accounts.find((a) => a.is_default);
+  assert.ok(defaultLogin);
+  const defaultSession = await open(defaultLogin.id, defaultAuth);
+  await defaultSession.ready();
+  defaultSession.send("printf '__DEFAULT_UID__'; id -u\r");
+  await until(
+    () => /__DEFAULT_UID__(\d+)/.test(defaultSession.text()),
+    "default real Agent account",
+  );
+  assert.notEqual(defaultSession.text().match(/__DEFAULT_UID__(\d+)/)[1], "0");
+  const compatibility = (await api("GET", "/access-authorizations")).rules.find(
+    (r) =>
+      r.account_id === defaultLogin.id && r.subject_type === "device_scope",
+  );
+  await api("DELETE", `/access-authorizations/${compatibility.id}`, {
+    v: 1,
+    revision: compatibility.revision,
+  });
+  await until(
+    () => defaultSession.messages.some((m) => m.type === "terminal.closed"),
+    "default authorization revokes live terminal",
+  );
+  assert.deepEqual(
+    (
+      await api(
+        "GET",
+        `/devices/${device.id}/login-accounts`,
+        undefined,
+        defaultAuth,
+      )
+    ).accounts,
+    [],
+  );
+  const deniedDefault = await fetch(origin + "/api/v1/terminal-sessions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + defaultAuth,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      v: 1,
+      device_id: device.id,
+      account_id: defaultLogin.id,
+      cols: 80,
+      rows: 24,
+    }),
+  });
+  assert.equal(deniedDefault.status, 403);
+  const deniedSsh = new Client();
+  clients.push(deniedSsh);
+  deniedSsh.on("error", () => {});
+  const deniedReady = once(deniedSsh, "ready");
+  deniedSsh.connect({
+    host: "127.0.0.1",
+    port: server.ssh.info().port,
+    username: defaultOnly.username + ":" + device.id,
+    password: "accounts-e2e-login1",
+    hostVerifier: (raw) =>
+      "SHA256:" +
+        require("node:crypto")
+          .createHash("sha256")
+          .update(raw)
+          .digest("base64")
+          .replace(/=+$/, "") ===
+      server.ssh.info().fingerprint,
+  });
+  await deniedReady;
+  const deniedChannel = await new Promise((resolve, reject) =>
+    deniedSsh.shell({ term: "xterm", cols: 80, rows: 24 }, (e, c) =>
+      e ? reject(e) : resolve(c),
+    ),
+  );
+  let deniedText = "";
+  deniedChannel.stderr.on("data", (b) => (deniedText += b.toString()));
+  deniedChannel.resume();
+  let deniedTimeout;
+  try {
+    await Promise.race([
+      once(deniedChannel, "close"),
+      new Promise((_, reject) => {
+        deniedTimeout = setTimeout(
+          () => reject(Error("SSH denied channel did not close")),
+          15000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(deniedTimeout);
+  }
+
+  assert.ok(deniedText.includes("unavailable"));
+  deniedSsh.end();
+  await api("POST", "/access-authorizations", {
+    v: 1,
+    device_id: device.id,
+    account_ids: [defaultLogin.id],
+    subject_type: "device_scope",
+    subject_id: null,
+  });
+  await api("POST", "/logout", { v: 1 }, defaultAuth);
   const revocable = await open(account.id);
   await revocable.ready();
   revocable.send("printf '__ROOT_PID__'; echo $$; sleep 300 & wait\r");
@@ -433,8 +657,11 @@ try {
       .waitFor();
     const row = page.locator("tbody tr").filter({ hasText: "accounts-linux" });
     await row.getByRole("button", { name: /^更多操作/ }).click();
-    await page.getByRole("menuitem", { name: "目标账号", exact: true }).click();
-    const management = page.getByRole("dialog", { name: /目标账号管理/ });
+    await page.getByRole("menuitem", { name: "登录账号", exact: true }).click();
+    const management = page.getByRole("dialog", { name: /登录账号管理/ });
+    await management
+      .getByRole("button", { name: "新增登录账号", exact: true })
+      .click();
     await management
       .getByLabel("账号名称", { exact: true })
       .fill("浏览器 root");
@@ -442,50 +669,52 @@ try {
       .getByLabel("源账号的 sudo 密码", { exact: true })
       .fill(secret);
     await management
-      .getByRole("group", { name: "允许使用的用户组", exact: true })
-      .getByRole("checkbox", { name: targetGroup.name, exact: true })
-      .check();
-    await management
-      .getByRole("group", { name: "允许使用的角色", exact: true })
-      .getByRole("checkbox", { name: targetRole.name, exact: true })
-      .check();
-    await management
-      .getByRole("button", { name: "保存目标账号", exact: true })
+      .getByRole("button", { name: "保存登录账号", exact: true })
       .click();
     await management.getByRole("status").waitFor();
     assert.equal(
-      await management
-        .getByLabel("源账号的 sudo 密码", { exact: true })
-        .inputValue(),
-      "",
+      await management.locator("form").count(),
+      0,
+      "secret form is closed and cleared after save",
     );
     const configured = (
       await api("GET", `/devices/${device.id}/accounts`)
     ).accounts.find((a) => a.name === "浏览器 root");
-    assert.deepEqual(configured.allowed_groups, [targetGroup.id]);
-    assert.deepEqual(configured.allowed_roles, [targetRole.id]);
+    assert.deepEqual(configured.allowed_groups, []);
     await management
-      .locator(".account-row")
-      .filter({ hasText: "浏览器 root" })
-      .getByRole("button", { name: "编辑", exact: true })
+      .getByRole("button", { name: "管理访问授权", exact: true })
       .click();
-    const groupChoice = management
-      .getByRole("group", { name: "允许使用的用户组", exact: true })
-      .getByRole("checkbox", { name: targetGroup.name, exact: true });
-    const roleChoice = management
-      .getByRole("group", { name: "允许使用的角色", exact: true })
-      .getByRole("checkbox", { name: targetRole.name, exact: true });
-    assert.equal(await groupChoice.isChecked(), true);
-    assert.equal(await roleChoice.isChecked(), true);
-    await roleChoice.scrollIntoViewIfNeeded();
+    await page
+      .getByRole("heading", { name: "访问控制", exact: true })
+      .waitFor();
+    for (const [kind, id] of [
+      ["group", targetGroup.id],
+      ["role", targetRole.id],
+    ]) {
+      await page
+        .getByRole("button", { name: "新增访问授权", exact: true })
+        .click();
+      const form = page.locator("form.authorization-form");
+      await form.getByLabel("授权对象类型", { exact: true }).selectOption(kind);
+      await form.getByLabel("授权对象", { exact: true }).selectOption(id);
+      await form.getByRole("checkbox", { name: /浏览器 root/ }).check();
+      await form
+        .getByRole("button", { name: "保存访问授权", exact: true })
+        .click();
+      await form.waitFor({ state: "detached" });
+    }
+    const granted = (
+      await api("GET", `/devices/${device.id}/accounts`)
+    ).accounts.find((a) => a.id === configured.id);
+    assert.deepEqual(granted.allowed_groups, [targetGroup.id]);
+    assert.deepEqual(granted.allowed_roles, [targetRole.id]);
     await page.screenshot({
       path: join(root, ".test-output/target-accounts-desktop.png"),
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    await groupChoice.scrollIntoViewIfNeeded();
     assert.ok(
-      await management.evaluate((el) => {
+      await page.locator("section.authorizations-panel").evaluate((el) => {
         const r = el.getBoundingClientRect();
         return r.left >= 0 && r.right <= innerWidth;
       }),
@@ -494,12 +723,46 @@ try {
       path: join(root, ".test-output/target-accounts-mobile.png"),
       fullPage: true,
     });
-    await management
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole("button", { name: "权限核对", exact: true }).click();
+    await page
+      .getByLabel("核对用户", { exact: true })
+      .selectOption(principals[1].id);
+    await page
+      .locator("section.authorizations-panel")
+      .getByText("浏览器 root", { exact: true })
+      .waitFor();
+    await page.screenshot({
+      path: join(root, ".test-output/access-effective-desktop.png"),
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "设备总览", exact: true }).click();
+    await row.getByRole("button", { name: /^更多操作/ }).click();
+    await page.getByRole("menuitem", { name: "登录账号", exact: true }).click();
+    const refreshedManagement = page.getByRole("dialog", {
+      name: /登录账号管理/,
+    });
+    await refreshedManagement
+      .locator(".account-row")
+      .filter({ hasText: "浏览器 root" })
+      .getByRole("button", { name: "编辑", exact: true })
+      .click();
+    assert.equal(
+      await refreshedManagement
+        .getByLabel("源账号的 sudo 密码", { exact: true })
+        .inputValue(),
+      "",
+    );
+    assert.equal(
+      await refreshedManagement.getByRole("checkbox").count(),
+      0,
+      "credential form contains no access-grant controls",
+    );
+    await refreshedManagement
       .getByRole("button", { name: "关闭账号窗口", exact: true })
       .click();
-    await page.setViewportSize({ width: 1440, height: 1000 });
     await row.getByRole("button", { name: "连接终端", exact: true }).click();
-    const picker = page.getByRole("dialog", { name: /选择目标账号/ });
+    const picker = page.getByRole("dialog", { name: /选择登录账号/ });
     const createdPromise = page.waitForResponse(
       (r) =>
         r.url().endsWith("/api/v1/terminal-sessions") &&
@@ -567,6 +830,11 @@ try {
         sshDeviceAndAccountMenu: true,
         groupAndRoleAuthorization: true,
         inheritedRoleAuthorization: true,
+        unifiedDefaultAccount: true,
+        defaultRevocationWebAndSsh: true,
+        newRuleWithoutLegacyDeviceScope: true,
+        selectedAccountDoesNotGrantDefault: true,
+        effectiveAuthorizationView: !!browser,
         wrongPasswordRejected: true,
         rootSessionRevocation: true,
         realBrowser: !!browser,

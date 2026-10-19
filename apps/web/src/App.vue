@@ -54,7 +54,7 @@ import DeviceGroupTools from "./components/DeviceGroupTools.vue";
 import DeviceActions from "./components/DeviceActions.vue";
 import ChangePasswordPanel from "./components/ChangePasswordPanel.vue";
 import ApiTokensPanel from "./components/ApiTokensPanel.vue";
-import AccessManagementPanel from "./components/AccessManagementPanel.vue";
+import AccessControlPanel from "./components/AccessControlPanel.vue";
 const TargetAccountsPanel = defineAsyncComponent(
   () => import("./components/TargetAccountsPanel.vue"),
 );
@@ -175,6 +175,8 @@ const tasksReady = computed(
     !!overviewTaskList.updatedAt.value &&
     !taskError.value,
 );
+const authorizationDevice = ref<string>();
+const connectionTab = ref<"endpoint" | "account">("endpoint");
 const accountTarget = ref<{ device: Device; manage: boolean } | null>(null);
 const terminalTarget = ref<{
   id: string;
@@ -227,7 +229,7 @@ const navigation = computed(
               ? [{ id: "upgrades", label: "Agent 升级", icon: "↑" } as const]
               : []),
             { id: "settings", label: "系统设置", icon: "⚙" } as const,
-            { id: "access", label: "用户与权限", icon: "♙" } as const,
+            { id: "access", label: "访问控制", icon: "♙" } as const,
             { id: "api", label: "API Token", icon: "⌘" } as const,
           ]
         : []),
@@ -235,7 +237,7 @@ const navigation = computed(
 );
 const titles = {
   api: ["API Token", "管理 API 凭据与授权，接入脚本和 AI Skill"],
-  access: ["用户与权限", "管理账号、角色与用户组授权"],
+  access: ["访问控制", "组织人员、分配操作权限，统一管理设备与登录账号授权"],
   devices: ["设备总览", "连接状态清晰可见，每一次操作都有记录"],
   tasks: ["任务中心", "从授权到真实结果，追踪每条命令的生命周期"],
   audit: ["操作审计", "平台内操作、授权与输出查看的持久化记录"],
@@ -335,6 +337,8 @@ function clearSession(message = "", preserveSaved = false) {
   selectedTask.value = null;
   terminalTarget.value = null;
   accountTarget.value = null;
+  authorizationDevice.value = undefined;
+  connectionTab.value = "endpoint";
   healthTarget.value = null;
   networkTarget.value = null;
   networkRouteTarget.value = null;
@@ -573,6 +577,7 @@ async function onCreated(id: string) {
 function switchView(id: View) {
   if (!navigation.value.some((item) => item.id === id)) return;
   view.value = id;
+  if (id !== "access") authorizationDevice.value = undefined;
   search.value = "";
   error.value = "";
   void refresh();
@@ -581,6 +586,7 @@ function selectDeviceAccess(kind: "ssh" | "agent") {
   addDeviceOpen.value = false;
   if (kind === "ssh") {
     connectionTarget.value = undefined;
+    connectionTab.value = "endpoint";
     connectionOpen.value = true;
   } else {
     installTarget.value = undefined;
@@ -618,6 +624,7 @@ function handleDeviceAction(kind: string, device: Device) {
       accountTarget.value = { device, manage: true };
       break;
     case "connection":
+      connectionTab.value = "endpoint";
       connectionTarget.value = device;
       connectionOpen.value = true;
       break;
@@ -932,10 +939,12 @@ onBeforeUnmount(() => {
           :current-user-id="user.id"
           :devices="devices"
         />
-        <AccessManagementPanel
+        <AccessControlPanel
           v-if="view === 'access' && user.role === 'admin'"
           :current-user-id="user.id"
           :devices="devices"
+          :device-id="authorizationDevice"
+          @clear-device="authorizationDevice = undefined"
         />
         <DeploymentPanel
           v-if="view === 'settings' && user.role === 'admin' && user.runtime"
@@ -1674,6 +1683,17 @@ onBeforeUnmount(() => {
         :device-name="accountTarget.device.name"
         :manage="accountTarget.manage"
         @close="accountTarget = null"
+        @connection="
+          connectionTarget = accountTarget!.device;
+          connectionTab = 'account';
+          connectionOpen = true;
+          accountTarget = null;
+        "
+        @authorize="
+          authorizationDevice = accountTarget!.device.id;
+          accountTarget = null;
+          switchView('access');
+        "
         @selected="
           (account) => {
             terminalTarget = {
@@ -1728,6 +1748,7 @@ onBeforeUnmount(() => {
         :key="connectionTarget?.id ?? 'new'"
         :device="connectionTarget"
         :agent-enabled="agentEnabled"
+        :initial-tab="connectionTab"
         @close="
           connectionOpen = false;
           connectionTarget = undefined;

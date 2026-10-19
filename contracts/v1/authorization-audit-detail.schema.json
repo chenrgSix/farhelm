@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/authorization-audit-detail.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rule_id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "account_id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "subject_type": {
+      "enum": ["user", "group", "role", "device_scope"]
+    },
+    "subject_id": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": ["rule_id", "account_id", "subject_type", "subject_id"]
+}

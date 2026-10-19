@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/access-authorizations-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "devices": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "required": ["id", "name"]
+      }
+    },
+    "accounts": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "login-account.schema.json"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "access-authorization.schema.json"
+      }
+    }
+  },
+  "required": ["v", "devices", "accounts", "rules"]
+}

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { api } from "../api/client";
 type Account = {
   id: string;
   name: string;
   username: string;
-  method: "ssh" | "sudo";
+  method: "default" | "ssh" | "sudo";
+  is_default?: boolean;
   revision: number;
   allowed_users: string[];
   allowed_groups: string[];
@@ -20,11 +21,11 @@ const emit = defineEmits<{
   close: [];
   selected: [account?: Account];
   changed: [];
+  connection: [];
+  authorize: [];
 }>();
-const accounts = ref<Account[]>([]),
-  users = ref<{ id: string; username: string }[]>([]),
-  groups = ref<{ id: string; name: string }[]>([]),
-  roles = ref<{ id: string; name: string }[]>([]);
+const accounts = ref<Account[]>([]);
+const formOpen = ref(false);
 const loaded = ref(false),
   busy = ref(false),
   error = ref(""),
@@ -36,34 +37,6 @@ const name = ref(""),
   password = ref(""),
   key = ref(""),
   passphrase = ref("");
-const grants = ref({
-  users: [] as string[],
-  groups: [] as string[],
-  roles: [] as string[],
-});
-const grantPickers = computed(() => [
-  {
-    key: "users" as const,
-    label: "允许使用的用户",
-    unit: "位用户",
-    empty: "暂无可选的平台用户。",
-    options: users.value.map((u) => ({ id: u.id, name: u.username })),
-  },
-  {
-    key: "groups" as const,
-    label: "允许使用的用户组",
-    unit: "个用户组",
-    empty: "暂无用户组，可在「用户与权限」中创建。",
-    options: groups.value,
-  },
-  {
-    key: "roles" as const,
-    label: "允许使用的角色",
-    unit: "个角色",
-    empty: "暂无可选的角色。",
-    options: roles.value,
-  },
-]);
 const path = `/devices/${encodeURIComponent(props.deviceId)}/accounts`;
 let disposed = false;
 const errors: Record<string, string> = {
@@ -89,17 +62,16 @@ async function load() {
   try {
     const result = await api.request<{
       accounts: Account[];
-      users?: typeof users.value;
-      groups?: typeof groups.value;
-      roles?: typeof roles.value;
-    }>(path);
+    }>(`/devices/${encodeURIComponent(props.deviceId)}/login-accounts`);
     if (disposed) return;
     accounts.value = result.accounts;
-    users.value = result.users ?? [];
-    groups.value = result.groups ?? [];
-    roles.value = result.roles ?? [];
     loaded.value = true;
-    if (!props.manage && !result.accounts.length) emit("selected");
+    if (
+      !props.manage &&
+      result.accounts.length === 1 &&
+      result.accounts[0]!.is_default
+    )
+      emit("selected", result.accounts[0]);
   } catch (e) {
     if (!disposed) report(e);
   }
@@ -108,12 +80,8 @@ function edit(account?: Account) {
   editing.value = account;
   name.value = account?.name ?? "";
   username.value = account?.username ?? "root";
-  method.value = account?.method ?? "sudo";
-  grants.value = {
-    users: [...(account?.allowed_users ?? [])],
-    groups: [...(account?.allowed_groups ?? [])],
-    roles: [...(account?.allowed_roles ?? [])],
-  };
+  method.value = account?.method === "ssh" ? "ssh" : "sudo";
+  formOpen.value = true;
   password.value = key.value = passphrase.value = "";
   error.value = message.value = "";
 }
@@ -130,9 +98,6 @@ async function save() {
         name: name.value.trim(),
         username: username.value.trim(),
         method: method.value,
-        allowed_users: grants.value.users,
-        allowed_groups: grants.value.groups,
-        allowed_roles: grants.value.roles,
         ...(method.value === "sudo"
           ? password.value
             ? { sudo_password: password.value }
@@ -145,8 +110,9 @@ async function save() {
     });
     if (disposed) return;
     edit();
+    formOpen.value = false;
     await load();
-    message.value = "目标账号已保存，密码和私钥不会返回浏览器。";
+    message.value = "登录账号已保存，密码和私钥不会返回浏览器。";
     emit("changed");
   } catch (e) {
     if (!disposed) report(e);
@@ -158,7 +124,7 @@ async function remove(account: Account) {
   if (
     busy.value ||
     !window.confirm(
-      `删除目标账号「${account.name}」？只删除平台配置，不删除 Linux 账号。`,
+      `删除登录账号「${account.name}」？只删除平台配置，不删除 Linux 账号。`,
     )
   )
     return;
@@ -171,6 +137,7 @@ async function remove(account: Account) {
     });
     if (disposed) return;
     edit();
+    formOpen.value = false;
     await load();
     emit("changed");
   } catch (e) {
@@ -191,11 +158,11 @@ onBeforeUnmount(() => {
       class="accounts-panel"
       role="dialog"
       aria-modal="true"
-      :aria-label="`${manage ? '目标账号管理' : '选择目标账号'}：${deviceName}`"
+      :aria-label="`${manage ? '登录账号管理' : '选择登录账号'}：${deviceName}`"
     >
       <header>
         <h2>
-          {{ manage ? "目标账号管理" : "选择目标账号" }} · {{ deviceName }}
+          {{ manage ? "登录账号管理" : "选择登录账号" }} · {{ deviceName }}
         </h2>
         <button
           class="icon-button"
@@ -210,26 +177,30 @@ onBeforeUnmount(() => {
       <p v-if="message" role="status">{{ message }}</p>
       <p v-if="!loaded && !error">正在读取账号…</p>
       <div v-if="loaded" class="account-list">
-        <button
-          v-if="!manage"
-          class="button secondary"
-          @click="emit('selected')"
-        >
-          默认账号 · 沿用设备接入配置
-        </button>
         <div v-for="account in accounts" :key="account.id" class="account-row">
           <div>
             <strong>{{ account.name }}</strong>
             <p>
               {{ account.username }} ·
               {{
-                account.method === "sudo"
-                  ? "从 Agent 运行账号经 sudo 切换"
-                  : "直接 SSH 登录"
+                account.is_default
+                  ? "沿用设备接入配置，支持 Agent／SSH 原有通道"
+                  : account.method === "sudo"
+                    ? "从 Agent 运行账号经 sudo 切换"
+                    : "直接 SSH 登录"
               }}
             </p>
           </div>
-          <template v-if="manage"
+          <template v-if="manage && account.is_default"
+            ><button
+              class="text-button"
+              :disabled="busy"
+              @click="emit('connection')"
+            >
+              配置默认账号
+            </button></template
+          >
+          <template v-else-if="manage"
             ><button
               class="text-button"
               :disabled="busy"
@@ -253,8 +224,26 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <form v-if="manage && loaded" @submit.prevent="save">
-        <h3>{{ editing ? "编辑目标账号" : "新增目标账号" }}</h3>
+      <p v-if="loaded && !accounts.length && !manage" class="notice">
+        尚未获授任何登录账号，请联系管理员。
+      </p>
+      <div v-if="manage && loaded" class="account-tools">
+        <button class="button primary" :disabled="busy" @click="edit()">
+          新增登录账号</button
+        ><button
+          class="button secondary"
+          :disabled="busy"
+          @click="emit('authorize')"
+        >
+          管理访问授权
+        </button>
+      </div>
+      <p v-if="manage" class="field-hint">
+        这里管理登录身份与凭据。谁能使用哪些账号，统一在「访问控制 →
+        访问授权」中配置；默认账号沿用现有接入凭据。
+      </p>
+      <form v-if="manage && loaded && formOpen" @submit.prevent="save">
+        <h3>{{ editing ? "编辑登录账号" : "新增登录账号" }}</h3>
         <fieldset :disabled="busy">
           <label
             >账号名称<input
@@ -314,47 +303,15 @@ onBeforeUnmount(() => {
               地址、端口和主机指纹沿用设备的 SSH 接入配置；私钥应对应目标账号。
             </p>
           </template>
-          <fieldset
-            v-for="picker in grantPickers"
-            :key="picker.key"
-            class="user-picker"
-            aria-describedby="account-users-hint"
-          >
-            <legend>{{ picker.label }}</legend>
-            <div v-if="picker.options.length" class="user-options">
-              <label
-                v-for="option in picker.options"
-                :key="option.id"
-                class="user-option"
-              >
-                <input
-                  v-model="grants[picker.key]"
-                  type="checkbox"
-                  :value="option.id"
-                />
-                <span>{{ option.name }}</span>
-              </label>
-            </div>
-            <p v-else class="field-hint">{{ picker.empty }}</p>
-            <p class="field-hint" aria-live="polite">
-              已选择 {{ grants[picker.key].length }} {{ picker.unit }}
-            </p>
-          </fieldset>
-          <p id="account-users-hint" class="field-hint">
-            用户、用户组或角色匹配任意一项即可使用此账号，全部未勾选时仅管理员可用。角色包含直接分配及通过用户组继承的角色。其他用户还须有本设备的终端权限；sudo
-            切换或 root 账号另需「使用 sudo／特权账号」权限。网页和 SSH
-            入口共用此授权。
-          </p>
         </fieldset>
         <div class="form-actions">
           <button class="button primary" :disabled="busy">
-            {{ busy ? "保存中…" : "保存目标账号" }}</button
+            {{ busy ? "保存中…" : "保存登录账号" }}</button
           ><button
-            v-if="editing"
             type="button"
             class="button secondary"
             :disabled="busy"
-            @click="edit()"
+            @click="formOpen = false"
           >
             取消编辑
           </button>
@@ -446,42 +403,11 @@ textarea {
   line-height: 1.7;
   margin: 0;
 }
-.user-picker {
-  gap: 8px;
-}
-.user-picker legend {
-  padding: 0;
-  margin-bottom: 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.user-options {
-  max-height: 180px;
-  overflow-y: auto;
-  border: 1px solid #d3dfe5;
-  border-radius: 6px;
-  padding: 4px;
-}
-.user-option {
+.account-tools {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  padding: 8px;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.user-option:hover,
-.user-option:focus-within {
-  background: #f5f7fa;
-}
-.user-option input {
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  margin: 0;
-  accent-color: #087f77;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
 }
 .form-actions {
   margin-top: 16px;

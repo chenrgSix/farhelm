@@ -1,4 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
+import {
+  grantedDevices,
+  migrateAccountAuthorizations,
+} from "./account-authorizations.js";
 import { auditContext } from "./audit-context.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync, mkdirSync, chmodSync } from "node:fs";
@@ -332,6 +336,16 @@ export class Store {
         "utf8",
       ),
     );
+    this.db.exec(
+      readFileSync(
+        new URL(
+          "../migrations/033_account_authorizations.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    migrateAccountAuthorizations(this.db);
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",
@@ -517,6 +531,7 @@ export class Store {
     const scopes: Scope[] = [
       JSON.parse(row.device_scope),
       ...groups.map((g) => JSON.parse(g.device_scope)),
+      grantedDevices(this.db, row.id),
     ];
     const scope: Scope =
       admin || scopes.includes("*")

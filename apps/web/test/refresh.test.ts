@@ -181,7 +181,7 @@ it("keeps web management in SSH-only mode and hides unavailable Agent and certif
       .findAll("nav button")
       .map((b) => b.text())
       .join(" "),
-  ).toContain("用户与权限");
+  ).toContain("访问控制");
   expect(
     wrapper
       .findAll("nav button")

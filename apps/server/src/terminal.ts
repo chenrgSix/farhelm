@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
+import { defaultAccountId } from "./account-authorizations.js";
 import { WebSocket } from "ws";
 import {
   hasPermission,
@@ -156,6 +157,12 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       } catch {
         return false;
       }
+    } else {
+      try {
+        d.accounts?.requireDefault(user, s.deviceId);
+      } catch {
+        return false;
+      }
     }
     return (
       !user.must_change_password &&
@@ -256,6 +263,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       fail(403, "EXEC_ROLE_REQUIRED");
     d.requireScope(user, deviceId);
     rate.check("terminal-create:" + user.id, 20);
+    if (accountId === defaultAccountId(deviceId)) accountId = undefined;
+    if (!accountId) d.accounts?.requireDefault(user, deviceId);
     const account = accountId
       ? d.accounts?.requireAccount(user, deviceId, accountId)
       : undefined;

@@ -1,5 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
+import {
+  AccountAuthorizations,
+  defaultAccountId,
+} from "./account-authorizations.js";
 import ssh2 from "ssh2";
 import { Credentials } from "./credentials.js";
 import { hasPermission } from "./permissions.js";
@@ -39,6 +43,7 @@ export function registerTargetAccounts(
   },
 ) {
   const db = d.store.db;
+  const policy = new AccountAuthorizations(db);
   const credentials = new Credentials(
     d.store.dataDir,
     !!db.prepare("SELECT 1 FROM target_accounts LIMIT 1").get(),
@@ -51,47 +56,77 @@ export function registerTargetAccounts(
     const { secrets: _, ...account } = r;
     return {
       ...account,
-      allowed_users: JSON.parse(r.allowed_users),
-      allowed_groups: groupGrants(r.id),
-      allowed_roles: roleGrants(r.id),
+      ...policy.grants(r.device_id, r.id),
     };
-  }
-  function groupGrants(id: string) {
-    return (
-      db
-        .prepare(
-          "SELECT group_id FROM target_account_groups WHERE account_id=? ORDER BY group_id",
-        )
-        .all(id) as { group_id: string }[]
-    ).map((r) => r.group_id);
-  }
-  function roleGrants(id: string) {
-    return (
-      db
-        .prepare(
-          "SELECT role_id FROM target_account_roles WHERE account_id=? ORDER BY role_id",
-        )
-        .all(id) as { role_id: string }[]
-    ).map((r) => r.role_id);
   }
   function allowed(user: User, r: Row) {
     return (
       hasPermission(user, "terminal.connect") &&
-      (user.role === "admin" ||
-        JSON.parse(r.allowed_users).includes(user.id) ||
-        !!db
-          .prepare(
-            "SELECT 1 FROM target_account_groups a JOIN group_members m ON m.group_id=a.group_id WHERE a.account_id=? AND m.user_id=?",
-          )
-          .get(r.id, user.id) ||
-        !!db
-          .prepare(
-            "SELECT 1 FROM target_account_roles a WHERE a.account_id=? AND (EXISTS(SELECT 1 FROM user_roles u WHERE u.role_id=a.role_id AND u.user_id=?) OR EXISTS(SELECT 1 FROM group_roles g JOIN group_members m ON m.group_id=g.group_id WHERE g.role_id=a.role_id AND m.user_id=?))",
-          )
-          .get(r.id, user.id, user.id)) &&
+      policy.allowed(user, r.device_id, r.id) &&
       (!(r.method === "sudo" || r.username === "root") ||
         hasPermission(user, "terminal.sudo"))
     );
+  }
+  function defaultNeedsSudo(user: User, deviceId: string) {
+    const row = db
+      .prepare("SELECT config_json FROM device_connections WHERE device_id=?")
+      .get(deviceId);
+    const privileged =
+      !!row && JSON.parse(row.config_json as string).username === "root";
+    return (
+      privileged &&
+      !policy.matches(user, deviceId, null).some((rule) => rule.legacy_scope)
+    );
+  }
+  function requireDefault(user: User, deviceId: string) {
+    d.requireScope(user, deviceId);
+    if (
+      !hasPermission(user, "terminal.connect") ||
+      !policy.allowed(user, deviceId, null)
+    )
+      fail(403, "TARGET_ACCOUNT_DENIED");
+    if (
+      defaultNeedsSudo(user, deviceId) &&
+      !hasPermission(user, "terminal.sudo")
+    )
+      fail(403, "SUDO_PERMISSION_REQUIRED");
+  }
+  function loginAccounts(user: User, deviceId: string) {
+    d.requireScope(user, deviceId);
+    const connection = db
+      .prepare(
+        "SELECT config_json,revision FROM device_connections WHERE device_id=?",
+      )
+      .get(deviceId);
+    const device = d.requireDevice(deviceId);
+    const username =
+      device.connection_kind === "agent"
+        ? "Agent 运行账号"
+        : connection
+          ? JSON.parse(connection.config_json as string).username
+          : "接入账号";
+    const defaults =
+      user.role === "admin" ||
+      (hasPermission(user, "terminal.connect") &&
+        policy.allowed(user, deviceId, null) &&
+        (!defaultNeedsSudo(user, deviceId) ||
+          hasPermission(user, "terminal.sudo")))
+        ? [
+            {
+              id: defaultAccountId(deviceId),
+              device_id: deviceId,
+              name: "默认登录账号",
+              username,
+              method: "default" as const,
+              revision: Number(connection?.revision ?? 0),
+              is_default: true,
+            },
+          ]
+        : [];
+    return [
+      ...defaults,
+      ...list(user, deviceId).map((a) => ({ ...a, is_default: false })),
+    ];
   }
   function requireAccount(user: User, deviceId: string, accountId: string) {
     d.requireScope(user, deviceId);
@@ -129,6 +164,10 @@ export function registerTargetAccounts(
     )
       fail(409, "CONNECTION_HAS_ACTIVE_SESSIONS");
   }
+  app.get("/api/v1/devices/:id/login-accounts", async (req) => {
+    const { user, deviceId } = request(req);
+    return { v: 1, accounts: loginAccounts(user, deviceId) };
+  });
   app.get("/api/v1/devices/:id/accounts", async (req) => {
     const { user, deviceId } = request(req);
     return {
@@ -156,6 +195,11 @@ export function registerTargetAccounts(
   async function save(req: FastifyRequest, updating: boolean) {
     const { user, deviceId, device } = request(req, true),
       b = object(req.body);
+    const updateGrants = [
+      "allowed_users",
+      "allowed_groups",
+      "allowed_roles",
+    ].some((key) => b[key] !== undefined);
     version(b);
     keys(b, [
       "v",
@@ -196,6 +240,10 @@ export function registerTargetAccounts(
       fail(409, "SUDO_AGENT_REQUIRED");
     if (b.method === "ssh" && !d.hasSsh(deviceId))
       fail(409, "SSH_NOT_CONFIGURED");
+    if (b.allowed_users === undefined)
+      b.allowed_users = previous
+        ? policy.grants(deviceId, accountId).allowed_users
+        : [];
     if (
       !Array.isArray(b.allowed_users) ||
       b.allowed_users.length > 1000 ||
@@ -233,7 +281,7 @@ export function registerTargetAccounts(
     const groups = references(
       b.allowed_groups === undefined
         ? previous
-          ? groupGrants(accountId)
+          ? policy.grants(deviceId, accountId).allowed_groups
           : []
         : b.allowed_groups,
       "access_groups",
@@ -242,7 +290,7 @@ export function registerTargetAccounts(
     const roles = references(
       b.allowed_roles === undefined
         ? previous
-          ? roleGrants(accountId)
+          ? policy.grants(deviceId, accountId).allowed_roles
           : []
         : b.allowed_roles,
       "access_roles",
@@ -312,6 +360,12 @@ export function registerTargetAccounts(
         db.prepare(
           "INSERT INTO target_account_roles(account_id,role_id) VALUES(?,?)",
         ).run(accountId, id);
+      if (!previous || updateGrants)
+        policy.replaceLegacy(deviceId, accountId, {
+          allowed_users: b.allowed_users,
+          allowed_groups: groups,
+          allowed_roles: roles,
+        });
       d.store.audit("account.configured", user.id, deviceId, null, {
         account_id: accountId,
         username,
@@ -347,7 +401,11 @@ export function registerTargetAccounts(
   });
   return {
     list,
+    loginAccounts,
     requireAccount,
+    requireDefault,
+    defaultNeedsSudo,
+    policy,
     secret(id: string) {
       const r = row(id);
       if (!r) fail(404, "TARGET_ACCOUNT_NOT_FOUND");
