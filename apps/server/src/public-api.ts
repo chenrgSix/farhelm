@@ -209,9 +209,12 @@ export function openApiDocument() {
     type: "object",
     additionalProperties: false,
     required: ["v", "device_id", "cols", "rows"],
+    not: { required: ["account_id", "connection_mode"] },
     properties: {
       v: { const: 1 },
       device_id: id,
+      account_id: id,
+      connection_mode: { enum: ["normal", "root"] },
       cols: { type: "integer", minimum: 20, maximum: 500 },
       rows: { type: "integer", minimum: 5, maximum: 200 },
     },
