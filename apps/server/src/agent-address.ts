@@ -27,25 +27,21 @@ export function agentAddressSync(
   function enqueue(target: AddressTarget, retry = false) {
     const devices = db
       .prepare(
-        "SELECT id FROM devices WHERE connection_kind='agent' AND revoked_at IS NULL",
+        "SELECT id,agent_server_url FROM devices WHERE connection_kind='agent' AND revoked_at IS NULL",
       )
-      .all() as { id: string }[];
-    for (const { id } of devices) {
+      .all() as { id: string; agent_server_url: string | null }[];
+    for (const { id, agent_server_url } of devices) {
+      const serverUrl = agent_server_url ?? target.platform_server_url;
       const old = row(id);
       if (
         old?.revision === target.revision &&
+        old.server_url === serverUrl &&
         (!retry || ["applied", "saved", "checking"].includes(old.status))
       )
         continue;
       db.prepare(
         "INSERT INTO agent_address_sync(device_id,revision,request_id,server_url,status,reason,updated_at) VALUES(?,?,?,?,'pending',NULL,?) ON CONFLICT(device_id) DO UPDATE SET revision=excluded.revision,request_id=excluded.request_id,server_url=excluded.server_url,status='pending',reason=NULL,updated_at=excluded.updated_at",
-      ).run(
-        id,
-        target.revision,
-        randomUUID(),
-        target.platform_server_url,
-        Date.now(),
-      );
+      ).run(id, target.revision, randomUUID(), serverUrl, Date.now());
     }
   }
   function row(id: string) {

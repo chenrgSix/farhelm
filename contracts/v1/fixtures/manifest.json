@@ -815,9 +815,9 @@
     "valid": false
   },
   {
-    "path": "invalid/agent-install-url-override.json",
+    "path": "valid/agent-install-url-override.json",
     "schema": "agent-install-request.schema.json",
-    "valid": false
+    "valid": true
   },
   {
     "path": "invalid/agent-install-command-injection.json",
@@ -1668,5 +1668,10 @@
     "path": "valid/audit-api_token.request.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "invalid/agent-install-http-url.json",
+    "schema": "agent-install-request.schema.json",
+    "valid": false
   }
 ]

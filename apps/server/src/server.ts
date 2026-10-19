@@ -1186,6 +1186,7 @@ export async function buildServer(config: ServerConfig) {
         ).run(id, c.public_key, name, Date.now());
         device = { id };
       }
+      installations.enrolled(e, device.id);
       db.prepare(
         "UPDATE enrollment_tokens SET redeemed_device_id=? WHERE token_hash=?",
       ).run(device.id, c.enrollment_hash);

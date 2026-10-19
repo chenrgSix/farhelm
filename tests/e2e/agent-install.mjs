@@ -131,7 +131,7 @@ try {
   await page.getByRole("button", { name: "系统设置", exact: false }).click();
   const settingsForm = page.locator(".settings-panel");
   await settingsForm
-    .getByLabel("平台访问地址", { exact: true })
+    .getByLabel("Agent HTTPS 地址", { exact: true })
     .fill(`https://host.docker.internal:${port}`);
   await settingsForm
     .getByRole("button", { name: "保存设置", exact: true })
@@ -207,7 +207,19 @@ try {
         await platformAddress.inputValue(),
         `https://host.docker.internal:${port}`,
       );
-      assert.equal(await platformAddress.getAttribute("readonly"), "");
+      assert.equal(await platformAddress.getAttribute("readonly"), null);
+      await platformAddress.fill("https://192.168.1.100:8444");
+      assert.equal(
+        (await api("GET", "/settings")).platform_server_url,
+        `https://host.docker.internal:${port}`,
+      );
+      await form
+        .getByRole("button", { name: "恢复系统地址", exact: true })
+        .click();
+      assert.equal(
+        await platformAddress.inputValue(),
+        `https://host.docker.internal:${port}`,
+      );
       await page.screenshot({
         path: join(out, "agent-install-form-desktop.png"),
         fullPage: true,
@@ -551,11 +563,12 @@ try {
   await page.getByRole("button", { name: "重新加载配置", exact: true }).click();
   await until(
     async () =>
-      (await page.getByLabel("平台访问地址", { exact: true }).inputValue()) !==
-      nextUrl,
+      (await page
+        .getByLabel("Agent HTTPS 地址", { exact: true })
+        .inputValue()) !== nextUrl,
     "load latest revision",
   );
-  await page.getByLabel("平台访问地址", { exact: true }).fill(initialUrl);
+  await page.getByLabel("Agent HTTPS 地址", { exact: true }).fill(initialUrl);
   await page.getByRole("button", { name: "保存设置", exact: true }).click();
   await page.locator(".settings-panel").getByRole("status").waitFor();
   await until(async () => {

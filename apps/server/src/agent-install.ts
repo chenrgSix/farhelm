@@ -20,6 +20,7 @@ import {
 const machines = ["x86_64", "aarch64"] as const;
 type InstallConfig = {
   server_url: string;
+  custom_server_url?: boolean;
   name: string;
   run_user: string;
   allow_sudo: boolean;
@@ -172,6 +173,7 @@ export function registerAgentInstall(
       "ttl_seconds",
       "allow_sudo",
       "start_mode",
+      "server_url",
     ]);
     const targetId =
       b.device_id === undefined ? undefined : str(b.device_id, 1, 128);
@@ -197,13 +199,19 @@ export function registerAgentInstall(
       fail(400, "INVALID_START_MODE");
     const artifacts = available();
     if (!Object.keys(artifacts).length) fail(503, "AGENT_PACKAGES_UNAVAILABLE");
+    const serverUrl =
+      b.server_url === undefined
+        ? serverOrigin()
+        : platformServerUrl(b.server_url);
     const c: InstallConfig = {
-      server_url: serverOrigin(),
+      server_url: serverUrl,
+      custom_server_url:
+        b.server_url !== undefined && serverUrl !== d.serverUrl(),
       name,
       run_user: runUser,
       start_mode: mode,
       allow_sudo: b.allow_sudo ?? false,
-      ca: d.ca?.(serverOrigin(), ca) ?? ca,
+      ca: d.ca?.(serverUrl, ca) ?? ca,
       artifacts,
     };
     const expires =
@@ -330,5 +338,21 @@ export function registerAgentInstall(
       installation_id: enrollment.id,
     });
   }
-  return { artifact, enrollTarget, activate };
+  // Persist only after the installation token has proved the device identity.
+  function enrolled(
+    enrollment: { token_hash: string; redeemed_device_id: string | null },
+    deviceId: string,
+  ) {
+    if (enrollment.redeemed_device_id) return;
+    const installation = db
+      .prepare("SELECT config_json FROM agent_installations WHERE token_hash=?")
+      .get(enrollment.token_hash) as { config_json: string } | undefined;
+    if (!installation) return;
+    const config = JSON.parse(installation.config_json) as InstallConfig;
+    db.prepare("UPDATE devices SET agent_server_url=? WHERE id=?").run(
+      config.custom_server_url ? config.server_url : null,
+      deviceId,
+    );
+  }
+  return { artifact, enrollTarget, activate, enrolled };
 }

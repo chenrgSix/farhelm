@@ -106,7 +106,8 @@ test("installer is admin-only, validates HTTPS/account/options and reports missi
       "https://user:secret@fleet.example.com",
       "https://fleet.example.com/path",
       "https://fleet.example.com/?token=x",
-      "https://another.example.com",
+      "https://fleet.example.com/#fragment",
+      "",
     ]) {
       assert.equal(
         (
@@ -301,6 +302,110 @@ const pair = () => {
       .toString("base64"),
   };
 };
+test("custom install addresses stay local to the enrolled device and survive server restart", async () => {
+  const f = await fixture();
+  const localUrl = "https://192.168.1.100:8444";
+  let closed = false;
+  try {
+    const settings = (await f.api("GET", "/api/v1/settings")).json();
+    const created = await f.api("POST", "/api/v1/agent-installations", {
+      ...f.body,
+      server_url: localUrl + "/",
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const { command, server_url } = created.json();
+    assert.equal(server_url, localUrl);
+    assert.ok(command.includes(localUrl + "/api/agent/install.sh"));
+    const header = (command.match(/[A-Za-z0-9+/=]{50,}/g) as string[])
+      .map((s) => Buffer.from(s, "base64").toString())
+      .find((s) => s.startsWith("Authorization: Bearer "))!;
+    const secret = header.slice("Authorization: Bearer ".length).trim();
+    const script = await f.api(
+      "GET",
+      "/api/agent/install.sh",
+      undefined,
+      secret,
+    );
+    assert.equal(script.statusCode, 200);
+    assert.ok(script.body.includes(`server='${localUrl}'`));
+    const env = Buffer.from(
+      script.body.match(/^env_b64='([^']+)'$/m)![1]!,
+      "base64",
+    ).toString();
+    assert.ok(env.includes(`FLEET_SERVER_URL="${localUrl}"`));
+    assert.ok(command.includes(hash(script.body)));
+    assert.equal(command.includes("-k "), false);
+    const key = pair();
+    const challenge = (
+      await f.api("POST", "/api/agent/challenge", {
+        v: 1,
+        purpose: "enroll",
+        public_key: key.public_key,
+        enrollment_token: secret,
+      })
+    ).json();
+    const enrolled = await f.api("POST", "/api/agent/enroll", {
+      v: 1,
+      challenge_id: challenge.challenge_id,
+      signature: sign(
+        null,
+        Buffer.from(challenge.signing_payload, "base64"),
+        key.privateKey,
+      ).toString("base64"),
+      name: "LAN device",
+    });
+    assert.equal(enrolled.statusCode, 200, enrolled.body);
+    const id = enrolled.json().device_id;
+    assert.equal(
+      f.store.db
+        .prepare("SELECT agent_server_url FROM devices WHERE id=?")
+        .get(id)!.agent_server_url,
+      localUrl,
+    );
+    assert.deepEqual((await f.api("GET", "/api/v1/settings")).json(), settings);
+    assert.equal(
+      (await f.api("GET", "/api/v1/agent-install/options")).json().server_url,
+      settings.platform_server_url,
+    );
+    const next = await f.api("POST", "/api/v1/agent-installations", {
+      ...f.body,
+      name: "Other device",
+    });
+    assert.equal(next.json().server_url, settings.platform_server_url);
+    await f.close();
+    closed = true;
+    const restarted = await buildServer(f.config);
+    try {
+      assert.equal(
+        restarted.store.db
+          .prepare("SELECT agent_server_url FROM devices WHERE id=?")
+          .get(id)!.agent_server_url,
+        localUrl,
+      );
+    } finally {
+      await restarted.close();
+    }
+  } finally {
+    if (!closed) await f.close();
+  }
+});
+test("an explicit install address works without a global default", async () => {
+  const f = await fixture(true, "");
+  try {
+    const r = await f.api("POST", "/api/v1/agent-installations", {
+      ...f.body,
+      server_url: "https://[fd00::1]:8444",
+    });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(r.json().server_url, "https://[fd00::1]:8444");
+    assert.equal(
+      (await f.api("GET", "/api/v1/settings")).json().platform_server_url,
+      "",
+    );
+  } finally {
+    await f.close();
+  }
+});
 async function boundFixture() {
   const f = await fixture();
   await f.app.listen({ host: "127.0.0.1", port: 0 });
@@ -323,10 +428,11 @@ async function boundFixture() {
   });
   assert.equal(r.statusCode, 200, r.body);
   const id = r.json().device_id;
-  const install = async (target = id) => {
+  const install = async (target = id, server_url?: string) => {
     const r = await f.api("POST", "/api/v1/agent-installations", {
       v: 1,
       device_id: target,
+      ...(server_url ? { server_url } : {}),
     });
     assert.equal(r.statusCode, 200, r.body);
     const data = r.json();
@@ -448,9 +554,15 @@ test("SSH enrollment stages a bound key, preserves identity and promotes atomica
     const scope = db
       .prepare("SELECT * FROM users WHERE username='scoped'")
       .get();
-    const command = await f.install(),
+    const localUrl = "https://192.168.1.100:8444";
+    const command = await f.install(f.id, localUrl),
       key = pair();
     assert.equal(f.row().connection_kind, "ssh");
+    assert.equal(
+      f.row().agent_server_url,
+      null,
+      "issuing a command does not change the SSH device",
+    );
     const waiting = (
       await f.api("GET", `/api/v1/agent-installations/${command.id}`)
     ).json();
@@ -460,6 +572,7 @@ test("SSH enrollment stages a bound key, preserves identity and promotes atomica
     assert.equal(registered.json().device_id, f.id);
     assert.equal(f.row().public_key, original.public_key);
     assert.equal(f.row().agent_pending_public_key, key.public_key);
+    assert.equal(f.row().agent_server_url, localUrl);
     assert.equal(f.row().connection_kind, "ssh");
     assert.equal(
       (await f.api("GET", "/api/v1/devices")).json().devices[0]
@@ -501,6 +614,7 @@ test("SSH enrollment stages a bound key, preserves identity and promotes atomica
     assert.equal(enabled.created_at, original.created_at);
     assert.equal(enabled.public_key, key.public_key);
     assert.equal(enabled.agent_pending_public_key, null);
+    assert.equal(enabled.agent_server_url, localUrl);
     assert.deepEqual(
       db
         .prepare("SELECT * FROM device_connections WHERE device_id=?")

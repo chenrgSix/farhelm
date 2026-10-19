@@ -8,6 +8,7 @@ const props = defineProps<{ device?: Pick<Device, "id" | "name"> }>();
 const emit = defineEmits<{ close: []; added: []; settings: [] }>();
 const name = ref(props.device?.name ?? "");
 const serverUrl = ref("");
+const defaultServerUrl = ref("");
 const runUser = ref("farhelm");
 const ttl = ref(3600);
 const startMode = ref("auto");
@@ -52,7 +53,7 @@ function message(e: unknown) {
   if (raw.includes("AGENT_PACKAGES_UNAVAILABLE"))
     return "平台尚未准备 Agent 安装包，请联系管理员。";
   if (raw.includes("INVALID_AGENT_SERVER_URL"))
-    return "平台访问地址配置无效，请在系统设置中配置有效的 HTTPS 地址。";
+    return "请输入有效的 HTTPS 平台访问地址，不能包含账号、路径或查询参数。";
   if (raw.includes("AGENT_SERVER_URL_UNCONFIGURED"))
     return "平台尚未配置服务端地址，请先在系统设置中保存。";
   if (raw.includes("INVALID_AGENT_USER"))
@@ -74,6 +75,7 @@ async function load() {
     }>("/agent-install/options");
     if (disposed) return;
     serverUrl.value = options.server_url;
+    defaultServerUrl.value = options.server_url;
     architectures.value = options.architectures;
     loaded.value = true;
     await nextTick();
@@ -104,7 +106,7 @@ async function generate() {
   if (
     busy.value ||
     !loaded.value ||
-    !serverUrl.value ||
+    !serverUrl.value.trim() ||
     !architectures.value.length ||
     result.value
   )
@@ -128,6 +130,9 @@ async function generate() {
         ttl_seconds: ttl.value,
         start_mode: startMode.value,
         allow_sudo: allowSudo.value,
+        ...(serverUrl.value.trim() !== defaultServerUrl.value
+          ? { server_url: serverUrl.value.trim() }
+          : {}),
       },
     });
     if (disposed) return;
@@ -224,13 +229,26 @@ onBeforeUnmount(() => {
             /></label>
             <label
               >平台访问地址<input
-                :value="serverUrl"
-                readonly
-                placeholder="平台尚未配置"
+                v-model="serverUrl"
+                type="url"
+                required
+                maxlength="2048"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="https://192.168.1.100:8444"
             /></label>
             <p class="field-hint">
-              由系统设置统一配置，可与网页地址共用入口；Agent
-              安装后会连接此地址。
+              默认使用系统配置，可为本台设备改填可达的局域网 HTTPS
+              地址，不修改全局配置或其他设备。证书须匹配填写的域名或 IP。
+              启用统一网络策略后，运行入口由该策略管理。
+              <button
+                v-if="defaultServerUrl && serverUrl !== defaultServerUrl"
+                type="button"
+                class="text-button"
+                @click="serverUrl = defaultServerUrl"
+              >
+                恢复系统地址
+              </button>
               <button
                 type="button"
                 class="text-button"
@@ -239,11 +257,11 @@ onBeforeUnmount(() => {
                 前往系统设置
               </button>
             </p>
-            <p v-if="!serverUrl" class="text-warning" role="alert">
-              平台尚未配置服务端地址，请先在系统设置中保存。
+            <p v-if="!serverUrl.trim()" class="text-warning" role="alert">
+              请填写本台设备可访问的 HTTPS 地址，或前往系统设置配置默认地址。
             </p>
             <p v-if="isLoopback" class="text-warning">
-              平台当前配置为本机地址。如需接入其他服务器，请在系统设置中改为目标服务器可访问的地址。
+              当前填写的是本机地址。如需接入其他服务器，请改为目标服务器可访问的地址。
             </p>
             <div class="install-columns">
               <label
@@ -296,7 +314,7 @@ onBeforeUnmount(() => {
           <div class="install-actions">
             <button
               class="button primary"
-              :disabled="busy || !serverUrl || !architectures.length"
+              :disabled="busy || !serverUrl.trim() || !architectures.length"
             >
               {{ busy ? "生成中…" : "生成安装命令" }}</button
             ><button

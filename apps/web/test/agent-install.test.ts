@@ -35,7 +35,7 @@ it("generates once on explicit form submit, copies the command and reports real 
     "添加设备 · Agent 接入",
   );
   expect(request).toHaveBeenCalledTimes(1);
-  expect(wrapper.get<HTMLInputElement>("input[readonly]").element.value).toBe(
+  expect(wrapper.get<HTMLInputElement>('input[type="url"]').element.value).toBe(
     options.server_url,
   );
   expect(wrapper.text()).toContain("平台访问地址");
@@ -72,19 +72,76 @@ it("generates once on explicit form submit, copies the command and reports real 
   await vi.advanceTimersByTimeAsync(10000);
   expect(request).toHaveBeenCalledTimes(4);
 });
-it("blocks generation until the platform has configured its server address", async () => {
+it("requires an address and allows a local entry even without a system default", async () => {
+  vi.useFakeTimers();
   const request = vi
     .spyOn(api, "request")
-    .mockResolvedValue({ ...options, server_url: "" });
+    .mockResolvedValueOnce({ ...options, server_url: "" })
+    .mockResolvedValueOnce({
+      id: "local-install",
+      command: "local-command",
+      expires_at: Date.now() + 60000,
+      server_url: "https://192.168.1.100:8444",
+    })
+    .mockResolvedValue({ status: "waiting" });
   const wrapper = mount(AgentInstallPanel);
   await flushPromises();
   await wrapper.get("input").setValue("new-linux");
   await wrapper.get("form").trigger("submit");
   expect(request).toHaveBeenCalledTimes(1);
-  expect(wrapper.text()).toContain("平台尚未配置服务端地址");
+  expect(wrapper.text()).toContain("请填写本台设备可访问的 HTTPS 地址");
   expect(
     wrapper.get("button.button.primary").attributes("disabled"),
   ).toBeDefined();
+  await wrapper.get('input[type="url"]').setValue("https://192.168.1.100:8444");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls[1]).toEqual([
+    "/agent-installations",
+    expect.objectContaining({
+      method: "POST",
+      body: expect.objectContaining({
+        server_url: "https://192.168.1.100:8444",
+      }),
+    }),
+  ]);
+  expect(request.mock.calls.some(([url]) => url === "/settings")).toBe(false);
+  wrapper.unmount();
+});
+it("lets an SSH device override the default and restore it without changing system settings", async () => {
+  vi.useFakeTimers();
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce(options)
+    .mockResolvedValueOnce({
+      id: "bound-local",
+      command: "local-command",
+      expires_at: Date.now() + 60000,
+      server_url: "https://192.168.1.100:8444",
+    })
+    .mockResolvedValue({ status: "waiting" });
+  const wrapper = mount(AgentInstallPanel, {
+    props: { device: { id: "ssh-device", name: "Local server" } },
+  });
+  await flushPromises();
+  const address = wrapper.get<HTMLInputElement>('input[type="url"]');
+  expect(address.attributes("readonly")).toBeUndefined();
+  expect(address.element.value).toBe(options.server_url);
+  await address.setValue("https://192.168.1.100:8444");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "恢复系统地址")!
+    .trigger("click");
+  expect(address.element.value).toBe(options.server_url);
+  await address.setValue("https://192.168.1.100:8444");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls[1][1]?.body).toMatchObject({
+    device_id: "ssh-device",
+    server_url: "https://192.168.1.100:8444",
+  });
+  expect(request.mock.calls.some(([url]) => url === "/settings")).toBe(false);
+  expect(wrapper.text()).toContain("https://192.168.1.100:8444");
   wrapper.unmount();
 });
 it("does not enable generation when packages are unavailable or continue polling after close", async () => {

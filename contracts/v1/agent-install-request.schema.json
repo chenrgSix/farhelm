@@ -24,38 +24,34 @@
       "maximum": 86400
     },
     "start_mode": {
-      "enum": [
-        "auto",
-        "systemd",
-        "background"
-      ]
+      "enum": ["auto", "systemd", "background"]
     },
     "allow_sudo": {
       "type": "boolean"
     },
     "device_id": {
       "$ref": "common.schema.json#/$defs/id"
+    },
+    "server_url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s/@?#]+/?$"
     }
   },
-  "required": [
-    "v"
-  ],
+  "required": ["v"],
   "anyOf": [
     {
       "properties": {
         "name": {}
       },
-      "required": [
-        "name"
-      ]
+      "required": ["name"]
     },
     {
       "properties": {
         "device_id": {}
       },
-      "required": [
-        "device_id"
-      ]
+      "required": ["device_id"]
     }
   ]
 }

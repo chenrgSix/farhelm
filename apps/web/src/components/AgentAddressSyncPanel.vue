@@ -99,7 +99,7 @@ onBeforeUnmount(() => {
     <p class="field-hint">
       先校验证书、平台身份和连接，再保存地址。正在使用的终端结束后自动切换；失败时继续使用原地址。离线设备重新上线后补同步，请保留旧地址入口直至全部完成。旧版
       Agent
-      需先升级。启用网络策略的设备请在「平台网络策略」修改运行入口，此处保留初次安装地址。
+      需先升级。安装时自定义入口的设备保留自己的地址。启用网络策略的设备请在「平台网络策略」修改运行入口，此处保留初次安装地址。
     </p>
     <p v-if="error" role="alert" class="text-warning">{{ error }}</p>
     <p v-if="!devices.length && !error" class="muted">

@@ -306,6 +306,20 @@ export class Store {
         ),
       ),
     );
+    if (
+      !(this.db.prepare("PRAGMA table_info(devices)").all() as any[]).some(
+        (c) => c.name === "agent_server_url",
+      )
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL("../migrations/030_agent_server_url.sql", import.meta.url),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

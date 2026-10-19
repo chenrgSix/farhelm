@@ -46,6 +46,47 @@ function fixture() {
   const snapshot = () => sync.snapshot(target).devices;
   return { store, sync, frames, connections, target, snapshot, managed };
 }
+test("device-specific install addresses survive first connection, global changes and retries", () => {
+  const f = fixture();
+  try {
+    const localUrl = "https://192.168.1.100:8444";
+    f.store.db
+      .prepare("UPDATE devices SET agent_server_url=? WHERE id='online'")
+      .run(localUrl);
+    f.sync.connected("online", localUrl, f.target);
+    assert.equal(f.frames[0]!.body.server_url, localUrl);
+    assert.equal(
+      f.snapshot().find((d) => d.device_id === "offline")!.server_url,
+      f.target.platform_server_url,
+    );
+    const next = {
+      revision: 2,
+      platform_server_url: "https://changed.example.com",
+    };
+    f.sync.enqueue(next);
+    f.sync.flush();
+    assert.equal(f.frames[1]!.body.server_url, localUrl);
+    const update = f.frames[1]!.body;
+    f.sync.result("online", {
+      request_id: update.request_id,
+      revision: 2,
+      status: "failed",
+      reason: "PROBE_FAILED",
+    });
+    f.sync.enqueue(next, true);
+    f.sync.flush();
+    assert.equal(f.frames[2]!.body.server_url, localUrl);
+    f.sync.connected("online", localUrl, next);
+    assert.ok(f.frames.every((frame) => frame.body.server_url === localUrl));
+    assert.equal(
+      f.sync.snapshot(next).devices.find((d) => d.device_id === "offline")!
+        .server_url,
+      next.platform_server_url,
+    );
+  } finally {
+    f.store.close();
+  }
+});
 test("sync queues offline Agents, negotiates capabilities, excludes SSH/revoked devices and resumes after reconnect", () => {
   const f = fixture();
   try {
