@@ -270,16 +270,23 @@ onBeforeUnmount(() => {
               地址、端口和主机指纹沿用设备的 SSH 接入配置；私钥应对应目标账号。
             </p>
           </template>
-          <label
-            >允许使用的用户<select v-model="allowed" multiple size="4">
-              <option v-for="user in users" :key="user.id" :value="user.id">
-                {{ user.username }}
-              </option>
-            </select></label
-          >
-          <p class="field-hint">
-            留空仅管理员可用。其他用户还须有本设备的终端权限；sudo 切换或 root
-            账号另需「使用 sudo／特权账号」权限。网页和 SSH 入口共用此授权。
+          <fieldset class="user-picker" aria-describedby="account-users-hint">
+            <legend>允许使用的用户</legend>
+            <div v-if="users.length" class="user-options">
+              <label v-for="user in users" :key="user.id" class="user-option">
+                <input v-model="allowed" type="checkbox" :value="user.id" />
+                <span>{{ user.username }}</span>
+              </label>
+            </div>
+            <p v-else class="field-hint">暂无可选的平台用户。</p>
+            <p class="field-hint" aria-live="polite">
+              已选择 {{ allowed.length }} 位用户
+            </p>
+          </fieldset>
+          <p id="account-users-hint" class="field-hint">
+            勾选允许使用此账号的平台用户；未勾选时仅管理员可用。其他用户还须有本设备的终端权限；sudo
+            切换或 root 账号另需「使用 sudo／特权账号」权限。网页和 SSH
+            入口共用此授权。
           </p>
         </fieldset>
         <div class="form-actions">
@@ -381,6 +388,43 @@ textarea {
   color: #647886;
   line-height: 1.7;
   margin: 0;
+}
+.user-picker {
+  gap: 8px;
+}
+.user-picker legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.user-options {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #d3dfe5;
+  border-radius: 6px;
+  padding: 4px;
+}
+.user-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.user-option:hover,
+.user-option:focus-within {
+  background: #f5f7fa;
+}
+.user-option input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: #087f77;
 }
 .form-actions {
   margin-top: 16px;

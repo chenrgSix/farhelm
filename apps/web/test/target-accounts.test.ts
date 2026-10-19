@@ -50,7 +50,7 @@ it("saves account-specific sudo credentials and selected users, then clears the 
     .get('input[placeholder="例如：生产 root 运维"]')
     .setValue("生产 root");
   await wrapper.get('input[type="password"]').setValue("fixture-password9");
-  await wrapper.get("select[multiple]").setValue(["ops"]);
+  await wrapper.get('input[type="checkbox"][value="ops"]').setValue(true);
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(request.mock.calls[1]).toEqual([
