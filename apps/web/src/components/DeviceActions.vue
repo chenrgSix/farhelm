@@ -181,6 +181,7 @@ onBeforeUnmount(() => close());
         !(device.terminal_available ?? device.control_online) ||
         busy.root
       "
+      style="grid-column: 1 / -1; grid-row: 2"
       @click="emit('action', 'root')"
     >
       以 root 连接
@@ -230,9 +231,14 @@ onBeforeUnmount(() => close());
 
 <style scoped>
 .device-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content max-content;
   align-items: center;
   gap: 8px;
+}
+.device-actions > [aria-haspopup="menu"] {
+  grid-column: 2;
+  grid-row: 1;
 }
 .device-action-menu {
   position: fixed;

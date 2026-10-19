@@ -1807,6 +1807,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+@media (min-width: 801px) {
+  .device-table .device-actions-cell,
+  .device-table th:last-child {
+    position: sticky;
+    right: 0;
+    background: #fff;
+    box-shadow: -6px 0 8px #fff;
+  }
+}
 .audit-table td {
   vertical-align: top;
 }
