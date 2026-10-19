@@ -183,6 +183,7 @@ const terminalTarget = ref<{
   name: string;
   recording?: TerminalSession;
   elevated?: boolean;
+  connectionMode?: "normal" | "root";
   accountId?: string;
   username?: string;
 } | null>(null);
@@ -618,6 +619,15 @@ async function revoke(device: Device) {
 function handleDeviceAction(kind: string, device: Device) {
   switch (kind) {
     case "terminal":
+    case "root":
+      terminalTarget.value = {
+        id: device.id,
+        name: device.name,
+        connectionMode: kind === "root" ? "root" : "normal",
+        ...(kind === "root" ? { username: "root" } : {}),
+      };
+      break;
+    case "advanced-terminal":
       accountTarget.value = { device, manage: false };
       break;
     case "accounts":
@@ -1714,6 +1724,7 @@ onBeforeUnmount(() => {
         :device-name="terminalTarget.name"
         :recording="terminalTarget.recording"
         :elevated="terminalTarget.elevated"
+        :connection-mode="terminalTarget.connectionMode"
         :account-id="terminalTarget.accountId"
         :username="terminalTarget.username"
         @close="

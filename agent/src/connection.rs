@@ -251,7 +251,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
             )?
             .into(),
         ))

@@ -247,7 +247,8 @@ async function testConnection() {
       </nav>
       <p v-if="tab === 'account' && kind === 'agent'" class="field-hint">
         默认身份是 Agent 的运行账号，平台不改变该进程身份。备用 SSH
-        使用下方保存的账号；sudo 密码可由其他登录账号代用。
+        使用下方保存的账号；以 root 连接时由平台代用 sudo 密码，免密 sudo
+        可留空。
       </p>
       <form class="connection-form" @submit.prevent="save">
         <p v-if="error" class="text-warning" role="alert">{{ error }}</p>
@@ -407,9 +408,10 @@ async function testConnection() {
                 />清除已保存的 sudo 密码</label
               >
               <p class="field-hint">
-                仅管理员可设置或替换，保存后不可查看。可供目标账号配置复用，获授权用户通过平台代用密码完成
-                sudo 切换，前端不接收密码明文。Agent 运行账号须已有 sudo
-                权限，并启用终端提权。
+                仅管理员可设置或替换，保存后不可查看。具有 sudo／root
+                终端权限的用户通过平台代用密码完成 sudo
+                切换，前端不接收密码明文。Agent 运行账号须已有 sudo
+                权限，并启用终端提权。免密 sudo 不需要保存密码。
               </p>
             </div>
           </fieldset>

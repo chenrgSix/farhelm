@@ -80,11 +80,19 @@ async function api(method, path, payload, auth = admin) {
   return data;
 }
 let device;
-async function open(accountId, auth = admin) {
+async function open(accountId, auth = admin, connectionMode) {
   const created = await api(
     "POST",
     "/terminal-sessions",
-    { v: 1, device_id: device.id, account_id: accountId, cols: 80, rows: 24 },
+    {
+      v: 1,
+      device_id: device.id,
+      ...(connectionMode
+        ? { connection_mode: connectionMode }
+        : { account_id: accountId }),
+      cols: 80,
+      rows: 24,
+    },
     auth,
   );
   const ws = new WebSocket(
@@ -189,6 +197,86 @@ try {
     device = (await api("GET", "/devices")).devices[0];
     return device?.control_online;
   }, "real Agent enrollment");
+  // The everyday flow requires no target account or account authorization.
+  const ordinary = await open(undefined, admin, "normal");
+  await ordinary.ready();
+  ordinary.send("printf '__NORMAL_UID__'; id -u\r");
+  await until(
+    () => /__NORMAL_UID__[1-9][0-9]*/.test(ordinary.text()),
+    "normal remains non-root",
+  );
+  ordinary.send("exit\r");
+  await until(
+    () => ordinary.messages.some((m) => m.type === "terminal.closed"),
+    "normal closed",
+  );
+  const noPassword = await open(undefined, admin, "root");
+  await until(
+    () => noPassword.messages.some((m) => m.type === "terminal.closed"),
+    "password-required sudo fails noninteractively",
+  );
+  assert.equal(
+    noPassword.messages.find((m) => m.type === "terminal.closed").body.reason,
+    "SUDO_AUTH_FAILED",
+  );
+  const configPath = `/devices/${device.id}/connection`;
+  let config = await api("PUT", configPath, {
+    v: 1,
+    revision: 0,
+    sudo_password: secret,
+  });
+  const simple = await open(undefined, admin, "root");
+  await simple.ready();
+  simple.send("printf '__SIMPLE_UID__'; id -u\r");
+  await until(
+    () => simple.text().includes("__SIMPLE_UID__0"),
+    "simple managed password sudo",
+  );
+  simple.send("exit\r");
+  await until(
+    () => simple.messages.some((m) => m.type === "terminal.closed"),
+    "simple closed",
+  );
+  await docker([
+    "exec",
+    "--user",
+    "root",
+    container,
+    "bash",
+    "-c",
+    "printf 'Defaults:fleet use_pty\nfleet ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/fleet-local-dev",
+  ]);
+  config = await api("PUT", configPath, {
+    v: 1,
+    revision: config.revision,
+    sudo_password: null,
+  });
+  const passwordless = await open(undefined, admin, "root");
+  await passwordless.ready();
+  passwordless.send("printf '__NOPASSWD_UID__'; id -u\r");
+  await until(
+    () => passwordless.text().includes("__NOPASSWD_UID__0"),
+    "simple passwordless sudo",
+  );
+  passwordless.send("exit\r");
+  await until(
+    () => passwordless.messages.some((m) => m.type === "terminal.closed"),
+    "passwordless closed",
+  );
+  assert.equal(
+    server.store.db.prepare("SELECT count(*) AS n FROM target_accounts").get()
+      .n,
+    0,
+  );
+  await docker([
+    "exec",
+    "--user",
+    "root",
+    container,
+    "bash",
+    "-c",
+    "printf 'Defaults:fleet use_pty\nfleet ALL=(ALL:ALL) ALL\n' > /etc/sudoers.d/fleet-local-dev",
+  ]);
   const principals = ["group-member", "direct-role", "inherited-role"].map(
     (username) =>
       server.store.seedUser({
@@ -657,7 +745,9 @@ try {
       .waitFor();
     const row = page.locator("tbody tr").filter({ hasText: "accounts-linux" });
     await row.getByRole("button", { name: /^更多操作/ }).click();
-    await page.getByRole("menuitem", { name: "登录账号", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "高级账号（兼容）", exact: true })
+      .click();
     const management = page.getByRole("dialog", { name: /登录账号管理/ });
     await management
       .getByRole("button", { name: "新增登录账号", exact: true })
@@ -738,7 +828,9 @@ try {
     });
     await page.getByRole("button", { name: "设备总览", exact: true }).click();
     await row.getByRole("button", { name: /^更多操作/ }).click();
-    await page.getByRole("menuitem", { name: "登录账号", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "高级账号（兼容）", exact: true })
+      .click();
     const refreshedManagement = page.getByRole("dialog", {
       name: /登录账号管理/,
     });
@@ -761,17 +853,13 @@ try {
     await refreshedManagement
       .getByRole("button", { name: "关闭账号窗口", exact: true })
       .click();
-    await row.getByRole("button", { name: "连接终端", exact: true }).click();
-    const picker = page.getByRole("dialog", { name: /选择登录账号/ });
     const createdPromise = page.waitForResponse(
       (r) =>
         r.url().endsWith("/api/v1/terminal-sessions") &&
         r.request().method() === "POST",
     );
-    await picker
-      .locator(".account-row")
-      .filter({ hasText: "浏览器 root" })
-      .getByRole("button", { name: "连接", exact: true })
+    await row
+      .getByRole("button", { name: "以 root 连接", exact: true })
       .click();
     const created = await (await createdPromise).json();
     const terminal = page.getByRole("dialog", { name: /^终端：/ });
@@ -825,6 +913,9 @@ try {
         passed: true,
         realLinux: true,
         realSudo: true,
+        simpleNormalAndRoot: true,
+        passwordlessSudo: true,
+        passwordRequiredFailsWithoutPrompt: true,
         usePty: true,
         webProtocol: true,
         sshDeviceAndAccountMenu: true,

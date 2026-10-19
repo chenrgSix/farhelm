@@ -12,6 +12,7 @@ const props = defineProps<{
   deviceName: string;
   recording?: TerminalSession;
   elevated?: boolean;
+  connectionMode?: "normal" | "root";
   accountId?: string;
   username?: string;
 }>();
@@ -32,7 +33,10 @@ const sudoErrors: Record<string, string> = {
   SUDO_AGENT_REQUIRED:
     "root 提权需要在线 Agent；SSH 设备请使用其已配置的登录账号。",
   SUDO_NOT_SUPPORTED_UPDATE_AGENT: "此 Agent 尚不支持密码提权，请升级 Agent。",
-  SUDO_PASSWORD_REQUIRED: "请先由管理员在设备接入配置中保存 sudo 密码。",
+  ROOT_CONNECTION_NOT_CONFIGURED:
+    "此设备未配置 root SSH 账号，请配置 root 连接账号或使用支持 sudo 的 Agent。",
+  SUDO_PASSWORD_REQUIRED:
+    "请保存 sudo 密码；使用免密 sudo 时请升级至 Agent 0.2.9 或更新版本。",
   INVALID_SUDO_PASSWORD:
     "已保存的 sudo 密码含不支持的换行或空字符，请重新配置。",
   SUDO_DISABLED:
@@ -173,8 +177,8 @@ async function connect() {
           rows: Math.max(5, Math.min(200, terminal.rows)),
           ...(props.accountId
             ? { account_id: props.accountId }
-            : props.elevated
-              ? { elevated: true }
+            : props.connectionMode
+              ? { connection_mode: props.connectionMode }
               : {}),
         },
       },

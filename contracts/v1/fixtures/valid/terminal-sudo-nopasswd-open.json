@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "terminal.sudo.open",
+  "body": {
+    "session_id": "00000000-0000-4000-8000-000000000077",
+    "cols": 80,
+    "rows": 24,
+    "username": "root",
+    "sudo_password": ""
+  }
+}

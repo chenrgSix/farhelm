@@ -1743,5 +1743,10 @@
     "path": "invalid/login-account-credential-leak.json",
     "schema": "login-account.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/terminal-sudo-nopasswd-open.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": true
   }
 ]

@@ -84,7 +84,7 @@ fn descendant(mut pid: i32, ancestor: u32) -> bool {
     false
 }
 impl Channel {
-    pub fn new(username: String, password: Password) -> Result<Self> {
+    pub fn new(username: String, password: Option<Password>) -> Result<Self> {
         let (uid, _) = user(&username)?;
         let directory = std::env::temp_dir().join(format!("farhelm-sudo-{}", uuid::Uuid::new_v4()));
         DirBuilder::new().mode(0o700).create(&directory)?;
@@ -102,8 +102,11 @@ impl Channel {
             path,
             username,
             uid,
-            password: Some(password),
+            password,
         })
+    }
+    pub fn needs_password(&self) -> bool {
+        self.password.is_some()
     }
     pub async fn authenticate(&mut self, sudo_pid: u32) -> Result<()> {
         loop {
@@ -240,8 +243,11 @@ mod tests {
                 .unwrap()
                 .to_owned()
         };
-        let mut channel =
-            Channel::new(username, Password::new("fixture-secret".into()).unwrap()).unwrap();
+        let mut channel = Channel::new(
+            username,
+            Some(Password::new("fixture-secret".into()).unwrap()),
+        )
+        .unwrap();
         let path = channel.path.clone();
         let client = tokio::spawn(async move {
             let mut stream = tokio::net::UnixStream::connect(path).await.unwrap();

@@ -181,7 +181,12 @@ async function fixture(
   const path = `/devices/${id}/connection`;
   const browsers: WebSocket[] = [],
     clients: ssh2.Client[] = [];
-  async function web(auth = admin, targetId = id, accountId?: string) {
+  async function web(
+    auth = admin,
+    targetId = id,
+    accountId?: string,
+    connectionMode?: "normal" | "root",
+  ) {
     const created = await api(
       "POST",
       "/terminal-sessions",
@@ -191,6 +196,7 @@ async function fixture(
         cols: 100,
         rows: 32,
         ...(accountId ? { account_id: accountId } : {}),
+        ...(connectionMode ? { connection_mode: connectionMode } : {}),
       },
       auth,
     );
@@ -1214,6 +1220,58 @@ test("global network policy uses each machine IP, retains SSH fallback and recor
       (await bad.wait("terminal.closed")).reason,
       "SSH_HOST_KEY_MISMATCH",
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("simple root mode uses the default root SSH key and rechecks privilege permission on an active direct connection", async () => {
+  const f = await fixture(15000, "root");
+  try {
+    const config = await f.api("PUT", f.path, {
+      v: 1,
+      revision: 1,
+      ssh: { ...f.ssh, username: "root" },
+    });
+    assert.equal(config.status, 200, JSON.stringify(config));
+    const user = f.store.seedUser({
+      username: "root-ssh-ops",
+      password: "connection-test-password1",
+      role: "ops",
+      deviceScope: [f.id],
+    });
+    const auth = await f.login(user.username);
+    const rejected = await f.api(
+      "POST",
+      "/terminal-sessions",
+      { v: 1, device_id: f.id, cols: 80, rows: 24, connection_mode: "root" },
+      auth,
+    );
+    assert.equal(rejected.body.error, "SUDO_PERMISSION_REQUIRED");
+    const permissions = f.store.db
+      .prepare("SELECT permissions FROM access_roles WHERE id='ops'")
+      .get()!.permissions as string;
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(JSON.stringify([...JSON.parse(permissions), "terminal.sudo"]));
+    const terminal = await f.web(auth, f.id, undefined, "root");
+    assert.deepEqual(await terminal.wait("terminal.ready"), {
+      backend: "ssh",
+      username: "root",
+    });
+    await until(() => terminal.output().includes("TARGET_SSH_READY"));
+    assert.equal(
+      f.store.db.prepare("SELECT count(*) AS n FROM target_accounts").get()!.n,
+      0,
+    );
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(permissions);
+    assert.equal(
+      (await terminal.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    await until(() => f.downstream.size === 0);
   } finally {
     await f.close();
   }

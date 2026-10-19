@@ -1994,3 +1994,105 @@ test("explicit default root grants require privilege permission while existing d
     await f.close();
   }
 });
+
+test("simple root mode preserves default authorization, requires sudo permission and supports passwordless agents", async () => {
+  const f = await fixture();
+  try {
+    const user = f.store.seedUser({
+      username: "simple-root",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const auth = await f.login("simple-root");
+    const create = (mode: unknown = "root", extra = {}) =>
+      f.api(
+        "POST",
+        "/api/v1/terminal-sessions",
+        {
+          v: 1,
+          device_id: "device",
+          cols: 80,
+          rows: 24,
+          connection_mode: mode,
+          ...extra,
+        },
+        auth,
+      );
+    assert.equal((await create()).body.error, "SUDO_PERMISSION_REQUIRED");
+    assert.equal((await create("shell")).status, 400);
+    assert.equal(
+      (await create("normal", { account_id: defaultAccountId("device") }))
+        .status,
+      400,
+    );
+    const permissions = f.store.db
+      .prepare("SELECT permissions FROM access_roles WHERE id='ops'")
+      .get()!.permissions as string;
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(JSON.stringify([...JSON.parse(permissions), "terminal.sudo"]));
+    f.agent.send("agent.heartbeat", {
+      agent_version: "password-only",
+      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal((await create()).body.error, "SUDO_PASSWORD_REQUIRED");
+    f.agent.send("agent.heartbeat", {
+      agent_version: "nopasswd",
+      capabilities: [
+        "terminal.pty.v1",
+        "terminal.sudo.v1",
+        "terminal.sudo.nopasswd.v1",
+      ],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const normal = await create("normal");
+    assert.equal(normal.status, 200);
+    await f.attach(normal.body);
+    assert.equal(
+      (await f.agent.wait("terminal.open")).session_id,
+      normal.body.session_id,
+    );
+    const created = await create();
+    assert.equal(created.status, 200, JSON.stringify(created));
+    const browser = await f.attach(created.body);
+    const request = await f.agent.wait("terminal.sudo.open");
+    assert.equal(request.sudo_password, "");
+    assert.equal(request.username, "root");
+    assertValid("terminal-envelope", {
+      v: 1,
+      type: "terminal.sudo.open",
+      body: request,
+    });
+    f.agent.send("terminal.opened", { session_id: request.session_id });
+    assert.deepEqual(await browser.wait("terminal.ready"), {
+      backend: "agent",
+      elevated: true,
+      username: "root",
+    });
+    const rules = new AccountAuthorizations(f.store.db);
+    rules.ensureDefault("device");
+    f.store.db
+      .prepare(
+        "DELETE FROM account_authorizations WHERE device_id='device' AND account_id IS NULL",
+      )
+      .run();
+    assert.equal(
+      (await create()).status,
+      403,
+      "root mode cannot bypass a revoked default grant",
+    );
+    assert.equal(
+      (await browser.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    assert.equal(
+      f.store.db.prepare("SELECT count(*) AS n FROM target_accounts").get()!.n,
+      0,
+      "no extra root account is required",
+    );
+  } finally {
+    await f.close();
+  }
+});

@@ -4,6 +4,8 @@ import type { Device, User } from "../api/types";
 import { canExecute, hasPermission } from "../model";
 
 type Action =
+  | "root"
+  | "advanced-terminal"
   | "accounts"
   | "connection"
   | "install"
@@ -38,13 +40,20 @@ const actions = computed(() => {
     { kind: "connection", label: "接入配置", visible: admin },
     {
       kind: "accounts",
-      label: "登录账号",
+      label: "高级账号（兼容）",
       visible: admin,
     },
     {
       kind: "install",
       label: "安装 Agent",
       visible: props.agentEnabled !== false && admin && !agent,
+    },
+    {
+      kind: "advanced-terminal",
+      label: "选择已有账号（高级）",
+      visible:
+        active &&
+        hasPermission(props.user, "terminal.connect", props.device.id),
     },
     { kind: "network", label: "网络记录", visible: agent },
     { kind: "health", label: "健康检查", visible: agent },
@@ -159,6 +168,22 @@ onBeforeUnmount(() => close());
       @click="emit('action', 'terminal')"
     >
       连接终端
+    </button>
+    <button
+      v-if="
+        !device.revoked_at &&
+        hasPermission(user, 'terminal.connect', device.id) &&
+        hasPermission(user, 'terminal.sudo', device.id)
+      "
+      class="button secondary small"
+      :disabled="
+        !ready ||
+        !(device.terminal_available ?? device.control_online) ||
+        busy.root
+      "
+      @click="emit('action', 'root')"
+    >
+      以 root 连接
     </button>
     <button
       v-if="actions.length"

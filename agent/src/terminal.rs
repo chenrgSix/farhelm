@@ -98,9 +98,11 @@ impl Terminals {
                 kind == "terminal.sudo.open" || open.username.is_none(),
                 "unexpected target username"
             );
+            let privileged = kind == "terminal.sudo.open";
             let password = open
                 .sudo_password
                 .take()
+                .filter(|value| !value.is_empty())
                 .map(crate::sudo::Password::new)
                 .transpose()?;
             ensure!(
@@ -111,7 +113,7 @@ impl Terminals {
             if !self.seen.insert(open.session_id.clone()) {
                 return Ok(());
             }
-            if password.is_some() && !self.cfg.terminal_allow_privilege_escalation {
+            if privileged && !self.cfg.terminal_allow_privilege_escalation {
                 self.output
                     .send((
                         "terminal.closed".into(),
@@ -140,6 +142,7 @@ impl Terminals {
                     output.clone(),
                     allow_privilege_escalation,
                     password,
+                    privileged,
                 )
                 .await
                 .unwrap_or("PTY_FAILURE");
@@ -304,7 +307,15 @@ fn spawn(
     });
     if let Some(sudo) = sudo {
         command
-            .args(["-A", "-k", "-p", "", "-u", &sudo.username, "--"])
+            .args([
+                if sudo.needs_password() { "-A" } else { "-n" },
+                "-k",
+                "-p",
+                "",
+                "-u",
+                &sudo.username,
+                "--",
+            ])
             .arg(std::env::current_exe()?)
             .arg("--sudo-shell")
             .arg(&sudo.path)
@@ -400,9 +411,10 @@ async fn run(
     output: mpsc::Sender<Output>,
     allow_privilege_escalation: bool,
     password: Option<crate::sudo::Password>,
+    privileged: bool,
 ) -> Result<&'static str> {
-    let mut channel = password
-        .map(|password| {
+    let mut channel = privileged
+        .then(|| {
             crate::sudo::Channel::new(
                 open.username.clone().unwrap_or_else(|| "root".into()),
                 password,
@@ -499,6 +511,9 @@ mod tests {
         assert_eq!(kind, "terminal.closed");
         assert_eq!(body["reason"], "SUDO_DISABLED");
         assert!(!body.to_string().contains("public-test-password"));
+        terminals.receive("terminal.sudo.open", json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"username":"root","sudo_password":""})).await.unwrap();
+        let (_, body) = events.recv().await.unwrap();
+        assert_eq!(body["reason"], "SUDO_DISABLED");
     }
 
     async fn input(manager: &mut Terminals, id: &str, text: &str) {

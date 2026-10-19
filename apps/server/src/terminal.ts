@@ -45,6 +45,7 @@ interface Session {
   ready: boolean;
   backend: "agent" | "ssh";
   elevated: boolean;
+  rootMode?: boolean;
   account?: TargetAccount;
   target?: TargetTerminal;
 }
@@ -78,6 +79,7 @@ interface Dependencies {
         send(type: string, body: unknown): boolean;
         terminal: boolean;
         sudo?: boolean;
+        sudoNopasswd?: boolean;
       }
     | undefined;
   rate: RateLimiter;
@@ -134,6 +136,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   function authorized(
     s: Pick<Session, "deviceId" | "userSession" | "actorId"> & {
       elevated?: boolean;
+      rootMode?: boolean;
       account?: TargetAccount;
     },
   ) {
@@ -167,7 +170,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     return (
       !user.must_change_password &&
       hasPermission(user, "terminal.connect") &&
-      (!s.elevated || hasPermission(user, "terminal.sudo")) &&
+      (!(s.elevated || s.rootMode) || hasPermission(user, "terminal.sudo")) &&
       d.inScope(user, s.deviceId)
     );
   }
@@ -255,6 +258,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     transport: "web" | "ssh",
     elevated = false,
     accountId?: string,
+    connectionMode?: "normal" | "root",
   ) {
     d.requireConnect?.();
     integer(cols, 20, 500);
@@ -263,6 +267,30 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       fail(403, "EXEC_ROLE_REQUIRED");
     d.requireScope(user, deviceId);
     rate.check("terminal-create:" + user.id, 20);
+    const rootMode = connectionMode === "root";
+    const connectionRow = rootMode
+      ? db
+          .prepare(
+            "SELECT config_json FROM device_connections WHERE device_id=?",
+          )
+          .get(deviceId)
+      : undefined;
+    const directRoot =
+      !!connectionRow &&
+      JSON.parse(connectionRow.config_json as string).username === "root" &&
+      (d.connections.canSsh?.(deviceId) ?? d.connections.hasSsh(deviceId));
+    if (rootMode) {
+      if (!hasPermission(user, "terminal.sudo"))
+        fail(403, "SUDO_PERMISSION_REQUIRED");
+      // Resolve only accounts this user can already use; never turn a root request
+      // into a new grant on a restricted default account.
+      const existing = d.accounts
+        ?.list(user, deviceId)
+        .find((a) => a.username === "root");
+      if (existing) accountId = existing.id;
+      else if (!directRoot && backend(deviceId) === "agent") elevated = true;
+      else if (!directRoot) fail(409, "ROOT_CONNECTION_NOT_CONFIGURED");
+    }
     if (accountId === defaultAccountId(deviceId)) accountId = undefined;
     if (!accountId) d.accounts?.requireDefault(user, deviceId);
     const account = accountId
@@ -281,6 +309,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         actorId: user.id,
         userSession,
         elevated,
+        rootMode,
         account,
       })
     )
@@ -289,7 +318,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       ? account.method === "sudo"
         ? "agent"
         : "ssh"
-      : backend(deviceId);
+      : rootMode && directRoot
+        ? "ssh"
+        : backend(deviceId);
     if (account?.method === "ssh" && d.connections.canSsh?.(deviceId) === false)
       fail(409, "SSH_NOT_CONFIGURED");
     if (elevated) {
@@ -300,7 +331,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       if (
         !(account
           ? d.accounts?.secret(account.id).sudo_password
-          : d.connections.sudoPassword?.(deviceId))
+          : d.connections.sudoPassword?.(deviceId)) &&
+        !d.agent(deviceId)?.sudoNopasswd
       )
         fail(409, "SUDO_PASSWORD_REQUIRED");
     }
@@ -329,6 +361,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         cols,
         rows,
         ...(elevated ? { elevated: true } : {}),
+        ...(rootMode && !account ? { username: "root" } : {}),
         ...(account
           ? {
               account_id: account.id,
@@ -340,6 +373,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       store.audit("terminal.created", user.id, deviceId, null, {
         session_id: id,
         ...(elevated ? { elevated: true } : {}),
+        ...(rootMode && !account ? { username: "root" } : {}),
         ...(account
           ? {
               account_id: account.id,
@@ -360,6 +394,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       ready: false,
       backend: selectedBackend,
       elevated,
+      rootMode,
       account,
     };
     sessions.set(id, session);
@@ -369,7 +404,21 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     const user = d.operator(req),
       b = object(req.body);
     version(b);
-    keys(b, ["v", "device_id", "cols", "rows", "account_id"]);
+    keys(b, [
+      "v",
+      "device_id",
+      "cols",
+      "rows",
+      "account_id",
+      "connection_mode",
+    ]);
+    if (
+      b.connection_mode !== undefined &&
+      !["normal", "root"].includes(b.connection_mode)
+    )
+      fail(400, "INVALID_CONNECTION_MODE");
+    if (b.connection_mode !== undefined && b.account_id !== undefined)
+      fail(400, "CONFLICTING_CONNECTION_OPTIONS");
     const deviceId = str(b.device_id, 1, 128),
       cols = integer(b.cols, 20, 500),
       rows = integer(b.rows, 5, 200);
@@ -382,6 +431,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       "web",
       false,
       b.account_id === undefined ? undefined : str(b.account_id, 1, 128),
+      b.connection_mode,
     );
     return {
       v: 1,
@@ -507,14 +557,16 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       const password = s.account
         ? d.accounts?.secret(s.account.id).sudo_password
         : d.connections.sudoPassword?.(s.deviceId);
-      if (!password) return safeEnd(s, "SUDO_PASSWORD_REQUIRED");
-      if (/[\r\n\0]/.test(password)) return safeEnd(s, "INVALID_SUDO_PASSWORD");
+      if (!password && !d.agent(s.deviceId)?.sudoNopasswd)
+        return safeEnd(s, "SUDO_PASSWORD_REQUIRED");
+      if (password && /[\r\n\0]/.test(password))
+        return safeEnd(s, "INVALID_SUDO_PASSWORD");
       if (
         !d.agent(s.deviceId)?.send("terminal.sudo.open", {
           session_id: s.id,
           cols,
           rows,
-          sudo_password: password,
+          sudo_password: password ?? "",
           username: s.account?.username ?? "root",
         })
       )
@@ -617,6 +669,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
             network_route: d.route?.(s.deviceId, s.backend) ?? null,
             session_id: s.id,
             ...(s.elevated ? { elevated: true } : {}),
+            ...(s.rootMode && !s.account ? { username: "root" } : {}),
             ...(s.account
               ? {
                   account_id: s.account.id,
@@ -631,7 +684,11 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           !sendClient(s, "terminal.ready", {
             backend: s.backend,
             ...(s.elevated ? { elevated: true } : {}),
-            ...(s.account ? { username: s.account.username } : {}),
+            ...(s.account
+              ? { username: s.account.username }
+              : s.rootMode
+                ? { username: "root" }
+                : {}),
           })
         )
           end(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
@@ -674,6 +731,31 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   }
   return {
     backend,
+    connectionOptions(user: User, deviceId: string) {
+      const accounts = d.accounts?.loginAccounts(user, deviceId) ?? [];
+      const hasDefault = accounts.some((a) => a.is_default);
+      const choices = hasDefault ? [{ id: "_normal", name: "连接终端" }] : [];
+      const row = db
+        .prepare("SELECT config_json FROM device_connections WHERE device_id=?")
+        .get(deviceId);
+      const defaultRoot =
+        !!row && JSON.parse(row.config_json as string).username === "root";
+      if (
+        hasPermission(user, "terminal.sudo") &&
+        (accounts.some((a) => a.username === "root") ||
+          (hasDefault && (d.agent(deviceId)?.sudo || defaultRoot)))
+      )
+        choices.push({ id: "_root", name: "以 root 连接" });
+      return [
+        ...choices,
+        ...accounts
+          .filter((a) => !a.is_default && (a.username !== "root" || hasDefault))
+          .map((a) => ({
+            id: a.id,
+            name: `高级账号 · ${a.name} · ${a.username}`,
+          })),
+      ];
+    },
     openSsh(
       user: User,
       userSession: string,
@@ -682,6 +764,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       rows: number,
       peer: TerminalPeer,
       accountId?: string,
+      connectionMode?: "normal" | "root",
     ) {
       const { session: s } = create(
         user,
@@ -692,6 +775,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         "ssh",
         false,
         accountId,
+        connectionMode,
       );
       s.ticketHash = null;
       s.peer = peer;

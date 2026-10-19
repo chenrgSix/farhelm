@@ -747,16 +747,16 @@ onBeforeUnmount(() => {
                   }}{{ member.enabled ? "" : "（停用）" }}</label
                 >
               </fieldset>
-              <details
+              <div
                 v-if="mode === 'user' || mode === 'group'"
                 class="legacy-device-scope"
               >
-                <summary>原设备授权（已保留，可展开维护）</summary>
                 <p class="field-hint">
-                  此配置继续控制原设备范围和默认账号的继承授权。新增设备／账号授权请使用「访问授权」。
+                  选择可访问的设备；角色决定是否可以连接终端及使用
+                  sudo／root。已有精确账号规则继续生效，可在高级授权中维护。
                 </p>
                 <fieldset class="access-options">
-                  <legend>原设备范围（兼容配置）</legend>
+                  <legend>允许访问的设备</legend>
                   <p v-if="adminGrant" class="field-hint">
                     管理员角色拥有全部设备权限，不受下方范围限制。
                   </p>
@@ -825,7 +825,7 @@ onBeforeUnmount(() => {
                     未选择设备时，仅保留其他来源的设备授权。组角色与直接角色合并后，可用于所有已授权设备。
                   </p>
                 </fieldset>
-              </details>
+              </div>
             </fieldset>
             <p v-if="editing && !editing.builtin" class="field-hint">
               修改用户、角色或用户组授权会使受影响用户的现有登录和终端连接失效；设备标签不影响权限。当前管理员不能停用自己或移除自己的管理员权限。

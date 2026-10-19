@@ -45,6 +45,7 @@ it("keeps secondary operations in a menu and restores focus after selecting", as
   setup();
   expect(wrapper.findAll("button").map((b) => b.text())).toEqual([
     "连接终端",
+    "以 root 连接",
     "更多 ⌄",
   ]);
   const menu = await open();
@@ -73,11 +74,11 @@ it("supports arrows and Escape while skipping disabled actions", async () => {
   document.activeElement!.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   );
-  expect(document.activeElement?.textContent).toBe("登录账号");
+  expect(document.activeElement?.textContent).toBe("高级账号（兼容）");
   menu.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   );
-  expect(document.activeElement?.textContent).toBe("健康检查");
+  expect(document.activeElement?.textContent).toBe("选择已有账号（高级）");
   menu.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
   );
@@ -102,4 +103,21 @@ it("preserves permission and stale-data restrictions", async () => {
   expect([...menu.querySelectorAll("button")].every((b) => b.disabled)).toBe(
     true,
   );
+});
+
+it("shows root only with sudo permission and emits a separate root action", async () => {
+  setup({ user: { ...user, role: "ops", permissions: ["terminal.connect"] } });
+  expect(wrapper.text()).not.toContain("以 root 连接");
+  await wrapper.setProps({
+    user: {
+      ...user,
+      role: "ops",
+      permissions: ["terminal.connect", "terminal.sudo"],
+    },
+  });
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "以 root 连接")!
+    .trigger("click");
+  expect(wrapper.emitted("action")).toEqual([["root"]]);
 });

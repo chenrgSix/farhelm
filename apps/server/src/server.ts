@@ -97,6 +97,7 @@ interface Connection {
   ready: boolean;
   terminal: boolean;
   sudo: boolean;
+  sudoNopasswd: boolean;
   health: boolean;
   address: boolean;
   trust: boolean;
@@ -819,6 +820,7 @@ export async function buildServer(config: ServerConfig) {
       return {
         terminal: c.terminal && networkRoutes.allowed(id),
         sudo: c.sudo,
+        sudoNopasswd: c.sudoNopasswd,
         send: (type, body) => send(c, type, body),
       };
     },
@@ -1013,12 +1015,7 @@ export async function buildServer(config: ServerConfig) {
           },
           currentUser: sshUser,
           accounts(login, deviceId) {
-            return targetAccounts
-              .loginAccounts(sshUser(login), deviceId)
-              .map((a) => ({
-                id: a.id,
-                name: `${a.name} · ${a.username} · ${a.method === "default" ? "沿用接入配置" : a.method === "sudo" ? "sudo 切换" : "直接 SSH"}`,
-              }));
+            return terminals.connectionOptions(sshUser(login), deviceId);
           },
           devices(login, page) {
             rate.check("ssh-menu:" + login.sessionHash, 120);
@@ -1813,6 +1810,7 @@ export async function buildServer(config: ServerConfig) {
         ready: false,
         terminal: false,
         sudo: false,
+        sudoNopasswd: false,
         health: false,
         address: false,
         trust: false,
@@ -1869,6 +1867,9 @@ export async function buildServer(config: ServerConfig) {
               c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.sudo = b.capabilities.includes("terminal.sudo.v1");
+              c.sudoNopasswd = b.capabilities.includes(
+                "terminal.sudo.nopasswd.v1",
+              );
               c.health = b.capabilities.includes("health.probes.v1");
               c.address = b.capabilities.includes("agent.address.v1");
               c.trust = b.capabilities.includes("agent.trust.v1");

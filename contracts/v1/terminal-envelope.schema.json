@@ -469,9 +469,9 @@
             },
             "sudo_password": {
               "type": "string",
-              "minLength": 1,
+              "minLength": 0,
               "maxLength": 1024,
-              "pattern": "^[^\\r\\n\\u0000]+$"
+              "pattern": "^[^\\r\\n\\u0000]*$"
             }
           },
           "required": [
