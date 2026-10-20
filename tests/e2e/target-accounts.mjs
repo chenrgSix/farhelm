@@ -480,6 +480,12 @@ try {
     await until(() => text.includes("输入设备编号"), "SSH device menu");
     channel.write("1\r");
     await until(() => text.includes("输入账号编号"), "SSH account menu");
+    assert.ok(text.includes("以 root 连接"));
+    assert.equal(
+      text.includes(`高级账号 · ${account.name} · root`),
+      false,
+      "the automatic root account is displayed only once",
+    );
     channel.write("2\r");
     await until(() => text.includes("root@"), "SSH sudo shell");
     channel.write("printf '__SSH_UID__'; id -u\r");

@@ -734,22 +734,28 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     connectionOptions(user: User, deviceId: string) {
       const accounts = d.accounts?.loginAccounts(user, deviceId) ?? [];
       const hasDefault = accounts.some((a) => a.is_default);
+      // The root shortcut selects the first authorized managed root account.
+      // Keep other distinct accounts selectable, without repeating that account.
+      const rootAccount = accounts.find(
+        (a) => !a.is_default && a.username === "root",
+      );
       const choices = hasDefault ? [{ id: "_normal", name: "连接终端" }] : [];
       const row = db
         .prepare("SELECT config_json FROM device_connections WHERE device_id=?")
         .get(deviceId);
       const defaultRoot =
         !!row && JSON.parse(row.config_json as string).username === "root";
-      if (
+      const hasRoot =
         hasPermission(user, "terminal.sudo") &&
-        (accounts.some((a) => a.username === "root") ||
-          (hasDefault && (d.agent(deviceId)?.sudo || defaultRoot)))
-      )
-        choices.push({ id: "_root", name: "以 root 连接" });
+        (!!rootAccount ||
+          (hasDefault && (d.agent(deviceId)?.sudo || defaultRoot)));
+      if (hasRoot) choices.push({ id: "_root", name: "以 root 连接" });
       return [
         ...choices,
         ...accounts
-          .filter((a) => !a.is_default && (a.username !== "root" || hasDefault))
+          .filter(
+            (a) => !a.is_default && (!hasRoot || a.id !== rootAccount?.id),
+          )
           .map((a) => ({
             id: a.id,
             name: `高级账号 · ${a.name} · ${a.username}`,

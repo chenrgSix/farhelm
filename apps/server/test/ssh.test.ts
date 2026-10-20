@@ -906,7 +906,13 @@ test("SSH direct-device login selects the same authorized target account before 
     let text = "";
     channel.on("data", (chunk) => (text += chunk.toString()));
     await until(() => text.includes("输入账号编号"), "target account menu");
-    assert.ok(text.includes("Root via sudo"));
+    assert.ok(text.includes("以 root 连接"));
+    assert.equal(
+      text.includes("高级账号"),
+      false,
+      "the root shortcut replaces its duplicate account entry",
+    );
+    assert.equal(text.includes(saved.json().account.id), false);
     channel.write("2\r");
     const request = await f.wait("terminal.sudo.open").catch((error) => {
       throw new Error(
@@ -925,6 +931,114 @@ test("SSH direct-device login selects the same authorized target account before 
     await until(() => text.includes("root session confirmed"), "root output");
     assert.equal(text.includes("fixture-only-sudo"), false);
     channel.close();
+  } finally {
+    await f.close();
+  }
+});
+
+test("SSH merges only the root shortcut's account and retains other authorized identities with or without default access", async () => {
+  const f = await fixture();
+  try {
+    const login = (
+      await f.app.inject({
+        method: "POST",
+        url: "/api/v1/login",
+        payload: { username: "admin", password: "ssh-test-password1" },
+      })
+    ).json().access_token;
+    async function api(path: string, body: unknown) {
+      const response = await f.app.inject({
+        method: "POST",
+        url: "/api/v1" + path,
+        headers: { authorization: "Bearer " + login },
+        payload: body,
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      return response.json();
+    }
+    const accounts = [];
+    for (const [name, username, password] of [
+      ["A root", "root", "root-a-fixture"],
+      ["B root", "root", "root-b-fixture"],
+      ["C deploy", "deploy", "deploy-fixture"],
+    ]) {
+      accounts.push(
+        (
+          await api("/devices/device/accounts", {
+            v: 1,
+            name,
+            username,
+            method: "sudo",
+            sudo_password: password,
+          })
+        ).account,
+      );
+    }
+    const restricted = f.store.seedUser({
+      username: "restricted-menu",
+      password: "ssh-test-password1",
+      role: "ops",
+      deviceScope: [],
+    });
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(
+        JSON.stringify(["devices.read", "terminal.connect", "terminal.sudo"]),
+      );
+    await api("/access-authorizations", {
+      v: 1,
+      device_id: "device",
+      account_ids: accounts.map((a) => a.id),
+      subject_type: "user",
+      subject_id: restricted.id,
+    });
+    f.send("agent.heartbeat", {
+      agent_version: "ssh-sudo-test",
+      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    for (const [username, hasDefault] of [
+      ["admin:device", true],
+      ["restricted-menu:device", false],
+    ] as const) {
+      const client = await f.connect(username);
+      const channel = await new Promise<ClientChannel>((resolve, reject) =>
+        client.shell({ term: "xterm", cols: 80, rows: 24 }, (e, c) =>
+          e ? reject(e) : resolve(c),
+        ),
+      );
+      let text = "";
+      channel.on("data", (data) => (text += data.toString()));
+      await until(() => text.includes("输入账号编号"), "merged account menu");
+      assert.equal(text.includes("连接终端"), hasDefault);
+      assert.equal((text.match(/以 root 连接/g) ?? []).length, 1);
+      assert.equal(text.includes(accounts[0].id), false);
+      assert.ok(
+        text.includes(accounts[1].id),
+        "another root configuration remains selectable",
+      );
+      assert.ok(
+        text.includes(accounts[2].id),
+        "non-root accounts remain selectable",
+      );
+      channel.write(hasDefault ? "3\r" : "2\r");
+      const opening = await f.wait("terminal.sudo.open");
+      assert.equal(opening.username, "root");
+      assert.equal(opening.sudo_password, "root-b-fixture");
+      f.send("terminal.opened", { session_id: opening.session_id });
+      f.send("terminal.output", {
+        session_id: opening.session_id,
+        seq: 1,
+        data: Buffer.from("ROOT_B_SELECTED\r\n").toString("base64"),
+      });
+      await f.wait("terminal.ack");
+      await until(
+        () => text.includes("ROOT_B_SELECTED"),
+        "explicit alternative root selected",
+      );
+      channel.close();
+      await f.wait("terminal.close");
+    }
   } finally {
     await f.close();
   }
