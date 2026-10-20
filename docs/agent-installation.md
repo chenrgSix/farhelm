@@ -20,7 +20,7 @@
 
 ## 平台准备
 
-优先从 [GitHub Release](https://github.com/chenrgSix/farhelm/releases) 下载对应架构的二进制及 JSON 清单，上传到「Agent 升级 → 升级包管理」。平台 v0.2.8 的原有接入继续兼容 Agent v0.2.7；使用目标账号 sudo 切换需要 Agent v0.2.8 或更新版本，并启用终端提权。
+优先从 [GitHub Release](https://github.com/chenrgSix/farhelm/releases) 下载对应架构的二进制及 JSON 清单，上传到「Agent 升级 → 升级包管理」。本次平台和 Agent 发布包均为 v0.2.10。旧 Agent v0.2.7 的普通连接继续兼容；使用 sudo／root 终端请上传并升级本次 Agent 安装包，启用终端提权，并确保运行账号已有相应 sudo 权限。
 
 需要自行构建时，生成两种架构的静态 Linux 安装包（需要 Docker，可在原生架构或 Docker 支持的仿真架构构建）：
 

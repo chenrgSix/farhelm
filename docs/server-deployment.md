@@ -8,10 +8,10 @@
 
 支持使用 systemd 的现代 glibc Linux，x86_64 / ARM64，建议 Debian 12+ / Ubuntu 22.04+。安装器自动准备必要命令、下载并校验 Node.js 24.21.0，使用普通 `farhelm` 用户构建前后端，配置 systemd 并执行健康检查。需要下载 GitHub 源码、Node.js 和 npm 依赖；不修改系统默认 Node，不需要预先安装 npm 或 Rust。
 
-当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.8，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
+当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.10，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
 
 ```bash
-( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.8/install.sh -o "$installer" && bash "$installer" --ref v0.2.8 --host 10.10.0.10 --web-http )
+( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.10/install.sh -o "$installer" && bash "$installer" --ref v0.2.10 --host 10.10.0.10 --web-http )
 ```
 
 不加 `--web-http` 时网页默认 HTTPS。私有仓库部署仍可先执行 `gh auth login`，通过 GitHub CLI 下载对应版本安装脚本。脚本在提权前读取当前用户的 gh 凭据，通过临时 0600 文件传给安装过程；不把访问令牌放进命令参数、服务配置或日志。也支持 `GH_TOKEN` / `GITHUB_TOKEN` / `--token-file`。私有仓库不支持匿名 curl 安装；不会为部署而修改仓库可见性。
@@ -60,7 +60,7 @@ sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 
 ```bash
 # 也可下载 Release 源码包后进入解压目录
-git clone --branch v0.2.8 https://github.com/chenrgSix/farhelm.git
+git clone --branch v0.2.10 https://github.com/chenrgSix/farhelm.git
 cd farhelm/deploy
 cp compose.env.example .env
 ```
@@ -157,6 +157,10 @@ FLEET_WEB_PROTOCOL=http
 2026-10-17 在 ARM64 Linux 容器实际验证：原生 systemd 安装和重启自启、Compose HTTPS / HTTP 首次启动和重建、网页静态资源及登录、真实 sshd 的网页终端与 SSH 网关录制、CA / SSH 主机密钥 / 管理员 / 设备 / 历史录制保留，以及发布版 Agent 的 HTTPS 信任和 PTY 录制。x86_64 安装路径已实现，未进行本次 x86_64 系统级验收；公网 CA 正式签发仍需在实际域名或公网 IP 环境验证。
 
 ## 已有部署迁移
+
+v0.2.10 保留原有登录账号、加密凭据、用户／用户组／角色授权、设备范围和录制。升级服务端前结束终端并停服备份完整数据目录，保留 CA、SSH 主机密钥和加密密钥。旧 Agent 的普通连接继续兼容；要使用密码或免密 sudo，请上传本次对应架构的 Agent 二进制与 JSON 清单，再从「Agent 升级」更新设备，并按需启用 `FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION=1`。升级包不会自动授予 Linux sudo 权限，也不会改写 sudoers。原生安装脚本不覆盖已有部署，不能直接当作升级命令。
+
+以下为 v0.2.8 起独立接入口的迁移步骤：
 
 v0.2.8 更新服务端和网页，Agent 仍使用 v0.2.7，协议兼容；已有 Agent 无需为本次分离升级或重新注册。升级程序会重启服务，应先结束终端并停服备份，再保留原数据目录启动新版本。一键安装脚本不会覆盖已完成安装，不能当作升级命令。
 
