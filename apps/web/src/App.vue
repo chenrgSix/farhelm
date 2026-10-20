@@ -989,7 +989,10 @@ onBeforeUnmount(() => {
         >
           <div class="content-primary">
             <section class="panel list-panel">
-              <div class="list-toolbar">
+              <div
+                class="list-toolbar"
+                :class="{ 'device-list-heading': view === 'devices' }"
+              >
                 <div>
                   <h2>
                     {{
@@ -1036,18 +1039,6 @@ onBeforeUnmount(() => {
                     }}
                   </p>
                 </div>
-                <label v-if="view === 'devices'" class="search-label"
-                  ><span class="sr-only">筛选当前列表</span
-                  ><input
-                    v-model="search"
-                    type="search"
-                    :placeholder="
-                      view === 'devices'
-                        ? '搜索设备名称或 ID'
-                        : '搜索 ID、操作人或内容'
-                    "
-                    aria-label="筛选当前列表"
-                /></label>
               </div>
               <HistoryFilters
                 v-if="currentHistory"
@@ -1057,15 +1048,24 @@ onBeforeUnmount(() => {
                 :devices="devices"
                 @apply="applyHistoryFilters"
               />
-              <DeviceGroupTools
-                v-if="view === 'devices'"
-                :devices="devices"
-                :admin="user.role === 'admin'"
-                v-model:filter="deviceGroupFilter"
-                v-model:selected-ids="selectedDeviceIds"
-                :visible-ids="visibleDeviceIds"
-                @changed="refreshDeviceTags"
-              />
+              <div v-if="view === 'devices'" class="device-list-filters">
+                <DeviceGroupTools
+                  :devices="devices"
+                  :admin="user.role === 'admin'"
+                  v-model:filter="deviceGroupFilter"
+                  v-model:selected-ids="selectedDeviceIds"
+                  :visible-ids="visibleDeviceIds"
+                  @changed="refreshDeviceTags"
+                />
+                <label class="search-label"
+                  ><span class="sr-only">筛选当前列表</span
+                  ><input
+                    v-model="search"
+                    type="search"
+                    placeholder="搜索设备名称或 ID"
+                    aria-label="筛选当前列表"
+                /></label>
+              </div>
               <div v-if="!lastUpdated" class="empty-state">
                 <span class="empty-icon">◌</span>
                 <h3>{{ refreshing ? "正在连接服务端" : "尚未读取到数据" }}</h3>

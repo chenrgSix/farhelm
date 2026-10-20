@@ -664,6 +664,27 @@ fieldset {
 .list-toolbar h2 {
   font-size: 14px;
 }
+.list-toolbar.device-list-heading {
+  padding-bottom: 14px;
+}
+.device-list-filters {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 0 23px 20px;
+}
+.device-list-filters .device-group-tools {
+  flex: 1 1 360px;
+}
+.device-list-filters .search-label {
+  flex: 0 1 235px;
+  max-width: 100%;
+  margin: 0;
+}
+.device-list-filters .search-label input {
+  min-height: 42px;
+}
 .count {
   font-size: 10px;
   font-weight: 500;
@@ -1157,6 +1178,9 @@ tbody tr:hover td {
   .list-toolbar {
     padding: 18px;
   }
+  .device-list-filters {
+    padding: 0 18px 18px;
+  }
   .table-footer {
     flex-direction: column;
     gap: 4px;
@@ -1258,6 +1282,16 @@ tbody tr:hover td {
   .list-toolbar {
     display: block;
     padding: 17px;
+  }
+  .device-list-filters {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0 17px 17px;
+  }
+  .device-list-filters .device-group-tools,
+  .device-list-filters .search-label {
+    flex: none;
+    width: 100%;
   }
   .search-label {
     max-width: 100%;

@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
 </template>
 <style scoped>
 .device-group-tools {
-  padding: 0 20px 16px;
+  min-width: 0;
 }
 .device-group-toolbar,
 .tag-heading,
@@ -484,13 +484,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 250px;
+  min-width: 0;
+  margin: 0;
   white-space: nowrap;
 }
 .device-group-filter select {
   width: 180px;
-  min-width: 160px;
-  max-width: 260px;
+  min-height: 42px;
+  margin: 0;
 }
 .selected-count {
   font-size: 13px;
