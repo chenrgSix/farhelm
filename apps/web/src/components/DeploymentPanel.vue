@@ -198,27 +198,29 @@ onBeforeUnmount(() => {
     </div>
     <form @submit.prevent="save">
       <fieldset :disabled="!state || busy || pending">
-        <label
-          >设备接入方式
-          <select v-model="form.device_access" aria-label="设备接入方式">
-            <option value="agent-ssh">Agent 和 SSH</option>
-            <option value="ssh-only">仅 SSH</option>
-          </select>
-        </label>
-        <label
-          >网页管理
-          <select v-model="form.web_enabled" aria-label="网页管理">
-            <option :value="true">开启</option>
-            <option :value="false">关闭</option>
-          </select>
-        </label>
-        <label
-          >网页协议
-          <select v-model="form.web_protocol" aria-label="网页协议">
-            <option value="http">HTTP</option>
-            <option value="https">HTTPS</option>
-          </select>
-        </label>
+        <div class="deployment-options">
+          <label
+            >设备接入方式
+            <select v-model="form.device_access" aria-label="设备接入方式">
+              <option value="agent-ssh">Agent 和 SSH</option>
+              <option value="ssh-only">仅 SSH</option>
+            </select>
+          </label>
+          <label
+            >网页管理
+            <select v-model="form.web_enabled" aria-label="网页管理">
+              <option :value="true">开启</option>
+              <option :value="false">关闭</option>
+            </select>
+          </label>
+          <label
+            >网页协议
+            <select v-model="form.web_protocol" aria-label="网页协议">
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS</option>
+            </select>
+          </label>
+        </div>
         <p v-if="form.device_access === 'ssh-only'">
           设备通过 SSH
           连接。开启网页管理后，可继续管理设备、账号权限、网页终端和会话录制。
@@ -304,7 +306,6 @@ onBeforeUnmount(() => {
 </template>
 <style scoped>
 .deployment-panel {
-  max-width: 820px;
   padding: 24px;
   margin-bottom: 20px;
 }
@@ -318,9 +319,16 @@ fieldset {
 label {
   display: grid;
   gap: 8px;
+  margin: 0;
+}
+.deployment-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0 4px;
 }
 select {
-  max-width: 360px;
+  margin: 0;
   padding: 9px;
 }
 .ack {
@@ -343,5 +351,15 @@ code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 12px 0;
+}
+@media (max-width: 800px) {
+  .deployment-options {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .deployment-panel {
+    padding: 18px;
+  }
 }
 </style>

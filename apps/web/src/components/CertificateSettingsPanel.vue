@@ -651,7 +651,6 @@ onBeforeUnmount(() => {
 </template>
 <style scoped>
 .certificate-panel {
-  max-width: 820px;
   padding: 24px;
   margin-top: 20px;
 }

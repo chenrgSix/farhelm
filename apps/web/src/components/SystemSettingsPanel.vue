@@ -266,7 +266,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .settings-panel {
-  max-width: 820px;
   padding: 24px;
 }
 .panel-heading p {

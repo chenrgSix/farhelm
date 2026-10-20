@@ -275,7 +275,6 @@ p {
   flex-wrap: wrap;
 }
 .network-settings {
-  max-width: 820px;
   padding: 24px;
   margin-top: 20px;
 }
