@@ -250,7 +250,8 @@ export function createSshGateway(
             } else if (type === "terminal.closed") {
               closed = true;
               const errors: Record<string, string> = {
-                SUDO_DISABLED: "Agent 未启用终端提权，请由管理员配置后重启。",
+                SUDO_DISABLED:
+                  "Agent 未启用终端提权，请联系管理员在设备接入配置中开启；旧 Agent 需先升级。",
                 SUDO_AUTH_FAILED:
                   "sudo 认证失败，请检查密码、目标账号和 sudo 权限。",
                 SUDO_AUTH_TIMEOUT: "sudo 认证超时，请检查目标机器。",

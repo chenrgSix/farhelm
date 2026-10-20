@@ -78,6 +78,11 @@ impl Terminals {
     pub fn is_idle(&self) -> bool {
         self.entries.values().all(|e| e.task.is_finished())
     }
+    pub fn set_privilege(&mut self, enabled: bool) -> Result<()> {
+        ensure!(self.is_idle(), "terminal sessions are active");
+        self.cfg.terminal_allow_privilege_escalation = enabled;
+        Ok(())
+    }
     pub fn new(cfg: Config, output: mpsc::Sender<Output>) -> Self {
         Self {
             cfg,

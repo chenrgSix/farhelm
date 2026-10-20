@@ -2152,3 +2152,211 @@ test("managed sudo accounts may omit passwords but require passwordless Agent su
     await f.close();
   }
 });
+
+test("web terminal privilege settings require admin, report real state, gate sudo and persist confirmed revisions", async () => {
+  const f = await fixture();
+  const path = "/api/v1/devices/device/terminal-privilege";
+  const read = () => f.api("GET", path, undefined, f.admin);
+  const save = (revision: number, enabled: boolean, auth = f.admin) =>
+    f.api("PUT", path, { v: 1, revision, enabled }, auth);
+  async function observed(expected: Record<string, unknown>) {
+    for (let i = 0; i < 100; i++) {
+      const result = await read();
+      if (Object.entries(expected).every(([k, v]) => result.body[k] === v)) {
+        assertValid("terminal-privilege-response", result.body);
+        return result.body;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.fail("Setting did not reach " + JSON.stringify(expected));
+  }
+  try {
+    assert.equal((await read()).body.supported, false);
+    assert.equal(
+      (await save(0, true)).body.error,
+      "TERMINAL_PRIVILEGE_NOT_SUPPORTED_UPDATE_AGENT",
+    );
+    f.store.seedUser({
+      username: "privilege-ops",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const ops = await f.login("privilege-ops");
+    assert.equal((await f.api("GET", path, undefined, ops)).status, 403);
+    assert.equal((await save(0, true, ops)).status, 403);
+    f.agent.send("agent.heartbeat", {
+      agent_version: "settings-agent",
+      capabilities: [
+        "terminal.pty.v1",
+        "terminal.sudo.v1",
+        "terminal.sudo.nopasswd.v1",
+        "terminal.config.v1",
+      ],
+    });
+    f.agent.send("agent.terminal.status", {
+      revision: 0,
+      enabled: false,
+      request_revision: null,
+      blocked: false,
+      reason: null,
+    });
+    await observed({ enabled: false, status: "applied", revision: 0 });
+    const root = () =>
+      f.api(
+        "POST",
+        "/api/v1/terminal-sessions",
+        {
+          v: 1,
+          device_id: "device",
+          connection_mode: "root",
+          cols: 80,
+          rows: 24,
+        },
+        f.admin,
+      );
+    assert.equal((await root()).body.error, "SUDO_DISABLED");
+    const originalAudit = f.store.audit.bind(f.store);
+    f.store.audit = (...args: Parameters<Store["audit"]>) => {
+      if (args[0] === "terminal.privilege_requested")
+        throw new Error("audit unavailable");
+      return originalAudit(...args);
+    };
+    try {
+      assert.equal((await save(0, true)).status, 500);
+      assert.equal((await read()).body.revision, 0);
+      assert.equal(
+        f.agent.messages.some(
+          (message) => message.type === "agent.terminal.config",
+        ),
+        false,
+        "failed audit cannot publish a setting",
+      );
+    } finally {
+      f.store.audit = originalAudit;
+    }
+    assert.equal((await save(0, true)).body.status, "pending");
+    assertValid("envelope", {
+      v: 1,
+      type: "agent.terminal.config",
+      body: await f.agent.wait("agent.terminal.config"),
+    });
+    await observed({
+      enabled: false,
+      desired_enabled: true,
+      status: "pending",
+    });
+    assert.equal(
+      (await save(0, false)).body.error,
+      "TERMINAL_PRIVILEGE_CHANGED_RELOAD",
+    );
+    f.agent.send("agent.terminal.status", {
+      revision: 1,
+      enabled: true,
+      request_revision: 1,
+      blocked: false,
+      reason: null,
+    });
+    await observed({ enabled: true, status: "applied" });
+    const opening = await root();
+    assert.equal(opening.status, 200);
+    assert.equal(
+      (await save(1, false)).body.error,
+      "CONNECTION_HAS_ACTIVE_SESSIONS",
+    );
+    await f.api(
+      "POST",
+      `/api/v1/terminal-sessions/${opening.body.session_id}/close`,
+      { v: 1 },
+      f.admin,
+    );
+    assert.equal((await save(1, false)).body.status, "pending");
+    await f.agent.wait("agent.terminal.config");
+    assert.equal(
+      (await root()).body.error,
+      "SUDO_DISABLED",
+      "a pending disable already blocks new privileged terminals",
+    );
+    f.agent.send("agent.terminal.status", {
+      revision: 1,
+      enabled: true,
+      request_revision: 2,
+      blocked: false,
+      reason: "PERSIST_FAILED",
+    });
+    await observed({
+      enabled: true,
+      status: "failed",
+      reason: "PERSIST_FAILED",
+    });
+    assert.equal((await save(2, false)).body.status, "pending");
+    await f.agent.wait("agent.terminal.config");
+    f.agent.send("agent.terminal.status", {
+      revision: 3,
+      enabled: false,
+      request_revision: 3,
+      blocked: false,
+      reason: null,
+    });
+    await observed({ enabled: false, status: "applied", revision: 3 });
+    f.agent.send("agent.terminal.status", {
+      revision: 1,
+      enabled: true,
+      request_revision: 1,
+      blocked: false,
+      reason: null,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    await observed({ enabled: false, revision: 3 });
+    assertValid(
+      "audit-response",
+      (await f.api("GET", "/api/v1/audit", undefined, f.admin)).body,
+    );
+    // A freshly reconnected Agent may have restored an older journal. Reconcile
+    // the actual report instead of showing a stale previously confirmed value.
+    f.agent.send("agent.terminal.status", {
+      revision: 0,
+      enabled: true,
+      request_revision: null,
+      blocked: false,
+      reason: null,
+    });
+    await observed({ enabled: true, status: "pending", revision: 3 });
+    await f.agent.wait("agent.terminal.config");
+    f.agent.send("agent.terminal.status", {
+      revision: 3,
+      enabled: false,
+      request_revision: 3,
+      blocked: false,
+      reason: null,
+    });
+    await observed({ enabled: false, status: "applied" });
+    f.agent.send("agent.terminal.status", {
+      revision: 3,
+      enabled: false,
+      request_revision: null,
+      blocked: true,
+      reason: null,
+    });
+    await observed({ blocked: true });
+    assert.equal(
+      (await save(3, true)).body.error,
+      "TERMINAL_PRIVILEGE_NO_NEW_PRIVS",
+    );
+    f.agent.ws.terminate();
+    await observed({ online: false });
+    assert.equal((await save(3, true)).body.error, "DEVICE_OFFLINE");
+    const reopened = new Store(f.store.dataDir);
+    assert.equal(
+      reopened.db
+        .prepare(
+          "SELECT observed_enabled FROM agent_terminal_privilege WHERE device_id='device'",
+        )
+        .get()!.observed_enabled,
+      0,
+    );
+    reopened.db.close();
+  } finally {
+    await f.close();
+  }
+});

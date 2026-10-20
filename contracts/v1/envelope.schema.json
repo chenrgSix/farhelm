@@ -24,7 +24,7 @@
             },
             "capabilities": {
               "type": "array",
-              "maxItems": 10,
+              "maxItems": 16,
               "items": {
                 "type": "string",
                 "maxLength": 64
@@ -85,7 +85,7 @@
             },
             "capabilities": {
               "type": "array",
-              "maxItems": 10,
+              "maxItems": 16,
               "items": {
                 "type": "string",
                 "maxLength": 64
@@ -391,6 +391,9 @@
         }
       },
       "required": ["v", "type", "body"]
+    },
+    {
+      "$ref": "agent-terminal-envelope.schema.json"
     }
   ],
   "description": "Enumerated v1 WSS frames; 65536-byte UTF-8 limit before parsing. Only single-use terminal.attach tickets and in-place agent.reauth credentials appear in authenticated flows; never place tokens in URLs or logs."

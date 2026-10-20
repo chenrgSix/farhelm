@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "agent.terminal.config",
+  "body": {
+    "revision": 1,
+    "enabled": true
+  }
+}

@@ -1748,5 +1748,50 @@
     "path": "valid/terminal-sudo-nopasswd-open.json",
     "schema": "terminal-envelope.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/terminal-privilege-update.json",
+    "schema": "terminal-privilege-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-privilege-response.json",
+    "schema": "terminal-privilege-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/terminal-privilege-string.json",
+    "schema": "terminal-privilege-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/terminal-privilege-secret.json",
+    "schema": "terminal-privilege-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/agent-terminal-config.json",
+    "schema": "agent-terminal-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-terminal-status.json",
+    "schema": "agent-terminal-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-privilege-audit-detail.json",
+    "schema": "terminal-privilege-audit-detail.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-privilege_requested.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-privilege_result.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

@@ -43,9 +43,11 @@ await server.configureWeb(
 );
 const port = server.app.server.address().port;
 const secret = "Public-fixture-sudo9!";
+const testPrivilegeSettings = process.env.FLEET_TEST_TERMINAL_SETTINGS === "1";
 const sockets = [],
   clients = [];
 let started = false;
+const extraContainers = [];
 let browser;
 async function docker(args) {
   return new Promise((resolve, reject) => {
@@ -179,7 +181,9 @@ try {
     FLEET_ENROLLMENT_TOKEN: enrollment,
     FLEET_DEVICE_NAME: "accounts-linux",
     FLEET_EXECUTION_BACKEND: "same-uid",
-    FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION: "1",
+    FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION: testPrivilegeSettings
+      ? "0"
+      : "1",
     FLEET_HEARTBEAT_MS: "200",
   };
   for (const [key, value] of Object.entries(env))
@@ -189,7 +193,7 @@ try {
     "bash",
     process.env.FLEET_AGENT_DOCKER_IMAGE ?? "farhelm-agent-dev:local",
     "-c",
-    `set -eu; printf 'fleet:${secret}\\n' | chpasswd; printf 'Defaults:fleet use_pty\\nfleet ALL=(ALL:ALL) ALL\\n' > /etc/sudoers.d/fleet-local-dev; chmod 440 /etc/sudoers.d/fleet-local-dev; mkdir -m 700 /state; cp /tls/ca.crt /state/ca.crt; chown -R fleet /state; exec runuser -u fleet -- /agent --worker`,
+    `set -eu; printf 'fleet:${secret}\\n' | chpasswd; printf 'Defaults:fleet use_pty\\nfleet ALL=(ALL:ALL) ALL\\n' > /etc/sudoers.d/fleet-local-dev; chmod 440 /etc/sudoers.d/fleet-local-dev; mkdir -p /state; chmod 700 /state; cp /tls/ca.crt /state/ca.crt; chown -R fleet /state; exec runuser -u fleet -- /agent --worker`,
   );
   await docker(args);
   started = true;
@@ -197,6 +201,88 @@ try {
     device = (await api("GET", "/devices")).devices[0];
     return device?.control_online;
   }, "real Agent enrollment");
+  if (testPrivilegeSettings) {
+    const settingPath = `/devices/${device.id}/terminal-privilege`;
+    await until(
+      async () => (await api("GET", settingPath)).enabled === false,
+      "Agent reports initial env-disabled state",
+    );
+    const { chromium } = await import("@playwright/test");
+    const settingsBrowser = await chromium.launch({
+      headless: true,
+      channel: process.env.FLEET_TEST_BROWSER_CHANNEL ?? "msedge",
+    });
+    try {
+      const settingsPage = await settingsBrowser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      });
+      await settingsPage.goto(origin);
+      await settingsPage.getByLabel("账号", { exact: true }).fill("admin");
+      await settingsPage
+        .getByLabel("密码", { exact: true })
+        .fill("accounts-e2e-login1");
+      await settingsPage
+        .getByRole("button", { name: "登录 →", exact: true })
+        .click();
+      const row = settingsPage
+        .locator("tbody tr")
+        .filter({ hasText: "accounts-linux" });
+      await row.getByRole("button", { name: /^更多操作/ }).click();
+      await settingsPage
+        .getByRole("menuitem", { name: "接入配置", exact: true })
+        .click();
+      const panel = settingsPage.getByRole("dialog");
+      await panel
+        .getByRole("button", { name: "默认登录账号", exact: true })
+        .click();
+      const setting = panel.getByRole("region", { name: "Agent 终端提权" });
+      const checkbox = setting.getByRole("checkbox", {
+        name: "允许终端使用该账号已有的 sudo 权限",
+      });
+      await checkbox.waitFor();
+      await until(
+        async () => await checkbox.isEnabled(),
+        "editable privilege checkbox",
+      );
+      assert.equal(await checkbox.isChecked(), false);
+      await checkbox.check();
+      await setting
+        .getByRole("button", { name: "保存提权设置", exact: true })
+        .click();
+      await until(
+        async () =>
+          (await setting.getByRole("status").textContent()).includes(
+            "实际状态：已启用",
+          ),
+        "browser acknowledged enable",
+      );
+      mkdirSync(join(root, ".test-output"), { recursive: true });
+      await settingsPage.screenshot({
+        path: join(root, ".test-output/terminal-privilege-desktop.png"),
+        fullPage: true,
+      });
+      await settingsPage.setViewportSize({ width: 390, height: 844 });
+      await settingsPage.screenshot({
+        path: join(root, ".test-output/terminal-privilege-mobile.png"),
+        fullPage: true,
+      });
+    } finally {
+      await settingsBrowser.close();
+    }
+    assert.equal((await api("GET", settingPath)).enabled, true);
+    await docker(["restart", container]);
+    await until(
+      async () =>
+        (await api("GET", "/devices")).devices.some(
+          (d) => d.id === device.id && d.control_online,
+        ),
+      "Agent reconnects after restart",
+    );
+    await until(async () => {
+      const state = await api("GET", settingPath);
+      return state.online && state.enabled === true && state.revision === 1;
+    }, "web-enabled setting survives Agent restart and env-disabled default");
+  }
   // The everyday flow requires no target account or account authorization.
   const ordinary = await open(undefined, admin, "normal");
   await ordinary.ready();
@@ -922,6 +1008,107 @@ try {
     );
     assert.deepEqual(errors, []);
   }
+  if (testPrivilegeSettings) {
+    const settingPath = `/devices/${device.id}/terminal-privilege`;
+    const before = await api("GET", settingPath);
+    await api("PUT", settingPath, {
+      v: 1,
+      revision: before.revision,
+      enabled: false,
+    });
+    await until(async () => {
+      const state = await api("GET", settingPath);
+      return state.enabled === false && state.status === "applied";
+    }, "actual runtime disable");
+    const denied = await fetch(origin + "/api/v1/terminal-sessions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + admin,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        v: 1,
+        device_id: device.id,
+        cols: 80,
+        rows: 24,
+        connection_mode: "root",
+      }),
+    });
+    assert.equal(denied.status, 409);
+    assert.equal((await denied.json()).error, "SUDO_DISABLED");
+    const after = await api("GET", settingPath);
+    await api("PUT", settingPath, {
+      v: 1,
+      revision: after.revision,
+      enabled: true,
+    });
+    await until(async () => {
+      const state = await api("GET", settingPath);
+      return state.enabled === true && state.status === "applied";
+    }, "actual runtime re-enable");
+  }
+  if (testPrivilegeSettings) {
+    const enrollment = (
+      await api("POST", "/enrollment-tokens", { v: 1, ttl_seconds: 600 })
+    ).enrollment_token;
+    const hardened = container + "-blocked";
+    extraContainers.push(hardened);
+    const hardenedArgs = [
+      "run",
+      "--detach",
+      "--name",
+      hardened,
+      "--user",
+      "0",
+      "--security-opt",
+      "no-new-privileges=true",
+      "--mount",
+      `type=bind,source=${binary},target=/agent,readonly`,
+      "--mount",
+      `type=bind,source=${tls},target=/tls,readonly`,
+    ];
+    for (const [key, value] of Object.entries({
+      ...env,
+      FLEET_ENROLLMENT_TOKEN: enrollment,
+      FLEET_DEVICE_NAME: "settings-system-blocked",
+      FLEET_TERMINAL_ALLOW_PRIVILEGE_ESCALATION: "0",
+    }))
+      hardenedArgs.push("-e", `${key}=${value}`);
+    hardenedArgs.push(
+      "--entrypoint",
+      "bash",
+      process.env.FLEET_AGENT_DOCKER_IMAGE ?? "farhelm-agent-dev:local",
+      "-c",
+      "set -eu; mkdir -m 700 /state; cp /tls/ca.crt /state/ca.crt; chown -R fleet /state; exec runuser -u fleet -- /agent --worker",
+    );
+    await docker(hardenedArgs);
+    let blockedDevice;
+    await until(async () => {
+      blockedDevice = (await api("GET", "/devices")).devices.find(
+        (d) => d.name === "settings-system-blocked",
+      );
+      return blockedDevice?.control_online;
+    }, "hardened Agent online");
+    const blockedPath = `/devices/${blockedDevice.id}/terminal-privilege`;
+    await until(
+      async () => (await api("GET", blockedPath)).blocked === true,
+      "Agent reports inherited no_new_privs",
+    );
+    const result = await fetch(origin + "/api/v1" + blockedPath, {
+      method: "PUT",
+      headers: {
+        authorization: "Bearer " + admin,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ v: 1, revision: 0, enabled: true }),
+    });
+    assert.equal(result.status, 409);
+    assert.equal(
+      (await result.json()).error,
+      "TERMINAL_PRIVILEGE_NO_NEW_PRIVS",
+    );
+    assert.equal((await api("GET", blockedPath)).enabled, false);
+  }
   const audit = await api("GET", "/audit");
   for (const entry of audit.audit ?? []) assertValid("audit", entry);
   assert.equal(
@@ -944,6 +1131,7 @@ try {
         passed: true,
         realLinux: true,
         realSudo: true,
+        webTerminalPrivilege: testPrivilegeSettings,
         simpleNormalAndRoot: true,
         passwordlessSudo: true,
         passwordRequiredFailsWithoutPrompt: true,
@@ -979,6 +1167,8 @@ try {
   await browser?.close();
   for (const ws of sockets) ws.terminate();
   for (const client of clients) client.destroy();
+  for (const name of extraContainers)
+    await docker(["rm", "--force", name]).catch(() => {});
   if (started) await docker(["rm", "--force", container]);
   await server.close();
 }

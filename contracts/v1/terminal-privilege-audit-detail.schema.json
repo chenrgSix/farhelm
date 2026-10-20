@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/terminal-privilege-audit-detail.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "reason": {
+      "enum": [
+        null,
+        "ACTIVE_TERMINALS",
+        "NO_NEW_PRIVS",
+        "PERSIST_FAILED",
+        "STALE_REVISION",
+        "REVISION_CONFLICT"
+      ]
+    }
+  },
+  "required": ["revision", "enabled", "reason"]
+}

@@ -29,6 +29,8 @@ export const auditActionLabels: Record<string, string> = {
   "access.authorization_deleted": "删除访问授权",
   "account.configured": "配置登录账号",
   "account.deleted": "删除登录账号",
+  "terminal.privilege_requested": "修改 Agent 终端提权设置",
+  "terminal.privilege_result": "Agent 终端提权应用结果",
   "terminal.created": "创建终端会话",
   "terminal.opened": "终端连接成功",
   "terminal.closed": "终端会话结束",
@@ -325,6 +327,8 @@ export function auditOutcome(entry: AuditEntry): string {
   if (entry.action === "deployment.rolled_back") return "已回滚";
   if (entry.action === "user.login") return "登录成功";
   if (entry.action === "user.logout") return "当前登录会话已撤销";
+  if (entry.action === "terminal.privilege_result")
+    return detail.reason ? "应用失败" : detail.enabled ? "已启用" : "已关闭";
   if (entry.action === "connection.tested") return "已发起测试";
   if (
     entry.action.startsWith("access.") ||

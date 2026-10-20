@@ -116,7 +116,9 @@
         "account.configured",
         "account.deleted",
         "access.authorization_created",
-        "access.authorization_deleted"
+        "access.authorization_deleted",
+        "terminal.privilege_requested",
+        "terminal.privilege_result"
       ]
     },
     "detail": {
@@ -1286,6 +1288,9 @@
         },
         {
           "$ref": "authorization-audit-detail.schema.json"
+        },
+        {
+          "$ref": "terminal-privilege-audit-detail.schema.json"
         }
       ]
     },
@@ -3393,6 +3398,25 @@
         "properties": {
           "detail": {
             "$ref": "authorization-audit-detail.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "terminal.privilege_requested",
+              "terminal.privilege_result"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detail": {
+            "$ref": "terminal-privilege-audit-detail.schema.json"
           }
         }
       }

@@ -345,6 +345,12 @@ export class Store {
         "utf8",
       ),
     );
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/034_terminal_privilege.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     migrateAccountAuthorizations(this.db);
     this.db
       .prepare(

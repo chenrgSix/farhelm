@@ -80,6 +80,7 @@ interface Dependencies {
         terminal: boolean;
         sudo?: boolean;
         sudoNopasswd?: boolean;
+        sudoEnabled?: boolean;
       }
     | undefined;
   rate: RateLimiter;
@@ -326,6 +327,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     if (elevated) {
       if (selectedBackend !== "agent") fail(409, "SUDO_AGENT_REQUIRED");
       if (!d.agent(deviceId)?.terminal) fail(409, "DEVICE_OFFLINE");
+      if (d.agent(deviceId)?.sudoEnabled === false) fail(409, "SUDO_DISABLED");
       if (!d.agent(deviceId)?.sudo)
         fail(409, "SUDO_NOT_SUPPORTED_UPDATE_AGENT");
       if (
@@ -552,6 +554,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     }
     if (s.elevated) {
       if (!d.agent(s.deviceId)?.terminal) return safeEnd(s, "DEVICE_OFFLINE");
+      if (d.agent(s.deviceId)?.sudoEnabled === false)
+        return safeEnd(s, "SUDO_DISABLED");
       if (!d.agent(s.deviceId)?.sudo)
         return safeEnd(s, "SUDO_NOT_SUPPORTED_UPDATE_AGENT");
       const password = s.account

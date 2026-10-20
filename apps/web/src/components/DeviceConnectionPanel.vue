@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import AgentTerminalPrivilege from "./AgentTerminalPrivilege.vue";
 import { api } from "../api/client";
 import type { Device, DeviceConnection } from "../api/types";
 const props = withDefaults(
@@ -250,6 +251,11 @@ async function testConnection() {
         使用下方保存的账号；以 root 连接时由平台代用 sudo 密码，免密 sudo
         可留空。
       </p>
+      <AgentTerminalPrivilege
+        v-if="deviceId && kind === 'agent' && agentEnabled && tab === 'account'"
+        :device-id="deviceId"
+        @changed="emit('changed')"
+      />
       <form class="connection-form" @submit.prevent="save">
         <p v-if="error" class="text-warning" role="alert">{{ error }}</p>
         <p v-if="message" class="connection-message" role="status">

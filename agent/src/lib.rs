@@ -12,6 +12,7 @@ pub mod protocol;
 pub mod routes;
 pub mod sudo;
 pub mod terminal;
+pub mod terminal_privilege;
 pub mod trust;
 pub mod upgrade;
 

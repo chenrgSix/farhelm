@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "agent.terminal.status",
+  "body": {
+    "revision": 1,
+    "enabled": true,
+    "request_revision": 1,
+    "blocked": false,
+    "reason": null
+  }
+}

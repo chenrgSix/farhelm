@@ -1,0 +1,13 @@
+{
+  "id": 1,
+  "at": 1,
+  "actor_id": null,
+  "device_id": "device",
+  "task_id": null,
+  "action": "terminal.privilege_result",
+  "detail": {
+    "revision": 1,
+    "enabled": true,
+    "reason": null
+  }
+}

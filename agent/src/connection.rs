@@ -251,7 +251,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.config.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.config.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
             )?
             .into(),
         ))
@@ -301,7 +301,19 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
     // JoinSet aborts pending uploads when this authenticated session closes.
     let mut uploads = tokio::task::JoinSet::<Result<Event>>::new();
     let (terminal_output, mut terminal_events) = tokio::sync::mpsc::channel(128);
-    let mut terminals = crate::terminal::Terminals::new(cfg.clone(), terminal_output);
+    let mut terminal_privilege = crate::terminal_privilege::State::load(cfg, journal)?;
+    let mut terminal_cfg = cfg.clone();
+    terminal_cfg.terminal_allow_privilege_escalation = terminal_privilege.enabled();
+    let mut terminals = crate::terminal::Terminals::new(terminal_cfg, terminal_output);
+    socket
+        .send(Message::Text(
+            envelope(
+                "agent.terminal.status",
+                terminal_privilege.status(None, None),
+            )?
+            .into(),
+        ))
+        .await?;
     let (health_output, mut health_events) = tokio::sync::mpsc::channel(32);
     let mut health = crate::health::Checks::new(health_output)?;
     let mut renewal = tokio::task::JoinSet::<Result<Access>>::new();
@@ -448,6 +460,12 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.terminal.config"=>{
+                                let update:crate::terminal_privilege::State=serde_json::from_value(envelope.body)?;
+                                let result=terminal_privilege.apply(update,journal,terminals.is_idle())?;
+                                if result.reason.is_none() && terminals.is_idle() {terminals.set_privilege(result.enabled)?;}
+                                socket.send(Message::Text(crate::protocol::envelope("agent.terminal.status",result)?.into())).await?;
+                            }
                             "agent.route.config"=>{
                                 let next:crate::routes::Settings=serde_json::from_value(envelope.body)?;
                                 let saved=crate::routes::Settings::load(journal)?;

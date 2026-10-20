@@ -40,7 +40,7 @@ const sudoErrors: Record<string, string> = {
   INVALID_SUDO_PASSWORD:
     "已保存的 sudo 密码含不支持的换行或空字符，请重新配置。",
   SUDO_DISABLED:
-    "Agent 尚未允许终端提权，请启用该 Agent 的终端 sudo 配置并重启。",
+    "Agent 尚未允许终端提权，请由管理员在设备接入配置的「默认登录账号 → 终端提权」中开启；旧 Agent 需先升级。",
   SUDO_AUTH_FAILED:
     "sudo 提权失败：请检查已保存的密码、账号的 sudo 权限及 sudo 安装情况。",
   SUDO_AUTH_TIMEOUT: "sudo 认证超时，请检查目标机器的认证配置后重试。",

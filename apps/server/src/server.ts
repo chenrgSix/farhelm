@@ -55,6 +55,7 @@ import { registerNetworkRoutes } from "./network-routes.js";
 import { registerNetworkProbes } from "./network-probes.js";
 import { registerAgentNetwork } from "./agent-network.js";
 import { registerHealth } from "./health.js";
+import { registerTerminalPrivilege } from "./terminal-privilege.js";
 import { registerDeviceConnections } from "./device-connections.js";
 import { registerAgentReleases, legacyArtifacts } from "./agent-releases.js";
 import { registerAgentInstall } from "./agent-install.js";
@@ -98,6 +99,8 @@ interface Connection {
   terminal: boolean;
   sudo: boolean;
   sudoNopasswd: boolean;
+  terminalConfig: boolean;
+  terminalConfigReported: boolean;
   health: boolean;
   address: boolean;
   trust: boolean;
@@ -700,6 +703,25 @@ export async function buildServer(config: ServerConfig) {
         : undefined;
     },
   });
+  const terminalPrivilege = registerTerminalPrivilege(app, {
+    store,
+    rate,
+    admin,
+    requireDevice,
+    availableStorage,
+    agent(id) {
+      const c = connections.get(id);
+      return c?.ready &&
+        live(c) &&
+        Date.now() - c.lastHeartbeat <= heartbeatTimeout
+        ? {
+            supported: c.terminalConfig,
+            reported: c.terminalConfigReported,
+            send: (type, body) => send(c, type, body),
+          }
+        : undefined;
+    },
+  });
   const deviceConnections = registerDeviceConnections(app, {
     routes: networkRoutes,
     store,
@@ -821,6 +843,9 @@ export async function buildServer(config: ServerConfig) {
         terminal: c.terminal && networkRoutes.allowed(id),
         sudo: c.sudo,
         sudoNopasswd: c.sudoNopasswd,
+        sudoEnabled:
+          terminalPrivilege.effective(id) ??
+          (c.terminalConfig ? false : undefined),
         send: (type, body) => send(c, type, body),
       };
     },
@@ -1811,6 +1836,8 @@ export async function buildServer(config: ServerConfig) {
         terminal: false,
         sudo: false,
         sudoNopasswd: false,
+        terminalConfig: false,
+        terminalConfigReported: false,
         health: false,
         address: false,
         trust: false,
@@ -1858,7 +1885,7 @@ export async function buildServer(config: ServerConfig) {
             if (b.capabilities !== undefined) {
               if (
                 !Array.isArray(b.capabilities) ||
-                b.capabilities.length > 10 ||
+                b.capabilities.length > 16 ||
                 b.capabilities.some(
                   (x: unknown) => typeof x !== "string" || x.length > 64,
                 )
@@ -1870,6 +1897,7 @@ export async function buildServer(config: ServerConfig) {
               c.sudoNopasswd = b.capabilities.includes(
                 "terminal.sudo.nopasswd.v1",
               );
+              c.terminalConfig = b.capabilities.includes("terminal.config.v1");
               c.health = b.capabilities.includes("health.probes.v1");
               c.address = b.capabilities.includes("agent.address.v1");
               c.trust = b.capabilities.includes("agent.trust.v1");
@@ -1918,6 +1946,10 @@ export async function buildServer(config: ServerConfig) {
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
             }
+          } else if (env.type === "agent.terminal.status") {
+            if (!c.ready || !c.terminalConfig) fail(400, "HELLO_REQUIRED");
+            terminalPrivilege.receive(c.deviceId, b);
+            c.terminalConfigReported = true;
           } else if (env.type === "agent.route.status") {
             networkRoutes.receive(c.deviceId, b);
             dispatch(c.deviceId);
@@ -2058,6 +2090,7 @@ export async function buildServer(config: ServerConfig) {
       terminals.tick();
       settings.sync.flush();
       caSync.flush();
+      terminalPrivilege.flush();
       upgrades.tick();
       for (const c of connections.values()) {
         if (!live(c) || now - c.lastHeartbeat > heartbeatTimeout) {
