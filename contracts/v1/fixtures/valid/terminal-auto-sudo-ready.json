@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "terminal.ready",
+  "body": {
+    "backend": "agent",
+    "sudo_auto": true
+  }
+}

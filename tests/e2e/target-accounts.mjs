@@ -44,6 +44,7 @@ await server.configureWeb(
 const port = server.app.server.address().port;
 const secret = "Public-fixture-sudo9!";
 const testPrivilegeSettings = process.env.FLEET_TEST_TERMINAL_SETTINGS === "1";
+const testSudoCommands = process.env.FLEET_TEST_SUDO_COMMANDS === "1";
 const sockets = [],
   clients = [];
 let started = false;
@@ -311,6 +312,167 @@ try {
     revision: 0,
     sudo_password: secret,
   });
+  if (testSudoCommands) {
+    const normal = await open(undefined, admin, "normal");
+    await normal.ready();
+    assert.equal(
+      normal.messages.find((m) => m.type === "terminal.ready").body.sudo_auto,
+      true,
+    );
+    const uid = (
+      await docker(["exec", "--user", "fleet", container, "id", "-u"])
+    ).trim();
+    normal.send("printf '__NORMAL_UID__'; id -u\r");
+    await until(
+      () => normal.text().includes("__NORMAL_UID__" + uid),
+      "ordinary shell retains non-root UID",
+    );
+    for (const [marker, command] of [
+      ["__AUTO_UID__", "sudo -k id -u"],
+      ["__AUTO_REPEAT__", "sudo -k id -u"],
+      ["__AUTO_SU__", "sudo -k su - -c 'id -u'"],
+      ["__AUTO_ENV__", "SUDO_ASKPASS=/bin/echo sudo -k id -u"],
+    ]) {
+      normal.send(`printf '${marker}'; ${command}\r`);
+      await until(() => normal.text().includes(marker + "0"), marker, 30000);
+    }
+    // Direct askpass calls are not sudo, even with the legitimate executable and socket.
+    normal.send(
+      "sudo -u root -S -n -k true; printf '__STDIN_MODE_EXIT__%s\\n' \"$?\"\r",
+    );
+    await until(
+      () => normal.text().includes("__STDIN_MODE_EXIT__1"),
+      "explicit stdin sudo retains native behavior",
+    );
+    normal.send(
+      "printf '__SUDO_ARGUMENT__'; sudo -k printf '%s' -S; printf '\\n'\r",
+    );
+    await until(
+      () => normal.text().includes("__SUDO_ARGUMENT__-S"),
+      "command arguments remain unchanged",
+    );
+    normal.send(
+      'timeout 3 env FLEET_SUDO_ASKPASS_SOCKET="$FLEET_SUDO_COMMAND_SOCKET" /agent; printf \'__ASKPASS_REJECTED__%s\\n\' "$?"\r',
+    );
+    await until(
+      () => normal.text().includes("__ASKPASS_REJECTED__1"),
+      "forged askpass rejected",
+    );
+    assert.equal(normal.text().includes(secret), false);
+    normal.send("exit\r");
+    await until(
+      () => normal.messages.some((m) => m.type === "terminal.closed"),
+      "ordinary delegated shell closed",
+    );
+    // No sudo role: no wrapper or credential, despite the same device/account.
+    const ordinary = server.store.seedUser({
+      username: "no-sudo-delegation",
+      password: "accounts-e2e-login1",
+      role: "ops",
+      deviceScope: [device.id],
+    });
+    const ordinaryAuth = (
+      await api(
+        "POST",
+        "/login",
+        { username: ordinary.username, password: "accounts-e2e-login1" },
+        "",
+      )
+    ).access_token;
+    const noGrant = await open(undefined, ordinaryAuth, "normal");
+    await noGrant.ready();
+    assert.equal(
+      noGrant.messages.find((m) => m.type === "terminal.ready").body.sudo_auto,
+      undefined,
+    );
+    noGrant.send(
+      "printf '__NO_SUDO_CREDENTIAL__'; test -z \"$FLEET_SUDO_COMMAND_SOCKET\"; printf '%s\\n' \"$?\"\r",
+    );
+    await until(
+      () => noGrant.text().includes("__NO_SUDO_CREDENTIAL__0"),
+      "no sudo role gets no credential channel",
+    );
+    noGrant.send("sudo -n -k true; printf '__NO_GRANT_EXIT__%s\\n' \"$?\"\r");
+    await until(
+      () => noGrant.text().includes("__NO_GRANT_EXIT__1"),
+      "password-required account cannot sudo without a grant",
+    );
+    noGrant.send("exit\r");
+    await until(
+      () => noGrant.messages.some((m) => m.type === "terminal.closed"),
+      "ordinary role shell closed",
+    );
+    const role = (
+      await api("POST", "/roles", {
+        v: 1,
+        name: "普通终端 sudo",
+        description: "",
+        permissions: ["devices.read", "terminal.connect", "terminal.sudo"],
+      })
+    ).role;
+    const group = (
+      await api("POST", "/groups", {
+        v: 1,
+        name: "普通终端 sudo 组",
+        description: "",
+        role_ids: [role.id],
+        member_ids: [ordinary.id],
+        device_scope: [],
+      })
+    ).group;
+    const grantedAuth = (
+      await api(
+        "POST",
+        "/login",
+        { username: ordinary.username, password: "accounts-e2e-login1" },
+        "",
+      )
+    ).access_token;
+    const inherited = await open(undefined, grantedAuth, "normal");
+    await inherited.ready();
+    assert.equal(
+      inherited.messages.find((m) => m.type === "terminal.ready").body
+        .sudo_auto,
+      true,
+    );
+    inherited.send("printf '__INHERITED_AUTO__'; sudo -k id -u\r");
+    await until(
+      () => inherited.text().includes("__INHERITED_AUTO__0"),
+      "group inherited sudo delegation",
+    );
+    await api("DELETE", `/groups/${group.id}`, {
+      v: 1,
+      revision: group.revision,
+    });
+    await until(
+      () => inherited.messages.some((m) => m.type === "terminal.closed"),
+      "revoking inherited sudo closes the delegated terminal",
+    );
+    config = await api("PUT", configPath, {
+      v: 1,
+      revision: config.revision,
+      sudo_password: "wrong-normal-fixture-password",
+    });
+    const wrong = await open(undefined, admin, "normal");
+    await wrong.ready();
+    wrong.send("sudo -k true; printf '__WRONG_AUTO_EXIT__%s\\n' \"$?\"\r");
+    await until(
+      () => wrong.text().includes("__WRONG_AUTO_EXIT__1"),
+      "wrong ordinary sudo credential rejected",
+      30000,
+    );
+    assert.equal(wrong.text().includes("wrong-normal-fixture-password"), false);
+    wrong.send("exit\r");
+    await until(
+      () => wrong.messages.some((m) => m.type === "terminal.closed"),
+      "wrong credential shell closed",
+    );
+    config = await api("PUT", configPath, {
+      v: 1,
+      revision: config.revision,
+      sudo_password: secret,
+    });
+  }
   const simple = await open(undefined, admin, "root");
   await simple.ready();
   simple.send("printf '__SIMPLE_UID__'; id -u\r");
@@ -861,6 +1023,54 @@ try {
       .getByRole("heading", { name: "设备总览", exact: true })
       .waitFor();
     const row = page.locator("tbody tr").filter({ hasText: "accounts-linux" });
+    if (testSudoCommands) {
+      const current = await api("GET", configPath);
+      await api("PUT", configPath, {
+        v: 1,
+        revision: current.revision,
+        sudo_password: secret,
+      });
+      const pending = page.waitForResponse(
+        (r) =>
+          r.url().endsWith("/api/v1/terminal-sessions") &&
+          r.request().method() === "POST",
+      );
+      await row.getByRole("button", { name: "连接终端", exact: true }).click();
+      const created = await (await pending).json();
+      const normal = page.getByRole("dialog", { name: /^终端：/ });
+      await normal.getByText("sudo 自动代填已启用", { exact: true }).waitFor();
+      await normal.locator("textarea.xterm-helper-textarea").focus();
+      await page.keyboard.type("printf '__BROWSER_AUTO_SUDO__'; sudo -k id -u");
+      await page.keyboard.press("Enter");
+      await until(
+        () =>
+          server.store.db
+            .prepare(
+              "SELECT data FROM terminal_recordings WHERE session_id=? AND kind='output'",
+            )
+            .all(created.session_id)
+            .map((r) =>
+              Buffer.from(JSON.parse(r.data).data, "base64").toString(),
+            )
+            .join("")
+            .includes("__BROWSER_AUTO_SUDO__0"),
+        "browser ordinary sudo password delegation",
+      );
+      await page.screenshot({
+        path: join(root, ".test-output/normal-sudo-desktop.png"),
+        fullPage: true,
+      });
+      await normal
+        .getByRole("button", { name: "关闭终端", exact: true })
+        .click();
+      await until(
+        () =>
+          server.store.db
+            .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
+            .get(created.session_id).ended_at,
+        "browser ordinary terminal closed",
+      );
+    }
     await row.getByRole("button", { name: /^更多操作/ }).click();
     await page
       .getByRole("menuitem", { name: "高级账号（兼容）", exact: true })
@@ -1036,6 +1246,27 @@ try {
     });
     assert.equal(denied.status, 409);
     assert.equal((await denied.json()).error, "SUDO_DISABLED");
+    if (testSudoCommands) {
+      const disabled = await open(undefined, admin, "normal");
+      await disabled.ready();
+      assert.equal(
+        disabled.messages.find((m) => m.type === "terminal.ready").body
+          .sudo_auto,
+        undefined,
+      );
+      disabled.send(
+        "printf '__DISABLED_NNP__'; sed -n 's/^NoNewPrivs:[[:space:]]*//p' /proc/$$/status\r",
+      );
+      await until(
+        () => disabled.text().includes("__DISABLED_NNP__1"),
+        "disabled switch keeps no_new_privs enforcement",
+      );
+      disabled.send("exit\r");
+      await until(
+        () => disabled.messages.some((m) => m.type === "terminal.closed"),
+        "disabled ordinary terminal closed",
+      );
+    }
     const after = await api("GET", settingPath);
     await api("PUT", settingPath, {
       v: 1,
@@ -1132,6 +1363,7 @@ try {
         realLinux: true,
         realSudo: true,
         webTerminalPrivilege: testPrivilegeSettings,
+        normalTerminalSudo: testSudoCommands,
         simpleNormalAndRoot: true,
         passwordlessSudo: true,
         passwordRequiredFailsWithoutPrompt: true,

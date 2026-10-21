@@ -40,6 +40,9 @@ const containers = [],
   errors = [],
   steps = [];
 let server, vite, browser;
+const runtimeImage = (arch) =>
+  process.env[`FLEET_UPGRADE_IMAGE_${arch.toUpperCase()}`] ??
+  "farhelm-agent-build:" + arch;
 async function run(command, args) {
   return new Promise((resolve, reject) => {
     const c = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -122,9 +125,13 @@ try {
       name,
       "--mount",
       `type=bind,source=${temp},target=/fixture,readonly`,
-      "farhelm-agent-build:" + arch,
-      "sleep",
-      "infinity",
+      "--user",
+      "0",
+      "--entrypoint",
+      "bash",
+      runtimeImage(arch),
+      "-c",
+      "sleep infinity",
     ]);
     const install = await api("POST", "/agent-installations", {
       v: 1,
@@ -467,9 +474,13 @@ try {
     fresh,
     "--mount",
     `type=bind,source=${temp},target=/fixture,readonly`,
-    "farhelm-agent-build:arm64",
-    "sleep",
-    "infinity",
+    "--user",
+    "0",
+    "--entrypoint",
+    "bash",
+    runtimeImage("arm64"),
+    "-c",
+    "sleep infinity",
   ]);
   const freshInstall = await api("POST", "/agent-installations", {
     v: 1,
@@ -503,22 +514,29 @@ try {
     join(temp, "broken.rs"),
     `fn main(){if std::env::args().any(|a|a=="--build-info"){println!("{{\\\"version\\\":\\\"${brokenVersion}\\\",\\\"arch\\\":\\\"aarch64\\\",\\\"upgrade_protocol\\\":1}}");}else{std::process::exit(42);}}`,
   );
-  await docker([
-    "exec",
-    containers[0],
-    "rustc",
-    "--target",
-    "aarch64-unknown-linux-musl",
-    "/fixture/broken.rs",
-    "-O",
-    "-o",
-    "/tmp/broken-agent",
-  ]);
-  await docker([
-    "cp",
-    containers[0] + ":/tmp/broken-agent",
-    join(temp, "broken-agent"),
-  ]);
+  if (process.env.FLEET_TEST_BROKEN_AGENT_BIN) {
+    copyFileSync(
+      process.env.FLEET_TEST_BROKEN_AGENT_BIN,
+      join(temp, "broken-agent"),
+    );
+  } else {
+    await docker([
+      "exec",
+      containers[0],
+      "rustc",
+      "--target",
+      "aarch64-unknown-linux-musl",
+      "/fixture/broken.rs",
+      "-O",
+      "-o",
+      "/tmp/broken-agent",
+    ]);
+    await docker([
+      "cp",
+      containers[0] + ":/tmp/broken-agent",
+      join(temp, "broken-agent"),
+    ]);
+  }
   const bytes = readFileSync(join(temp, "broken-agent")),
     brokenHash = createHash("sha256").update(bytes).digest("hex");
   writeFileSync(

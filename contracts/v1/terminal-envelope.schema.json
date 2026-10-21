@@ -29,6 +29,11 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 200
+            },
+            "sudo_auto_password": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
             }
           },
           "required": ["session_id", "cols", "rows"]
@@ -106,6 +111,7 @@
             "elevated": {
               "type": "boolean"
             },
+            "sudo_auto": { "type": "boolean" },
             "username": {
               "type": "string",
               "maxLength": 32

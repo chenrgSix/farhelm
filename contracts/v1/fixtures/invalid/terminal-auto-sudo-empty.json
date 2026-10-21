@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "terminal.open",
+  "body": {
+    "session_id": "00000000-0000-4000-8000-000000000077",
+    "cols": 80,
+    "rows": 24,
+    "sudo_auto_password": ""
+  }
+}

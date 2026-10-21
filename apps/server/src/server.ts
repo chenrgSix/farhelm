@@ -99,6 +99,7 @@ interface Connection {
   terminal: boolean;
   sudo: boolean;
   sudoNopasswd: boolean;
+  sudoCommands: boolean;
   terminalConfig: boolean;
   terminalConfigReported: boolean;
   health: boolean;
@@ -230,6 +231,7 @@ export async function buildServer(config: ServerConfig) {
             "req.body.private_key",
             "req.body.passphrase",
             "req.body.sudo_password",
+            "req.body.sudo_auto_password",
             "req.body.enrollment_token",
             "res.headers.set-cookie",
           ],
@@ -843,6 +845,7 @@ export async function buildServer(config: ServerConfig) {
         terminal: c.terminal && networkRoutes.allowed(id),
         sudo: c.sudo,
         sudoNopasswd: c.sudoNopasswd,
+        sudoCommands: c.sudoCommands,
         sudoEnabled:
           terminalPrivilege.effective(id) ??
           (c.terminalConfig ? false : undefined),
@@ -1836,6 +1839,7 @@ export async function buildServer(config: ServerConfig) {
         terminal: false,
         sudo: false,
         sudoNopasswd: false,
+        sudoCommands: false,
         terminalConfig: false,
         terminalConfigReported: false,
         health: false,
@@ -1894,6 +1898,9 @@ export async function buildServer(config: ServerConfig) {
               c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.sudo = b.capabilities.includes("terminal.sudo.v1");
+              c.sudoCommands = b.capabilities.includes(
+                "terminal.sudo.command.v1",
+              );
               c.sudoNopasswd = b.capabilities.includes(
                 "terminal.sudo.nopasswd.v1",
               );

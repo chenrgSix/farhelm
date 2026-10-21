@@ -34,6 +34,12 @@ struct Entry {
     input: mpsc::Sender<Control>,
     task: JoinHandle<()>,
 }
+struct SudoCommands(JoinHandle<Result<()>>);
+impl Drop for SudoCommands {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 impl Drop for Entry {
     fn drop(&mut self) {
         self.task.abort();
@@ -53,6 +59,8 @@ struct Open {
     rows: u16,
     #[serde(default)]
     sudo_password: Option<String>,
+    #[serde(default)]
+    sudo_auto_password: Option<String>,
     #[serde(default)]
     username: Option<String>,
 }
@@ -104,12 +112,22 @@ impl Terminals {
                 "unexpected target username"
             );
             let privileged = kind == "terminal.sudo.open";
+            ensure!(
+                !privileged || open.sudo_auto_password.is_none(),
+                "conflicting sudo modes"
+            );
+            let auto_sudo = open.sudo_auto_password.is_some();
             let password = open
                 .sudo_password
                 .take()
+                .or_else(|| open.sudo_auto_password.take())
                 .filter(|value| !value.is_empty())
                 .map(crate::sudo::Password::new)
                 .transpose()?;
+            ensure!(
+                !auto_sudo || password.is_some(),
+                "missing automatic sudo credential"
+            );
             ensure!(
                 uuid::Uuid::parse_str(&open.session_id).is_ok(),
                 "invalid terminal ID"
@@ -118,7 +136,7 @@ impl Terminals {
             if !self.seen.insert(open.session_id.clone()) {
                 return Ok(());
             }
-            if privileged && !self.cfg.terminal_allow_privilege_escalation {
+            if (privileged || auto_sudo) && !self.cfg.terminal_allow_privilege_escalation {
                 self.output
                     .send((
                         "terminal.closed".into(),
@@ -255,6 +273,7 @@ fn spawn(
     rows: u16,
     allow_privilege_escalation: bool,
     sudo: Option<&crate::sudo::Channel>,
+    commands: Option<&crate::sudo::Channel>,
 ) -> Result<Pty> {
     ensure!(
         unsafe { libc::geteuid() } != 0,
@@ -357,6 +376,14 @@ fn spawn(
             .env("SUDO_ASKPASS", std::env::current_exe()?)
             .env("FLEET_SUDO_ASKPASS_SOCKET", &sudo.path);
     }
+    if let Some(commands) = commands {
+        command
+            .env(
+                "PATH",
+                format!("{}:/usr/bin:/bin", commands.command_directory().display()),
+            )
+            .env("FLEET_SUDO_COMMAND_SOCKET", &commands.path);
+    }
     unsafe {
         command.as_std_mut().pre_exec(move || {
             if libc::setsid() == -1
@@ -418,19 +445,26 @@ async fn run(
     password: Option<crate::sudo::Password>,
     privileged: bool,
 ) -> Result<&'static str> {
-    let mut channel = privileged
-        .then(|| {
-            crate::sudo::Channel::new(
+    let (mut channel, commands) = if privileged {
+        (
+            Some(crate::sudo::Channel::new(
                 open.username.clone().unwrap_or_else(|| "root".into()),
                 password,
-            )
-        })
-        .transpose()?;
+            )?),
+            None,
+        )
+    } else {
+        (
+            None,
+            password.map(crate::sudo::Channel::commands).transpose()?,
+        )
+    };
     let mut pty = match spawn(
         open.cols,
         open.rows,
         allow_privilege_escalation,
         channel.as_ref(),
+        commands.as_ref(),
     ) {
         Ok(pty) => pty,
         Err(_) if channel.is_some() => return Ok("SUDO_AUTH_FAILED"),
@@ -446,6 +480,12 @@ async fn run(
         }
     }
     drop(channel);
+    let commands = commands.map(|mut channel| {
+        let pid = pty.pid;
+        SudoCommands(tokio::spawn(
+            async move { channel.serve_commands(pid).await },
+        ))
+    });
     output
         .send((
             "terminal.opened".into(),
@@ -478,6 +518,7 @@ async fn run(
             },
             result = write(&pty.master,&writing), if !writing.is_empty() => { let count=result?; ensure!(count>0,"PTY write returned zero"); queue.drain(..count); },
             _=timer.tick()=>{
+                if commands.as_ref().is_some_and(|task| task.0.is_finished()) { return Ok("SUDO_AUTH_FAILED"); }
                 if pending.is_some_and(|time| time.elapsed()>Duration::from_secs(10)) { return Ok("RECORDING_ACK_TIMEOUT"); }
                 if now_ms()-start>3_600_000 { return Ok("SESSION_EXPIRED"); }
             }

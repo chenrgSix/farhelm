@@ -1793,5 +1793,20 @@
     "path": "valid/terminal-privilege_result.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/terminal-auto-sudo-open.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/terminal-auto-sudo-ready.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/terminal-auto-sudo-empty.json",
+    "schema": "terminal-envelope.schema.json",
+    "valid": false
   }
 ]

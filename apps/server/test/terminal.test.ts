@@ -2153,6 +2153,190 @@ test("managed sudo accounts may omit passwords but require passwordless Agent su
   }
 });
 
+test("normal sudo delegation uses the existing role and switch, never reaches the browser, and closes on permission or credential changes", async () => {
+  const f = await fixture();
+  try {
+    f.store.seedUser({
+      username: "auto-sudo-ops",
+      password: "terminal-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
+    });
+    const ops = await f.login("auto-sudo-ops");
+    const password = "public-auto-sudo-fixture9!";
+    const config = await f.api(
+      "PUT",
+      "/api/v1/devices/device/connection",
+      { v: 1, revision: 0, sudo_password: password },
+      f.admin,
+    );
+    assert.equal(config.status, 200);
+    const capabilities = [
+      "terminal.pty.v1",
+      "terminal.sudo.v1",
+      "terminal.config.v1",
+      "terminal.sudo.command.v1",
+    ];
+    f.agent.send("agent.heartbeat", {
+      agent_version: "sudo-commands",
+      capabilities,
+    });
+    f.agent.send("agent.terminal.status", {
+      revision: 0,
+      enabled: true,
+      request_revision: null,
+      blocked: false,
+      reason: null,
+    });
+    for (let n = 0; n < 100; n++) {
+      if (
+        (
+          await f.api(
+            "GET",
+            "/api/v1/devices/device/terminal-privilege",
+            undefined,
+            f.admin,
+          )
+        ).body.enabled === true
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const plain = await f.create(ops);
+    const plainBrowser = await f.attach(plain.body);
+    const plainRequest = await f.agent.wait("terminal.open");
+    assert.equal(
+      plainRequest.sudo_auto_password,
+      undefined,
+      "ordinary role receives no credential",
+    );
+    f.agent.send("terminal.opened", { session_id: plainRequest.session_id });
+    assert.equal(
+      (await plainBrowser.wait("terminal.ready")).sudo_auto,
+      undefined,
+    );
+    plainBrowser.ws.close();
+    await f.agent.wait("terminal.close");
+    f.agent.send("agent.heartbeat", {
+      agent_version: "legacy-agent",
+      capabilities: capabilities.filter(
+        (c) => c !== "terminal.sudo.command.v1",
+      ),
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const legacy = await f.create();
+    const legacyBrowser = await f.attach(legacy.body);
+    const legacyRequest = await f.agent.wait("terminal.open");
+    assert.equal(
+      legacyRequest.sudo_auto_password,
+      undefined,
+      "old Agents never receive a new credential field",
+    );
+    f.agent.send("terminal.opened", { session_id: legacyRequest.session_id });
+    await legacyBrowser.wait("terminal.ready");
+    legacyBrowser.ws.close();
+    await f.agent.wait("terminal.close");
+    f.agent.send("agent.heartbeat", {
+      agent_version: "sudo-commands",
+      capabilities,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const permissions = JSON.parse(
+      f.store.db
+        .prepare("SELECT permissions FROM access_roles WHERE id='ops'")
+        .get()!.permissions as string,
+    );
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(JSON.stringify([...permissions, "terminal.sudo"]));
+    const open = async (auth = f.admin) => {
+      const created = await f.create(auth);
+      assert.equal(created.status, 200);
+      assert.equal(JSON.stringify(created).includes(password), false);
+      const browser = await f.attach(created.body);
+      const request = await f.agent.wait("terminal.open");
+      assert.equal(request.sudo_auto_password, password);
+      assert.equal(request.sudo_password, undefined);
+      assertValid("terminal-envelope", {
+        v: 1,
+        type: "terminal.open",
+        body: request,
+      });
+      f.agent.send("terminal.opened", { session_id: request.session_id });
+      const ready = await browser.wait("terminal.ready");
+      assert.equal(ready.sudo_auto, true);
+      assert.equal(ready.elevated, undefined);
+      assert.equal(JSON.stringify(ready).includes(password), false);
+      return browser;
+    };
+    const delegated = await open(ops);
+    f.store.db
+      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
+      .run(JSON.stringify(permissions));
+    assert.equal(
+      (await delegated.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    const credentialSession = await open();
+    const updated = await f.api(
+      "PUT",
+      "/api/v1/devices/device/connection",
+      {
+        v: 1,
+        revision: config.body.revision,
+        sudo_password: "replacement-fixture9!",
+      },
+      f.admin,
+    );
+    assert.equal(
+      updated.status,
+      409,
+      "live credentials cannot be overwritten through the UI",
+    );
+    const connection = f.store.db
+      .prepare("SELECT * FROM device_connections WHERE device_id='device'")
+      .get()!;
+    f.store.db
+      .prepare(
+        "UPDATE device_connections SET secrets=? WHERE device_id='device'",
+      )
+      .run("invalid sealed credential");
+    assert.equal(
+      (await credentialSession.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    f.store.db
+      .prepare(
+        "UPDATE device_connections SET secrets=? WHERE device_id='device'",
+      )
+      .run(connection.secrets);
+    // A supported but disabled Agent must still receive an ordinary frame only.
+    f.agent.send("agent.terminal.status", {
+      revision: 0,
+      enabled: false,
+      request_revision: null,
+      blocked: false,
+      reason: null,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const disabled = await f.create();
+    await f.attach(disabled.body);
+    assert.equal(
+      (await f.agent.wait("terminal.open")).sudo_auto_password,
+      undefined,
+    );
+    for (const table of ["audit", "terminal_recordings"])
+      assert.equal(
+        JSON.stringify(
+          f.store.db.prepare("SELECT * FROM " + table).all(),
+        ).includes(password),
+        false,
+      );
+  } finally {
+    await f.close();
+  }
+});
+
 test("web terminal privilege settings require admin, report real state, gate sudo and persist confirmed revisions", async () => {
   const f = await fixture();
   const path = "/api/v1/devices/device/terminal-privilege";

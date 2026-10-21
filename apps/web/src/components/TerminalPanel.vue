@@ -20,6 +20,7 @@ const emit = defineEmits<{ close: []; changed: [] }>();
 const host = ref<HTMLDivElement>();
 const state = ref("正在连接…");
 const connected = ref(false);
+const sudoAuto = ref(false);
 const backend = ref<"agent" | "ssh" | undefined>(props.recording?.backend);
 const error = ref("");
 const records = ref<
@@ -163,6 +164,7 @@ async function connect() {
   terminal.reset();
   error.value = "";
   state.value = "正在连接…";
+  sudoAuto.value = false;
   backend.value = undefined;
   fit.fit();
   try {
@@ -216,6 +218,7 @@ async function connect() {
           )
             throw new Error("提权身份尚未确认，已断开终端。");
           connected.value = true;
+          sudoAuto.value = message.body.sudo_auto === true;
           state.value = props.username
             ? `已连接 · ${props.username}`
             : props.elevated
@@ -378,6 +381,9 @@ onBeforeUnmount(() => {
           ><span v-if="backend" class="terminal-state">{{
             backend === "ssh" ? "SSH 通道" : "Agent 通道"
           }}</span>
+          <span v-if="connected && sudoAuto" class="terminal-state"
+            >sudo 自动代填已启用</span
+          >
         </div>
         <div class="terminal-actions">
           <template v-if="recording">

@@ -45,6 +45,8 @@ interface Session {
   ready: boolean;
   backend: "agent" | "ssh";
   elevated: boolean;
+  sudoAuto?: boolean;
+  sudoCredentialHash?: string;
   rootMode?: boolean;
   account?: TargetAccount;
   target?: TargetTerminal;
@@ -80,6 +82,7 @@ interface Dependencies {
         terminal: boolean;
         sudo?: boolean;
         sudoNopasswd?: boolean;
+        sudoCommands?: boolean;
         sudoEnabled?: boolean;
       }
     | undefined;
@@ -137,6 +140,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   function authorized(
     s: Pick<Session, "deviceId" | "userSession" | "actorId"> & {
       elevated?: boolean;
+      sudoAuto?: boolean;
+      sudoCredentialHash?: string;
       rootMode?: boolean;
       account?: TargetAccount;
     },
@@ -168,10 +173,25 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         return false;
       }
     }
+    if (s.sudoAuto) {
+      try {
+        const password = d.connections.sudoPassword?.(s.deviceId);
+        if (
+          !password ||
+          hash(password) !== s.sudoCredentialHash ||
+          d.agent(s.deviceId)?.sudoCommands !== true ||
+          d.agent(s.deviceId)?.sudoEnabled !== true
+        )
+          return false;
+      } catch {
+        return false;
+      }
+    }
     return (
       !user.must_change_password &&
       hasPermission(user, "terminal.connect") &&
-      (!(s.elevated || s.rootMode) || hasPermission(user, "terminal.sudo")) &&
+      (!(s.elevated || s.rootMode || s.sudoAuto) ||
+        hasPermission(user, "terminal.sudo")) &&
       d.inScope(user, s.deviceId)
     );
   }
@@ -344,6 +364,18 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       if (!agent) fail(409, "DEVICE_OFFLINE");
       fail(409, "TERMINAL_NOT_SUPPORTED_UPDATE_AGENT");
     }
+    const sudoAutoPassword =
+      !elevated &&
+      !account &&
+      selectedBackend === "agent" &&
+      hasPermission(user, "terminal.sudo") &&
+      d.agent(deviceId)?.sudoCommands &&
+      d.agent(deviceId)?.sudoEnabled === true
+        ? d.connections.sudoPassword?.(deviceId)
+        : undefined;
+    const sudoAuto = !!sudoAutoPassword;
+    if (sudoAutoPassword && /[\r\n\0]/.test(sudoAutoPassword))
+      fail(409, "INVALID_SUDO_PASSWORD");
     if (
       sessions.size >= 32 ||
       [...sessions.values()].filter((s) => s.deviceId === deviceId).length >=
@@ -363,6 +395,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         cols,
         rows,
         ...(elevated ? { elevated: true } : {}),
+        ...(sudoAuto ? { sudo_auto: true } : {}),
         ...(rootMode && !account ? { username: "root" } : {}),
         ...(account
           ? {
@@ -375,6 +408,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       store.audit("terminal.created", user.id, deviceId, null, {
         session_id: id,
         ...(elevated ? { elevated: true } : {}),
+        ...(sudoAuto ? { sudo_auto: true } : {}),
         ...(rootMode && !account ? { username: "root" } : {}),
         ...(account
           ? {
@@ -396,6 +430,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       ready: false,
       backend: selectedBackend,
       elevated,
+      sudoAuto,
+      sudoCredentialHash: sudoAutoPassword ? hash(sudoAutoPassword) : undefined,
       rootMode,
       account,
     };
@@ -578,9 +614,14 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       return;
     }
     if (
-      !d
-        .agent(s.deviceId)
-        ?.send("terminal.open", { session_id: s.id, cols, rows })
+      !d.agent(s.deviceId)?.send("terminal.open", {
+        session_id: s.id,
+        cols,
+        rows,
+        ...(s.sudoAuto
+          ? { sudo_auto_password: d.connections.sudoPassword?.(s.deviceId) }
+          : {}),
+      })
     )
       safeEnd(s, "DEVICE_OFFLINE");
   }
@@ -673,6 +714,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
             network_route: d.route?.(s.deviceId, s.backend) ?? null,
             session_id: s.id,
             ...(s.elevated ? { elevated: true } : {}),
+            ...(s.sudoAuto ? { sudo_auto: true } : {}),
             ...(s.rootMode && !s.account ? { username: "root" } : {}),
             ...(s.account
               ? {
@@ -688,6 +730,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           !sendClient(s, "terminal.ready", {
             backend: s.backend,
             ...(s.elevated ? { elevated: true } : {}),
+            ...(s.sudoAuto ? { sudo_auto: true } : {}),
             ...(s.account
               ? { username: s.account.username }
               : s.rootMode
