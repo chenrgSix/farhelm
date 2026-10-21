@@ -2,7 +2,7 @@
 
 管理员可在 **API Token** 页面为脚本和 AI 创建独立凭据，配置权限、设备范围和有效期，下载配套 Skill 与 OpenAPI 文档。所有调用继续受用户授权约束并保留审计，详见 [通用 API 与 Skill](docs/api-tokens.md)。
 
-**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前预览版为 **v0.2.10**（Agent v0.2.10）。
+**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前预览版为 **v0.2.11**（Agent v0.2.11）。
 
 Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，支持可选 SSH 统一入口；不依赖 MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
