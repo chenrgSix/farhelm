@@ -39,7 +39,7 @@ onMounted(() => closeButton.value?.focus());
         >
           <strong>SSH 接入 <span aria-hidden="true">→</span></strong>
           <span>设备已有 SSH 服务，无需安装 Agent</span>
-          <small>配置地址、端口、账号和私钥，由平台连接设备。</small>
+          <small>配置地址、端口、账号及密码或私钥，由平台连接设备。</small>
         </button>
         <button
           v-if="agentEnabled"

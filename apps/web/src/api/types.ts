@@ -104,9 +104,11 @@ export interface DeviceConnection {
     port: number;
     username: string;
     fingerprint: string;
+    auth_method?: "private_key" | "password";
   } | null;
   has_private_key: boolean;
   has_passphrase: boolean;
+  has_ssh_password?: boolean;
   has_sudo_password: boolean;
   last_checked_at: number | null;
   last_error: string | null;

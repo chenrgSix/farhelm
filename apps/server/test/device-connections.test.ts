@@ -80,18 +80,30 @@ async function until(fn: () => unknown, label = "condition") {
 async function fixture(
   heartbeatTimeoutMs = 15000,
   targetUsername = "linux-user",
+  targetPassword?: string,
 ) {
   const downstream = new Set<Connection>();
   const shells: ServerChannel[] = [],
     inputs: Buffer[] = [],
     sizes: any[] = [];
   let authentications = 0;
+  const authMethods: string[] = [];
   const targetServer = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     downstream.add(client);
     client.on("error", () => {});
     client.on("close", () => downstream.delete(client));
     client.on("authentication", (ctx) => {
       authentications++;
+      authMethods.push(ctx.method);
+      if (
+        ctx.method === "password" &&
+        targetPassword !== undefined &&
+        ctx.username === targetUsername &&
+        ctx.password === targetPassword
+      ) {
+        ctx.accept();
+        return;
+      }
       if (
         ctx.method === "publickey" &&
         ctx.username === targetUsername &&
@@ -136,6 +148,7 @@ async function fixture(
     host: "127.0.0.1",
     port: (targetServer.address() as any).port,
     username: "linux-user",
+    auth_method: "private_key",
     fingerprint: hostFingerprint,
   };
   const config = {
@@ -315,6 +328,7 @@ async function fixture(
     sizes,
     downstream,
     authentications: () => authentications,
+    authMethods,
     gatewayInfo: () => s.ssh!.info(),
     close,
   };
@@ -1274,5 +1288,433 @@ test("simple root mode uses the default root SSH key and rechecks privilege perm
     await until(() => f.downstream.size === 0);
   } finally {
     await f.close();
+  }
+});
+
+test("password SSH devices authenticate through web and gateway, keep secrets private, and reject wrong passwords and untrusted hosts", async () => {
+  const password = "  ssh-only-密码'$\\ secret  ";
+  const f = await fixture(15000, "linux-user", password);
+  try {
+    const created = await f.api("POST", "/ssh-devices", {
+      v: 1,
+      name: "Password SSH",
+      ssh: { ...f.ssh, auth_method: "password" },
+      ssh_password: password,
+    });
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    const id = created.body.device_id,
+      path = `/devices/${id}/connection`;
+    assert.equal(created.body.has_ssh_password, true);
+    assert.equal(created.body.has_private_key, false);
+    assert.equal(created.body.has_passphrase, false);
+    assert.equal(JSON.stringify(created.body).includes(password), false);
+    const stored = f.store.db
+      .prepare("SELECT * FROM device_connections WHERE device_id=?")
+      .get(id)!;
+    assert.equal(JSON.stringify(stored).includes("ssh-only-"), false);
+    assert.equal(
+      new Credentials(f.config.dataDir, true).open(id, stored.secrets as string)
+        .ssh_password,
+      password,
+    );
+    f.store.seedUser({
+      username: "password-ops",
+      password: "connection-test-password1",
+      role: "ops",
+      deviceScope: [id],
+    });
+    const ops = await f.login("password-ops");
+    assert.equal((await f.api("GET", path, undefined, ops)).status, 403);
+    assert.equal(
+      (
+        await f.api(
+          "PUT",
+          path,
+          { v: 1, revision: 1, ssh_password: "overwrite" },
+          ops,
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/ssh-devices",
+          {
+            v: 1,
+            name: "Denied",
+            ssh: { ...f.ssh, auth_method: "password" },
+            ssh_password: password,
+          },
+          ops,
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await f.api("POST", path + "/test", { v: 1, revision: 1 })).body.ok,
+      true,
+    );
+    const terminal = await f.web(ops, id);
+    assert.equal((await terminal.wait("terminal.ready")).backend, "ssh");
+    await until(() => terminal.output().includes("TARGET_SSH_READY"));
+    terminal.send("terminal.input", {
+      data: Buffer.from("output\r").toString("base64"),
+    });
+    await until(() => terminal.output().includes("TARGET_OUTPUT"));
+    assert.equal(
+      (
+        await f.api("PUT", path, {
+          v: 1,
+          revision: 1,
+          ssh_password: "overwrite",
+        })
+      ).body.error,
+      "CONNECTION_HAS_ACTIVE_SESSIONS",
+    );
+    await f.api(
+      "POST",
+      `/terminal-sessions/${terminal.id}/close`,
+      { v: 1 },
+      ops,
+    );
+    await terminal.wait("terminal.closed");
+    const gateway = await f.gateway(`password-ops:${id}`);
+    await until(() => gateway.output().includes("TARGET_SSH_READY"));
+    gateway.stream.write("exit\r");
+    await until(
+      () =>
+        f.store.db
+          .prepare(
+            "SELECT 1 FROM terminal_sessions WHERE device_id=? AND ended_at IS NULL",
+          )
+          .get(id) === undefined,
+    );
+    assert.deepEqual(new Set(f.authMethods), new Set(["password"]));
+    const recording = (
+      await f.api(
+        "GET",
+        `/terminal-sessions/${terminal.id}/recording`,
+        undefined,
+        ops,
+      )
+    ).body;
+    assert.equal(JSON.stringify(recording).includes("ssh-only-"), false);
+    assert.equal(
+      JSON.stringify(f.store.db.prepare("SELECT * FROM audit").all()).includes(
+        "ssh-only-",
+      ),
+      false,
+    );
+    // An older client omitting the method and password must preserve both.
+    const { auth_method: _, ...legacySsh } = f.ssh;
+    const saved = await f.api("PUT", path, {
+      v: 1,
+      revision: 1,
+      ssh: legacySsh,
+    });
+    assert.equal(saved.body.ssh.auth_method, "password");
+    assert.equal(
+      (await f.api("POST", path + "/test", { v: 1, revision: 2 })).body.ok,
+      true,
+    );
+    assert.equal(
+      (await f.api("PUT", path, { v: 1, revision: 1, ssh_password: "wrong" }))
+        .status,
+      409,
+    );
+    assert.equal(
+      (await f.api("PUT", path, { v: 1, revision: 2, ssh_password: "wrong" }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await f.api("POST", path + "/test", { v: 1, revision: 3 })).body
+        .last_error,
+      "SSH_AUTH_FAILED",
+    );
+    const failed = await f.web(ops, id);
+    assert.equal(
+      (await failed.wait("terminal.closed")).reason,
+      "SSH_AUTH_FAILED",
+    );
+    assert.deepEqual(new Set(f.authMethods), new Set(["password"]));
+    // A separate key-based account must not inherit the default password method.
+    const account = await f.api("POST", `/devices/${id}/accounts`, {
+      v: 1,
+      name: "Own key",
+      username: "linux-user",
+      method: "ssh",
+      allowed_users: [],
+      private_key: loginKey,
+    });
+    assert.equal(account.status, 200);
+    const own = await f.web(f.admin, id, account.body.account.id);
+    await own.wait("terminal.ready");
+    await until(() => own.output().includes("TARGET_SSH_READY"));
+    assert.ok(f.authMethods.includes("publickey"));
+    await f.api("POST", `/terminal-sessions/${own.id}/close`, { v: 1 });
+    await own.wait("terminal.closed");
+    await f.api("PUT", path, {
+      v: 1,
+      revision: 3,
+      ssh: { ...legacySsh, fingerprint: "SHA256:" + "A".repeat(43) },
+      ssh_password: password,
+    });
+    const attempts = f.authentications();
+    assert.equal(
+      (await f.api("POST", path + "/test", { v: 1, revision: 4 })).body
+        .last_error,
+      "SSH_HOST_KEY_MISMATCH",
+    );
+    const untrusted = await f.web(ops, id);
+    assert.equal(
+      (await untrusted.wait("terminal.closed")).reason,
+      "SSH_HOST_KEY_MISMATCH",
+    );
+    assert.equal(
+      f.authentications(),
+      attempts,
+      "Never send a password before verifying the host key",
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("SSH authentication changes validate the selected credentials atomically and discard the previous method's secrets", async () => {
+  const f = await fixture();
+  try {
+    const passwordSsh = { ...f.ssh, auth_method: "password" };
+    const invalid = [
+      { ssh: passwordSsh },
+      { ssh: passwordSsh, ssh_password: "" },
+      { ssh: passwordSsh, ssh_password: null },
+      { ssh: passwordSsh, ssh_password: 123 },
+      { ssh: passwordSsh, ssh_password: "a".repeat(1025) },
+      { ssh: passwordSsh, ssh_password: "secret", private_key: loginKey },
+      { ssh: passwordSsh, ssh_password: "secret", passphrase: null },
+      { ssh: { ...f.ssh, auth_method: "unknown" }, private_key: loginKey },
+      { ssh: { ...f.ssh, auth_method: null }, private_key: loginKey },
+      { ssh: f.ssh, ssh_password: "secret" },
+    ];
+    for (const payload of invalid) {
+      const result = await f.api("PUT", f.path, {
+        v: 1,
+        revision: 1,
+        ...payload,
+      });
+      assert.equal(result.status, 400, JSON.stringify(result.body));
+    }
+    assert.equal((await f.api("GET", f.path)).body.revision, 1);
+    const password = "selected-password";
+    const changed = await f.api("PUT", f.path, {
+      v: 1,
+      revision: 1,
+      ssh: passwordSsh,
+      ssh_password: password,
+    });
+    assert.equal(changed.status, 200);
+    const credentials = () =>
+      new Credentials(f.config.dataDir, true).open(
+        f.id,
+        f.store.db
+          .prepare("SELECT secrets FROM device_connections WHERE device_id=?")
+          .get(f.id)!.secrets as string,
+      );
+    assert.deepEqual(credentials(), { ssh_password: password });
+    assert.equal(
+      (await f.api("PUT", f.path, { v: 1, revision: 2, ssh: f.ssh })).body
+        .error,
+      "SSH_PRIVATE_KEY_REQUIRED",
+    );
+    assert.deepEqual(credentials(), { ssh_password: password });
+    const keypair = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: {
+        type: "pkcs1",
+        format: "pem",
+        cipher: "aes-256-cbc",
+        passphrase: "key-only-passphrase",
+      },
+      publicKeyEncoding: { type: "spki", format: "pem" },
+    });
+    const keySaved = await f.api("PUT", f.path, {
+      v: 1,
+      revision: 2,
+      ssh: f.ssh,
+      private_key: keypair.privateKey,
+      passphrase: "key-only-passphrase",
+    });
+    assert.equal(keySaved.status, 200);
+    assert.equal(keySaved.body.has_ssh_password, false);
+    assert.equal(credentials().ssh_password, undefined);
+    assert.equal(credentials().passphrase, "key-only-passphrase");
+    assert.equal(
+      (await f.api("PUT", f.path, { v: 1, revision: 3, ssh: passwordSsh })).body
+        .error,
+      "SSH_PASSWORD_REQUIRED",
+    );
+    const switched = await f.api("PUT", f.path, {
+      v: 1,
+      revision: 3,
+      ssh: passwordSsh,
+      ssh_password: password,
+    });
+    assert.equal(switched.status, 200);
+    assert.deepEqual(credentials(), { ssh_password: password });
+    assert.equal(
+      (await f.api("PUT", f.path, { v: 1, revision: 4, ssh: null })).status,
+      400,
+    );
+    // Legacy on-disk configuration without auth_method still uses its original key.
+    await f.api("PUT", f.path, {
+      v: 1,
+      revision: 4,
+      ssh: f.ssh,
+      private_key: loginKey,
+    });
+    const { auth_method: _, ...legacy } = f.ssh;
+    f.store.db
+      .prepare("UPDATE device_connections SET config_json=? WHERE device_id=?")
+      .run(JSON.stringify(legacy), f.id);
+    assert.equal(
+      (await f.api("POST", f.path + "/test", { v: 1, revision: 5 })).body.ok,
+      true,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("password backup SSH retains Agent identity and independent sudo secret, follows fallback and removes only SSH credentials", async () => {
+  const password = "backup-SSH-password";
+  const f = await fixture(15000, "linux-user", password);
+  try {
+    const id = "password-hybrid",
+      path = `/devices/${id}/connection`;
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES(?,'password-hybrid-key','Password hybrid',1)",
+      )
+      .run(id);
+    const payload = {
+      v: 1,
+      revision: 0,
+      ssh: { ...f.ssh, auth_method: "password" },
+      ssh_password: password,
+      sudo_password: "independent-sudo-password",
+    };
+    const saved = await f.api("PUT", path, payload);
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.kind, "agent");
+    assert.equal(saved.body.has_ssh_password, true);
+    assert.equal(saved.body.has_sudo_password, true);
+    assert.equal(
+      (await f.api("POST", path + "/test", { v: 1, revision: 1 })).body.ok,
+      true,
+    );
+    const agent = await f.agent(id);
+    const primary = await f.web(f.admin, id);
+    assert.equal((await primary.wait("terminal.ready")).backend, "agent");
+    await f.api("POST", `/terminal-sessions/${primary.id}/close`, { v: 1 });
+    agent.terminate();
+    await until(
+      async () =>
+        !(await f.api("GET", "/devices")).body.devices.find(
+          (d: any) => d.id === id,
+        ).control_online,
+    );
+    const fallback = await f.web(f.admin, id);
+    assert.equal((await fallback.wait("terminal.ready")).backend, "ssh");
+    await until(() => fallback.output().includes("TARGET_SSH_READY"));
+    const gateway = await f.gateway(`admin:${id}`);
+    await until(() => gateway.output().includes("TARGET_SSH_READY"));
+    gateway.stream.write("exit\r");
+    await f.api("POST", `/terminal-sessions/${fallback.id}/close`, { v: 1 });
+    await until(
+      () =>
+        !f.store.db
+          .prepare(
+            "SELECT 1 FROM terminal_sessions WHERE device_id=? AND ended_at IS NULL",
+          )
+          .get(id),
+    );
+    await f.api("PUT", path, {
+      v: 1,
+      revision: 1,
+      sudo_password: "updated-sudo-password",
+    });
+    assert.equal((await f.api("GET", path)).body.has_ssh_password, true);
+    const removed = await f.api("PUT", path, { v: 1, revision: 2, ssh: null });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.ssh, null);
+    assert.equal(removed.body.has_ssh_password, false);
+    assert.equal(removed.body.has_private_key, false);
+    assert.equal(removed.body.has_sudo_password, true);
+    const row = f.store.db
+      .prepare("SELECT secrets FROM device_connections WHERE device_id=?")
+      .get(id)!;
+    assert.deepEqual(
+      new Credentials(f.config.dataDir, true).open(id, row.secrets as string),
+      { sudo_password: "updated-sudo-password" },
+    );
+    assert.equal(
+      (
+        await f.api("PUT", path, {
+          ...payload,
+          revision: 3,
+          ssh_password: undefined,
+        })
+      ).body.error,
+      "SSH_PASSWORD_REQUIRED",
+    );
+    assert.equal(
+      (await f.api("PUT", path, { v: 1, revision: 3, ssh_password: password }))
+        .status,
+      400,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("password credentials survive server restart without returning plaintext", async () => {
+  const f = await fixture();
+  const password = "restart-password";
+  await f.api("PUT", f.path, {
+    v: 1,
+    revision: 1,
+    ssh: { ...f.ssh, auth_method: "password" },
+    ssh_password: password,
+  });
+  await f.close();
+  const restored = await buildServer(f.config);
+  try {
+    const login = await restored.app.inject({
+      method: "POST",
+      url: "/api/v1/login",
+      payload: { username: "admin", password: "connection-test-password1" },
+    });
+    const view = await restored.app.inject({
+      method: "GET",
+      url: "/api/v1" + f.path,
+      headers: { authorization: "Bearer " + login.json().access_token },
+    });
+    assert.equal(view.statusCode, 200);
+    assert.equal(view.json().has_ssh_password, true);
+    assert.equal(view.json().ssh.auth_method, "password");
+    assert.equal(view.body.includes(password), false);
+    const row = restored.store.db
+      .prepare("SELECT secrets FROM device_connections WHERE device_id=?")
+      .get(f.id)!;
+    assert.equal(
+      new Credentials(f.config.dataDir, true).open(f.id, row.secrets as string)
+        .ssh_password,
+      password,
+    );
+  } finally {
+    await restored.close();
   }
 });

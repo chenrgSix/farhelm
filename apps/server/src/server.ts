@@ -229,6 +229,7 @@ export async function buildServer(config: ServerConfig) {
             "req.body.current_password",
             "req.body.new_password",
             "req.body.private_key",
+            "req.body.ssh_password",
             "req.body.passphrase",
             "req.body.sudo_password",
             "req.body.sudo_auto_password",

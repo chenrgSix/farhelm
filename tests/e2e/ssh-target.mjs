@@ -12,15 +12,18 @@ import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 
 const frontendMode = process.env.FLEET_TEST_FRONTEND_PROXY;
+const passwordMode = process.env.FLEET_TEST_SSH_PASSWORD === "1";
+const targetPassword = "isolated-target-password-only";
 const backupMode = process.env.FLEET_TEST_BACKUP_SSH === "1";
 const installMode = process.env.FLEET_TEST_SSH_AGENT_INSTALL === "1";
-const evidencePrefix = frontendMode
-  ? `platform-entry-${frontendMode}`
-  : installMode
-    ? "ssh-agent-install"
-    : backupMode
-      ? "agent-ssh-backup"
-      : "dual-access";
+const evidencePrefix =
+  (frontendMode
+    ? `platform-entry-${frontendMode}`
+    : installMode
+      ? "ssh-agent-install"
+      : backupMode
+        ? "agent-ssh-backup"
+        : "dual-access") + (passwordMode ? "-password" : "");
 const deviceName = backupMode
   ? "Linux with Agent backup"
   : "Linux without Agent";
@@ -47,7 +50,7 @@ writeFileSync(
 );
 writeFileSync(
   join(temp, "sshd_config"),
-  `Port 22\nHostKey /fixture/host\nAuthorizedKeysFile /etc/ssh/authorized_keys\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitEmptyPasswords no\nPermitRootLogin no\nAllowUsers terminal\nUsePAM no\nSetEnv LANG=C.UTF-8 LC_ALL=C.UTF-8\nPrintMotd no\nAllowTcpForwarding no\nX11Forwarding no\nPermitUserEnvironment no\n`,
+  `Port 22\nHostKey /fixture/host\nAuthorizedKeysFile /etc/ssh/authorized_keys\nStrictModes no\nPasswordAuthentication ${passwordMode ? "yes" : "no"}\nPubkeyAuthentication ${passwordMode ? "no" : "yes"}\nKbdInteractiveAuthentication no\nPermitEmptyPasswords no\nPermitRootLogin no\nAllowUsers terminal\nUsePAM no\nSetEnv LANG=C.UTF-8 LC_ALL=C.UTF-8\nPrintMotd no\nAllowTcpForwarding no\nX11Forwarding no\nPermitUserEnvironment no\n`,
 );
 const privateKey = readFileSync(join(temp, "identity"), "utf8");
 const trustedFingerprint = execFileSync(
@@ -89,6 +92,11 @@ try {
     ],
     { stdio: "pipe" },
   );
+  if (passwordMode)
+    execFileSync("docker", ["exec", "-i", container, "chpasswd"], {
+      input: `terminal:${targetPassword}\n`,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
   const targetPort = Number(
     execFileSync("docker", ["port", container, "22/tcp"], { encoding: "utf8" })
       .trim()
@@ -164,6 +172,9 @@ try {
   }, "Vite ready");
   browser = await chromium.launch({
     headless: true,
+    ...(process.env.FLEET_TEST_BROWSER_CHANNEL
+      ? { channel: process.env.FLEET_TEST_BROWSER_CHANNEL }
+      : {}),
     ...(process.env.FLEET_CHROMIUM_BIN
       ? { executablePath: process.env.FLEET_CHROMIUM_BIN }
       : {}),
@@ -231,7 +242,12 @@ try {
   await config.getByLabel("SSH 地址", { exact: true }).fill("127.0.0.1");
   await config.getByLabel("SSH 端口", { exact: true }).fill(String(targetPort));
   await config.getByLabel("SSH 账号", { exact: true }).fill("terminal");
-  await config.getByLabel("SSH 私钥", { exact: true }).fill(privateKey);
+  if (passwordMode) {
+    await config
+      .getByLabel("SSH 认证方式", { exact: true })
+      .selectOption("password");
+    await config.locator('input[name="ssh-password"]').fill(targetPassword);
+  } else await config.getByLabel("SSH 私钥", { exact: true }).fill(privateKey);
   await config
     .getByRole("button", { name: "获取主机指纹", exact: true })
     .click();
@@ -251,12 +267,22 @@ try {
       { exact: true },
     )
     .waitFor();
-  assert.equal(await config.locator("textarea").inputValue(), "");
+  assert.equal(
+    await config
+      .locator(passwordMode ? 'input[name="ssh-password"]' : "textarea")
+      .inputValue(),
+    "",
+  );
   await config
     .getByRole("button", { name: "测试已保存连接", exact: true })
     .click();
   await config
-    .getByText("连接成功：主机指纹及 SSH 密钥认证已通过。", { exact: true })
+    .getByText(
+      passwordMode
+        ? "连接成功：主机指纹及 SSH 密码认证已通过。"
+        : "连接成功：主机指纹及 SSH 密钥认证已通过。",
+      { exact: true },
+    )
     .waitFor();
   assert.ok(
     await config
@@ -305,9 +331,7 @@ try {
     await api(`/devices/${device.id}/connection`),
   );
   steps.push(
-    backupMode
-      ? "Browser: configure backup SSH on existing Agent ID without adding a device, verify host key and authentication; desktop/mobile form"
-      : "Browser: create SSH-only device, verify host key, save private key, test auth; desktop/mobile form",
+    `Browser: ${backupMode ? "configure backup SSH on existing Agent ID" : "create SSH-only device"}; verify host key and ${passwordMode ? "password-only" : "public-key-only"} authentication; credentials cleared; desktop/mobile form`,
   );
   const row = page.locator("tbody tr").filter({ hasText: deviceName });
   await row.getByRole("button", { name: "连接终端", exact: true }).click();

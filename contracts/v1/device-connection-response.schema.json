@@ -41,6 +41,9 @@
             "fingerprint": {
               "type": "string",
               "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+            },
+            "auth_method": {
+              "enum": ["private_key", "password"]
             }
           },
           "required": ["host", "port", "username", "fingerprint"]
@@ -67,6 +70,9 @@
       "type": ["string", "null"]
     },
     "ok": {
+      "type": "boolean"
+    },
+    "has_ssh_password": {
       "type": "boolean"
     }
   },
@@ -115,12 +121,12 @@
               "fingerprint": {
                 "type": "string",
                 "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+              },
+              "auth_method": {
+                "enum": ["private_key", "password"]
               }
             },
             "required": ["host", "port", "username", "fingerprint"]
-          },
-          "has_private_key": {
-            "const": true
           },
           "has_sudo_password": {
             "const": false
@@ -147,17 +153,80 @@
           },
           "has_passphrase": {
             "const": false
+          },
+          "has_ssh_password": {
+            "const": false
           }
         }
       },
       "else": {
         "properties": {
-          "has_private_key": {
-            "const": true
-          },
           "revision": {
-            "minimum": 1,
-            "type": "integer"
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "if": {
+          "properties": {
+            "ssh": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "host": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 253
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "username": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+                },
+                "auth_method": {
+                  "const": "password"
+                }
+              },
+              "required": [
+                "host",
+                "port",
+                "username",
+                "fingerprint",
+                "auth_method"
+              ]
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "has_ssh_password": {
+              "const": true
+            },
+            "has_private_key": {
+              "const": false
+            },
+            "has_passphrase": {
+              "const": false
+            }
+          },
+          "required": ["has_ssh_password"]
+        },
+        "else": {
+          "properties": {
+            "has_private_key": {
+              "const": true
+            },
+            "has_ssh_password": {
+              "const": false
+            }
           }
         }
       }

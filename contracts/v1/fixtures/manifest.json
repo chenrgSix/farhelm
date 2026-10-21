@@ -1808,5 +1808,45 @@
     "path": "invalid/terminal-auto-sudo-empty.json",
     "schema": "terminal-envelope.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/connection-ssh-password.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/connection-agent-ssh-password.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/connection-password-leak.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/connection-password-missing.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/connection-password-and-key.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/connection-password-and-passphrase.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/connection-password-without-mode.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/connection-invalid-auth-method.json",
+    "schema": "device-connection-response.schema.json",
+    "valid": false
   }
 ]

@@ -253,7 +253,7 @@ async function connect() {
                   SSH_HOST_KEY_MISMATCH:
                     "目标 SSH 主机指纹已变化，连接被拒绝。请由管理员核对主机身份和接入配置。",
                   SSH_AUTH_FAILED:
-                    "目标 SSH 认证失败，请由管理员检查接入账号和私钥。",
+                    "目标 SSH 认证失败，请由管理员检查接入账号、密码或私钥。",
                   SSH_CONNECT_TIMEOUT:
                     "连接目标 SSH 服务超时，请检查地址、端口和网络。",
                   SSH_CONNECT_FAILED:

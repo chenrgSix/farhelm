@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "kind": "ssh",
+  "revision": 1,
+  "ssh": {
+    "host": "192.168.1.20",
+    "port": 22,
+    "username": "fleet",
+    "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "auth_method": "unknown"
+  },
+  "has_private_key": false,
+  "has_passphrase": false,
+  "has_sudo_password": false,
+  "last_checked_at": null,
+  "last_error": null,
+  "has_ssh_password": true
+}

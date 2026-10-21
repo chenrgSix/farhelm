@@ -50,7 +50,7 @@ API：`GET/PUT /api/v1/settings/deployment`，`POST /api/v1/settings/deployment/
 
 ## 无证书的 HTTP 网页管理
 
-需要 Linux 或 macOS、Node.js 24+，目标设备运行 sshd 并允许平台使用已配置私钥登录。无需构建或安装 Agent。
+需要 Linux 或 macOS、Node.js 24+，目标设备运行 sshd 并允许平台使用已配置密码或私钥登录。无需构建或安装 Agent。
 
 ```bash
 npm --prefix apps/server ci
@@ -116,7 +116,7 @@ curl --fail --silent --show-error --unix-socket "$SOCK" \
   --config "$PRIVATE/curl-auth.conf" http://localhost/api/v1/terminal-sessions
 ```
 
-添加目标设备：将目标 SSH 地址、账号、已核对的主机 SHA256 指纹和私钥准备为私有 JSON 文件。目标目前使用私钥认证，不支持目标账号密码认证；加密私钥可附加 `passphrase`。
+添加目标设备：将目标 SSH 地址、账号、已核对的主机 SHA256 指纹和私钥准备为私有 JSON 文件。支持私钥和账号密码认证；加密私钥可附加 `passphrase`。密码认证时，在 `ssh` 内添加 `auth_method: "password"`，顶层使用 `ssh_password` 替代 `private_key`，目标 sshd 需允许 password 认证。密码与私钥均只在私有 JSON 文件中提供，不放进命令参数。
 
 ```bash
 jq -n --rawfile key /path/to/target_private_key \

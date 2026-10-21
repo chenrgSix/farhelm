@@ -22,6 +22,7 @@ const connection: DeviceConnection = {
     host: "192.168.1.10",
     port: 22,
     username: "linux",
+    auth_method: "private_key",
     fingerprint: "SHA256:" + "A".repeat(43),
   },
   has_private_key: true,
@@ -206,7 +207,7 @@ it("configures and removes backup SSH on the existing Agent ID while preserving 
     .setValue("");
   await wrapper.get('[aria-label="启用备用 SSH"]').setValue(false);
   expect(wrapper.find("textarea").exists()).toBe(false);
-  expect(wrapper.text()).toContain("保存后将移除备用 SSH 配置和私钥");
+  expect(wrapper.text()).toContain("保存后将移除备用 SSH 配置及登录凭据");
   request.mockResolvedValue({ ...agent, revision: 3 });
   await wrapper.get("form").trigger("submit");
   await flushPromises();
@@ -216,5 +217,210 @@ it("configures and removes backup SSH on the existing Agent ID while preserving 
   });
   expect(wrapper.text()).toContain("sudo 密码（可选，已保存）");
   expect(request.mock.calls.some((c) => c[0] === "/ssh-devices")).toBe(false);
+  wrapper.unmount();
+});
+
+const passwordConnection: DeviceConnection = {
+  ...connection,
+  ssh: { ...connection.ssh!, auth_method: "password" },
+  has_private_key: false,
+  has_ssh_password: true,
+};
+it("creates a password SSH device after host confirmation and clears the password after saving", async () => {
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValue(passwordConnection);
+  const wrapper = mount(DeviceConnectionPanel);
+  await wrapper.findAll("input")[0].setValue("Password Linux");
+  await wrapper
+    .get('input[placeholder="192.168.1.10 或主机名"]')
+    .setValue(connection.ssh!.host);
+  await wrapper
+    .get('input[placeholder="目标机器的 Linux 用户名"]')
+    .setValue(connection.ssh!.username);
+  await wrapper
+    .get('input[placeholder="SHA256:…"]')
+    .setValue(connection.ssh!.fingerprint);
+  await wrapper.get("textarea").setValue("UNSAVED-KEY");
+  await wrapper.get("select").setValue("password");
+  expect(wrapper.find("textarea").exists()).toBe(false);
+  const input = wrapper.get<HTMLInputElement>('input[name="ssh-password"]');
+  expect(input.element.required).toBe(true);
+  const password = "  密码 with spaces  ";
+  await input.setValue(password);
+  await wrapper.get("form").trigger("submit");
+  expect(request).not.toHaveBeenCalled();
+  await wrapper
+    .get('.connection-host-key input[type="checkbox"]')
+    .setValue(true);
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/ssh-devices", {
+    method: "POST",
+    body: {
+      v: 1,
+      name: "Password Linux",
+      ssh: passwordConnection.ssh,
+      ssh_password: password,
+    },
+  });
+  expect(input.element.value).toBe("");
+  expect(input.element.required).toBe(false);
+  expect(wrapper.text()).not.toContain(password);
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "测试已保存连接")!
+    .trigger("click");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/devices/device/connection/test", {
+    method: "POST",
+    body: { v: 1, revision: 1 },
+    timeoutMs: 25000,
+  });
+  wrapper.unmount();
+});
+
+it("preserves an untouched saved password, reports password auth success, and replaces it explicitly", async () => {
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValue({ ...passwordConnection, ok: true });
+  const wrapper = mount(DeviceConnectionPanel, {
+    props: { device: { ...device, connection_kind: "ssh" } },
+  });
+  await flushPromises();
+  expect(wrapper.get("select").element.value).toBe("password");
+  expect(
+    wrapper.get<HTMLInputElement>('input[name="ssh-password"]').element.value,
+  ).toBe("");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "测试已保存连接")!
+    .trigger("click");
+  await flushPromises();
+  expect(wrapper.text()).toContain("SSH 密码认证已通过");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls.at(-1)?.[1]?.body).toEqual({
+    v: 1,
+    revision: 1,
+    ssh: passwordConnection.ssh,
+  });
+  await wrapper.get('input[name="ssh-password"]').setValue("new-password");
+  expect(
+    wrapper
+      .findAll("button")
+      .find((b) => b.text() === "测试已保存连接")!
+      .attributes("disabled"),
+  ).toBeDefined();
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls.at(-1)?.[1]?.body).toEqual({
+    v: 1,
+    revision: 1,
+    ssh: passwordConnection.ssh,
+    ssh_password: "new-password",
+  });
+  wrapper.unmount();
+});
+
+it("switches authentication without submitting hidden credentials and requires a new key when replacing a saved password", async () => {
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValue(passwordConnection);
+  const wrapper = mount(DeviceConnectionPanel, {
+    props: { device: { ...device, connection_kind: "ssh" } },
+  });
+  await flushPromises();
+  await wrapper.get('input[name="ssh-password"]').setValue("must-not-send");
+  await wrapper.get("select").setValue("private_key");
+  expect(wrapper.find('input[name="ssh-password"]').exists()).toBe(false);
+  expect(wrapper.get<HTMLTextAreaElement>("textarea").element.required).toBe(
+    true,
+  );
+  await wrapper.get("textarea").setValue("NEW-PRIVATE-KEY");
+  request.mockResolvedValue(connection);
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls.at(-1)?.[1]?.body).toEqual({
+    v: 1,
+    revision: 1,
+    ssh: connection.ssh,
+    private_key: "NEW-PRIVATE-KEY",
+  });
+  await wrapper.get("textarea").setValue("must-not-send-key");
+  await wrapper
+    .get('input[type="password"]')
+    .setValue("must-not-send-passphrase");
+  await wrapper.get("select").setValue("password");
+  expect(
+    wrapper.get<HTMLInputElement>('input[name="ssh-password"]').element
+      .required,
+  ).toBe(true);
+  await wrapper.get('input[name="ssh-password"]').setValue("new-ssh-password");
+  request.mockResolvedValue(passwordConnection);
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls.at(-1)?.[1]?.body).toEqual({
+    v: 1,
+    revision: 1,
+    ssh: passwordConnection.ssh,
+    ssh_password: "new-ssh-password",
+  });
+  wrapper.unmount();
+});
+
+it("adds and removes password backup SSH without resubmitting sudo credentials", async () => {
+  const agent: DeviceConnection = {
+    ...connection,
+    kind: "agent",
+    ssh: null,
+    has_private_key: false,
+    has_sudo_password: true,
+  };
+  const request = vi.spyOn(api, "request").mockResolvedValue(agent);
+  const wrapper = mount(DeviceConnectionPanel, { props: { device } });
+  await flushPromises();
+  await wrapper.get('[aria-label="启用备用 SSH"]').setValue(true);
+  await wrapper
+    .get('input[placeholder="192.168.1.10 或主机名"]')
+    .setValue(connection.ssh!.host);
+  await wrapper
+    .get('input[placeholder="目标机器的 Linux 用户名"]')
+    .setValue(connection.ssh!.username);
+  await wrapper
+    .get('input[placeholder="SHA256:…"]')
+    .setValue(connection.ssh!.fingerprint);
+  await wrapper
+    .get('.connection-host-key input[type="checkbox"]')
+    .setValue(true);
+  await wrapper.get("select").setValue("password");
+  await wrapper.get('input[name="ssh-password"]').setValue("backup-password");
+  request.mockResolvedValue({
+    ...passwordConnection,
+    kind: "agent",
+    has_sudo_password: true,
+    revision: 2,
+  });
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/devices/device/connection", {
+    method: "PUT",
+    body: {
+      v: 1,
+      revision: 1,
+      ssh: passwordConnection.ssh,
+      ssh_password: "backup-password",
+    },
+  });
+  await wrapper.get('[aria-label="启用备用 SSH"]').setValue(false);
+  request.mockResolvedValue({ ...agent, revision: 3 });
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request.mock.calls.at(-1)?.[1]?.body).toEqual({
+    v: 1,
+    revision: 2,
+    ssh: null,
+  });
+  expect(wrapper.text()).toContain("sudo 密码（可选，已保存）");
   wrapper.unmount();
 });

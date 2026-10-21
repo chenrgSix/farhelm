@@ -59,8 +59,13 @@ export function registerDeviceConnections(
       credential = secrets.open(id, row.secrets);
     return {
       ...config,
-      privateKey: credential.private_key,
-      passphrase: credential.passphrase,
+      ...(config.auth_method === "password"
+        ? { authMethod: "password", password: credential.ssh_password }
+        : {
+            authMethod: "private_key",
+            privateKey: credential.private_key,
+            passphrase: credential.passphrase,
+          }),
     };
   }
   function routeTargets(id: string) {
@@ -116,6 +121,7 @@ export function registerDeviceConnections(
       ssh: hasSsh(id) ? JSON.parse(row.config_json) : null,
       has_private_key: !!credential.private_key,
       has_passphrase: !!credential.passphrase,
+      has_ssh_password: !!credential.ssh_password,
       has_sudo_password: !!credential.sudo_password,
       last_checked_at: row?.last_checked_at ?? null,
       last_error: row?.last_error ?? null,
@@ -150,19 +156,28 @@ export function registerDeviceConnections(
     }
     if (b.ssh === null) {
       if (type === "ssh") fail(400, "SSH_CONFIGURATION_REQUIRED");
-      if (b.private_key !== undefined || b.passphrase !== undefined)
+      if (
+        b.private_key !== undefined ||
+        b.passphrase !== undefined ||
+        b.ssh_password !== undefined
+      )
         fail(400, "SSH_NOT_CONFIGURED");
       config = {};
       delete credential.private_key;
       delete credential.passphrase;
+      delete credential.ssh_password;
     } else if (b.ssh !== undefined) {
       const ssh = object(b.ssh);
-      keys(ssh, ["host", "port", "username", "fingerprint"]);
+      keys(ssh, ["host", "port", "username", "fingerprint", "auth_method"]);
       config = {
         ...address(ssh),
         username: str(ssh.username, 1, 128),
         fingerprint: str(ssh.fingerprint, 50, 50),
+        auth_method: ssh.auth_method ?? config.auth_method ?? "private_key",
       };
+      if (!["private_key", "password"].includes(config.auth_method))
+        fail(400, "INVALID_SSH_AUTH_METHOD");
+      if (ssh.auth_method === null) fail(400, "INVALID_SSH_AUTH_METHOD");
       if (
         /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(config.username) ||
         !/^SHA256:[A-Za-z0-9+/]{43}$/.test(config.fingerprint)
@@ -170,42 +185,55 @@ export function registerDeviceConnections(
         fail(400, "INVALID_SSH_IDENTITY");
     }
     if (config.host) {
-      if (b.private_key !== undefined) {
-        credential.private_key = str(b.private_key, 1, 32768);
+      if (config.auth_method === "password") {
+        if (b.private_key !== undefined || b.passphrase !== undefined)
+          fail(400, "SSH_AUTH_FIELDS_CONFLICT");
+        if (b.ssh_password !== undefined)
+          credential.ssh_password = str(b.ssh_password, 1, 1024);
+        if (!credential.ssh_password) fail(400, "SSH_PASSWORD_REQUIRED");
+        delete credential.private_key;
         delete credential.passphrase;
-      }
-      if (b.passphrase === null) delete credential.passphrase;
-      else if (b.passphrase !== undefined)
-        credential.passphrase = str(b.passphrase, 1, 1024);
-      if (!credential.private_key) fail(400, "SSH_PRIVATE_KEY_REQUIRED");
-      let prepared;
-      try {
-        prepared = preparePrivateKey(
-          credential.private_key,
-          credential.passphrase,
+      } else {
+        if (b.ssh_password !== undefined) fail(400, "SSH_AUTH_FIELDS_CONFLICT");
+        delete credential.ssh_password;
+        if (b.private_key !== undefined) {
+          credential.private_key = str(b.private_key, 1, 32768);
+          delete credential.passphrase;
+        }
+        if (b.passphrase === null) delete credential.passphrase;
+        else if (b.passphrase !== undefined)
+          credential.passphrase = str(b.passphrase, 1, 1024);
+        if (!credential.private_key) fail(400, "SSH_PRIVATE_KEY_REQUIRED");
+        let prepared;
+        try {
+          prepared = preparePrivateKey(
+            credential.private_key,
+            credential.passphrase,
+          );
+        } catch {
+          fail(400, "SSH_PRIVATE_KEY_INVALID_OR_PASSPHRASE_REQUIRED");
+        }
+        const parsed = ssh2.utils.parseKey(
+          prepared.privateKey,
+          prepared.passphrase,
         );
-      } catch {
-        fail(400, "SSH_PRIVATE_KEY_INVALID_OR_PASSPHRASE_REQUIRED");
+        const key =
+          Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : parsed;
+        if (
+          !key ||
+          key instanceof Error ||
+          Array.isArray(key) ||
+          !key.isPrivateKey()
+        )
+          fail(400, "SSH_PRIVATE_KEY_INVALID_OR_PASSPHRASE_REQUIRED");
       }
-      const parsed = ssh2.utils.parseKey(
-        prepared.privateKey,
-        prepared.passphrase,
-      );
-      const key =
-        Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : parsed;
-      if (
-        !key ||
-        key instanceof Error ||
-        Array.isArray(key) ||
-        !key.isPrivateKey()
-      )
-        fail(400, "SSH_PRIVATE_KEY_INVALID_OR_PASSPHRASE_REQUIRED");
     }
     if (
       !config.host &&
       (type === "ssh" ||
         b.private_key !== undefined ||
-        b.passphrase !== undefined)
+        b.passphrase !== undefined ||
+        b.ssh_password !== undefined)
     )
       fail(400, "SSH_CONFIGURATION_REQUIRED");
     return { config, credential };
@@ -266,7 +294,7 @@ export function registerDeviceConnections(
     const user = d.admin(req),
       b = object(req.body);
     version(b);
-    keys(b, ["v", "name", "ssh", "private_key", "passphrase"]);
+    keys(b, ["v", "name", "ssh", "private_key", "passphrase", "ssh_password"]);
     d.rate.check("device-config:" + user.id, 30);
     const name = str(b.name, 1, 128);
     if (!name.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(name))
@@ -296,6 +324,7 @@ export function registerDeviceConnections(
       "ssh",
       "private_key",
       "passphrase",
+      "ssh_password",
       "sudo_password",
     ]);
     d.rate.check("device-config:" + user.id, 30);
@@ -407,7 +436,16 @@ export function registerDeviceConnections(
         }
         const candidate = selected.targets[index]!;
         active = targets.open(
-          { ...candidate.config, ...account },
+          // A separately authorized account must never inherit the default
+          // account's password or authentication method.
+          account
+            ? {
+                host: candidate.config.host,
+                port: candidate.config.port,
+                fingerprint: candidate.config.fingerprint,
+                ...account,
+              }
+            : candidate.config,
           cols,
           rows,
           (type, body) => {

@@ -23,6 +23,8 @@ const username = ref("");
 const fingerprint = ref("");
 const confirmed = ref(false);
 const privateKey = ref("");
+const authMethod = ref<"private_key" | "password">("private_key");
+const sshPassword = ref("");
 const passphrase = ref("");
 const sudoPassword = ref("");
 const clearSudo = ref(false);
@@ -39,6 +41,7 @@ const ssh = computed(() => ({
   port: Number(port.value),
   username: username.value.trim(),
   fingerprint: fingerprint.value.trim(),
+  auth_method: authMethod.value,
 }));
 const dirty = computed(
   () =>
@@ -47,6 +50,7 @@ const dirty = computed(
     !!sudoPassword.value ||
     clearSudo.value ||
     !!privateKey.value ||
+    !!sshPassword.value ||
     !!passphrase.value ||
     clearPassphrase.value,
 );
@@ -62,7 +66,12 @@ const errors: Record<string, string> = {
   SSH_HOST_KEY_MISMATCH:
     "目标主机指纹与保存的指纹不一致，连接已拒绝。请核对主机身份。",
   SSH_AUTH_FAILED:
-    "SSH 认证失败，请检查系统账号、私钥和目标机器的 authorized_keys。",
+    "SSH 认证失败，请检查账号、密码或私钥，以及目标机器允许的认证方式。",
+  SSH_PASSWORD_REQUIRED:
+    "请填写 SSH 登录密码；切换为账号密码认证时需要重新填写。",
+  SSH_PRIVATE_KEY_REQUIRED: "请填写 SSH 私钥；切换为私钥认证时需要重新填写。",
+  SSH_AUTH_FIELDS_CONFLICT: "认证方式与凭据不匹配，请重新选择并填写。",
+  INVALID_SSH_AUTH_METHOD: "请选择账号密码或私钥认证。",
   SSH_PRIVATE_KEY_INVALID_OR_PASSPHRASE_REQUIRED:
     "私钥格式或口令不正确；请填写私钥，加密私钥还需要口令。",
   SSH_CONNECT_FAILED: "无法连接目标 SSH 服务，请检查网络、端口和服务状态。",
@@ -77,6 +86,7 @@ function apply(result: DeviceConnection) {
   state.value = result;
   deviceId.value = result.device_id;
   sshEnabled.value = kind === "ssh" || !props.agentEnabled || !!result.ssh;
+  authMethod.value = result.ssh?.auth_method ?? "private_key";
   if (result.ssh) {
     host.value = result.ssh.host;
     port.value = result.ssh.port;
@@ -85,7 +95,11 @@ function apply(result: DeviceConnection) {
     confirmed.value = true;
   }
   saved.value = JSON.stringify(ssh.value);
-  privateKey.value = passphrase.value = sudoPassword.value = "";
+  privateKey.value =
+    passphrase.value =
+    sshPassword.value =
+    sudoPassword.value =
+      "";
   clearSudo.value = clearPassphrase.value = false;
   loaded.value = true;
 }
@@ -100,8 +114,16 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   disposed = true;
-  privateKey.value = passphrase.value = sudoPassword.value = "";
+  privateKey.value =
+    passphrase.value =
+    sshPassword.value =
+    sudoPassword.value =
+      "";
 });
+function changeAuthMethod() {
+  privateKey.value = passphrase.value = sshPassword.value = "";
+  clearPassphrase.value = false;
+}
 async function scan() {
   if (busy.value) return;
   busy.value = true;
@@ -137,9 +159,13 @@ async function save() {
   else body.revision = state.value?.revision ?? 0;
   if (sshEnabled.value) {
     body.ssh = ssh.value;
-    if (privateKey.value) body.private_key = privateKey.value;
-    if (passphrase.value) body.passphrase = passphrase.value;
-    else if (clearPassphrase.value) body.passphrase = null;
+    if (authMethod.value === "password") {
+      if (sshPassword.value) body.ssh_password = sshPassword.value;
+    } else {
+      if (privateKey.value) body.private_key = privateKey.value;
+      if (passphrase.value) body.passphrase = passphrase.value;
+      else if (clearPassphrase.value) body.passphrase = null;
+    }
   } else if (state.value?.ssh) body.ssh = null;
   if (kind === "agent") {
     if (clearSudo.value) body.sudo_password = null;
@@ -182,7 +208,11 @@ async function testConnection() {
     );
     if (disposed) return;
     apply(result);
-    if (result.ok) message.value = "连接成功：主机指纹及 SSH 密钥认证已通过。";
+    if (result.ok)
+      message.value =
+        result.ssh?.auth_method === "password"
+          ? "连接成功：主机指纹及 SSH 密码认证已通过。"
+          : "连接成功：主机指纹及 SSH 密钥认证已通过。";
     else report(result.last_error ?? "SSH_CONNECT_FAILED");
     emit("changed");
   } catch (e) {
@@ -288,7 +318,8 @@ async function testConnection() {
                   SSH。现有会话不切换通道。
                 </p>
                 <p v-if="!sshEnabled && state?.ssh" class="field-hint">
-                  保存后将移除备用 SSH 配置和私钥，保留 Agent 与 sudo 密码配置。
+                  保存后将移除备用 SSH 配置及登录凭据，保留 Agent 与 sudo
+                  密码配置。
                 </p>
               </template>
               <template v-if="sshEnabled">
@@ -337,35 +368,67 @@ async function testConnection() {
                       placeholder="目标机器的 Linux 用户名"
                   /></label>
                   <label
-                    >SSH 私钥{{
-                      state?.has_private_key ? "（已保存，留空保持不变）" : ""
-                    }}<textarea
-                      v-model="privateKey"
-                      :required="!state?.has_private_key"
-                      rows="5"
-                      maxlength="32768"
-                      spellcheck="false"
-                      autocomplete="off"
-                      placeholder="粘贴 OpenSSH 或 PEM 格式私钥"
-                    />
+                    >SSH 认证方式<select
+                      v-model="authMethod"
+                      aria-label="SSH 认证方式"
+                      @change="changeAuthMethod"
+                    >
+                      <option value="private_key">私钥</option>
+                      <option value="password">账号密码</option>
+                    </select>
                   </label>
-                  <label
-                    >私钥口令（可选{{
-                      state?.has_passphrase ? "，已保存" : ""
-                    }}）<input
-                      v-model="passphrase"
+                  <label v-if="authMethod === 'password'"
+                    >SSH 登录密码{{
+                      state?.has_ssh_password ? "（已保存，留空保持不变）" : ""
+                    }}<input
+                      v-model="sshPassword"
+                      name="ssh-password"
+                      aria-label="SSH 登录密码"
                       type="password"
+                      :required="!state?.has_ssh_password"
                       maxlength="1024"
                       autocomplete="new-password"
-                      :disabled="clearPassphrase"
-                      placeholder="仅加密私钥需要；更换私钥时重新填写"
-                  /></label>
-                  <label v-if="state?.has_passphrase" class="connection-check"
-                    ><input
-                      v-model="clearPassphrase"
-                      type="checkbox"
-                    />清除已保存的私钥口令</label
-                  >
+                      placeholder="目标 Linux 账号的 SSH 登录密码"
+                    />
+                    <span class="field-hint"
+                      >目标 SSH
+                      服务需允许密码认证。切换认证方式并保存后，原登录凭据会被替换。</span
+                    >
+                  </label>
+                  <template v-else>
+                    <label
+                      >SSH 私钥{{
+                        state?.has_private_key
+                          ? "（已保存，留空保持不变）"
+                          : ""
+                      }}<textarea
+                        v-model="privateKey"
+                        :required="!state?.has_private_key"
+                        rows="5"
+                        maxlength="32768"
+                        spellcheck="false"
+                        autocomplete="off"
+                        placeholder="粘贴 OpenSSH 或 PEM 格式私钥"
+                      />
+                    </label>
+                    <label
+                      >私钥口令（可选{{
+                        state?.has_passphrase ? "，已保存" : ""
+                      }}）<input
+                        v-model="passphrase"
+                        type="password"
+                        maxlength="1024"
+                        autocomplete="new-password"
+                        :disabled="clearPassphrase"
+                        placeholder="仅加密私钥需要；更换私钥时重新填写"
+                    /></label>
+                    <label v-if="state?.has_passphrase" class="connection-check"
+                      ><input
+                        v-model="clearPassphrase"
+                        type="checkbox"
+                      />清除已保存的私钥口令</label
+                    >
+                  </template>
                 </div>
                 <div
                   v-show="!props.device || tab === 'endpoint'"
@@ -400,7 +463,7 @@ async function testConnection() {
                   >
                 </div>
                 <p class="field-hint">
-                  私钥和口令加密保存，保存后不再返回浏览器。获授默认登录账号且具备终端权限的用户可由平台代用凭据连接。
+                  登录密码、私钥和私钥口令加密保存，保存后不再返回浏览器。获授默认登录账号且具备终端权限的用户可由平台代用凭据连接。
                 </p>
               </template>
               <div
@@ -530,6 +593,7 @@ label {
   margin: 0;
 }
 input,
+select,
 textarea {
   width: 100%;
   box-sizing: border-box;

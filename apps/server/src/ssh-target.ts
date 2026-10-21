@@ -1,14 +1,15 @@
 import { createHash, createPrivateKey } from "node:crypto";
 import ssh2, { type ClientChannel, type ConnectConfig } from "ssh2";
 
-export interface SshTargetConfig {
+export type SshTargetConfig = {
   host: string;
   port: number;
   username: string;
   fingerprint: string;
-  privateKey: string;
-  passphrase?: string;
-}
+} & (
+  | { authMethod?: "private_key"; privateKey: string; passphrase?: string }
+  | { authMethod: "password"; password: string }
+);
 export interface TargetTerminal {
   send(type: string, body: Record<string, any>): boolean;
   close(): void;
@@ -83,8 +84,11 @@ export class SshTargets {
       host: config.host,
       port: config.port,
       username: config.username,
-      ...preparePrivateKey(config.privateKey, config.passphrase),
-      authHandler: ["publickey"],
+      ...(config.authMethod === "password"
+        ? { password: config.password }
+        : preparePrivateKey(config.privateKey, config.passphrase)),
+      authHandler:
+        config.authMethod === "password" ? ["password"] : ["publickey"],
       readyTimeout: 8000,
       keepaliveInterval: 15000,
       keepaliveCountMax: 2,
