@@ -39,5 +39,6 @@
     "expiring": false
   },
   "activation_ready": true,
-  "challenge_type": "http-01"
+  "challenge_type": "http-01",
+  "additional_domains": ["192.168.1.5", "123.88.4.44"]
 }

@@ -56,6 +56,17 @@ export function privateCertificateHost(value: unknown) {
   return name;
 }
 
+export function privateCertificateAdditionalDomains(
+  domain: string,
+  value: unknown,
+) {
+  if (!Array.isArray(value) || value.length > 31)
+    fail(400, "INVALID_CERTIFICATE_ADDITIONAL_DOMAINS");
+  return [...new Set(value.map(privateCertificateHost))]
+    .filter((host) => host !== domain)
+    .sort();
+}
+
 // A dedicated, persistent CA for this installation. Never silently rotate it:
 // browsers and Agents trust the root, not an individual short-lived leaf.
 export class PrivateAuthority {
@@ -172,7 +183,16 @@ export class PrivateAuthority {
       }
     });
   }
-  async issue(domain: string, lifetime = 90 * DAY) {
+  async issue(
+    domain: string,
+    lifetime = 90 * DAY,
+    additionalDomains: string[] = [],
+  ) {
+    domain = privateCertificateHost(domain);
+    const hosts = [
+      domain,
+      ...privateCertificateAdditionalDomains(domain, additionalDomains),
+    ];
     const authority = this.read();
     if (!authority) throw new CertificateError("PRIVATE_CA_NOT_PREPARED");
     const root = new ParsedCertificate(authority.cert);
@@ -210,9 +230,12 @@ export class PrivateAuthority {
         new BasicConstraintsExtension(false, undefined, true),
         new KeyUsagesExtension(KeyUsageFlags.digitalSignature, true),
         new ExtendedKeyUsageExtension(["1.3.6.1.5.5.7.3.1"]),
-        new SubjectAlternativeNameExtension([
-          { type: isIP(domain) ? "ip" : "dns", value: domain },
-        ]),
+        new SubjectAlternativeNameExtension(
+          hosts.map((host) => ({
+            type: isIP(host) ? ("ip" as const) : ("dns" as const),
+            value: host,
+          })),
+        ),
         await SubjectKeyIdentifierExtension.create(keys.publicKey),
         await AuthorityKeyIdentifierExtension.create(root.publicKey),
       ],

@@ -30,6 +30,7 @@ type State = {
     expiring: boolean;
   } | null;
   domain: string;
+  additional_domains?: string[];
   email: string;
   enabled: boolean;
   tos_agreed: boolean;
@@ -73,7 +74,11 @@ const available = computed(() =>
     : state.value?.acme_available,
 );
 const domain = ref(""),
+  additionalDomains = ref(""),
   email = ref("");
+const additionalNames = computed(() =>
+  additionalDomains.value.split(/[\s,，]+/).filter(Boolean),
+);
 const enabled = ref(false),
   terms = ref(false),
   revision = ref(0);
@@ -105,6 +110,9 @@ const dirty = computed(
     (mode.value !== state.value.mode ||
       challengeType.value !== state.value.challenge_type ||
       domain.value !== state.value.domain ||
+      (mode.value === "private" &&
+        JSON.stringify(additionalNames.value) !==
+          JSON.stringify(state.value.additional_domains ?? [])) ||
       email.value !== state.value.email ||
       enabled.value !== state.value.enabled ||
       terms.value !== state.value.tos_agreed),
@@ -125,6 +133,7 @@ function adopt(result: State) {
   mode.value = result.mode;
   challengeType.value = result.challenge_type;
   domain.value = result.domain;
+  additionalDomains.value = (result.additional_domains ?? []).join("\n");
   email.value = result.email;
   enabled.value = result.enabled;
   terms.value = result.tos_agreed;
@@ -141,6 +150,10 @@ function explain(e: unknown) {
       "请输入可从公网访问的 IP；内网、回环及保留地址请使用平台私有 CA。",
     INVALID_PRIVATE_CERTIFICATE_HOST:
       "请输入内网域名或 IP，不包含 https://、端口、路径或通配符。IPv6 不带方括号。",
+    INVALID_CERTIFICATE_ADDITIONAL_DOMAINS:
+      "最多填写 31 个附加域名或 IP，每行一个，不包含协议、端口或路径。",
+    CERTIFICATE_ADDITIONAL_DOMAINS_PRIVATE_ONLY:
+      "附加地址仅支持平台私有 CA 模式。",
     AGENT_CA_SYNC_INCOMPLETE:
       "已有 Agent 尚未全部确认信任新 CA。请先在下方完成 CA 同步；旧版 Agent 需先升级。",
     PRIVATE_CA_NOT_PREPARED: "请先创建并下载内网 CA，完成浏览器信任后再启用。",
@@ -193,6 +206,9 @@ async function save() {
         mode: mode.value,
         challenge_type: challengeType.value,
         domain: domain.value.trim(),
+        ...(mode.value === "private"
+          ? { additional_domains: additionalNames.value }
+          : {}),
         email: email.value.trim(),
         enabled: enabled.value,
         tos_agreed: terms.value,
@@ -370,6 +386,22 @@ onBeforeUnmount(() => {
               autocomplete="off"
               spellcheck="false"
           /></label>
+          <label v-if="mode === 'private'">
+            附加域名或 IP（可选）
+            <textarea
+              v-model="additionalDomains"
+              name="certificate-additional-domains"
+              rows="3"
+              maxlength="7905"
+              placeholder="192.168.1.5&#10;farhelm.internal"
+              aria-describedby="certificate-additional-domains-hint"
+              spellcheck="false"
+            ></textarea>
+            <span id="certificate-additional-domains-hint" class="field-hint">
+              每行一个，最多 31
+              个。公网和内网同时使用时，保留上方主地址，在此添加内网地址；同一张证书覆盖全部地址，自动续签时一并保留。
+            </span>
+          </label>
           <label v-if="mode === 'acme'"
             >联系邮箱<input
               v-model="email"
@@ -578,6 +610,12 @@ onBeforeUnmount(() => {
             }}<strong v-if="state.certificate.expired" class="danger"
               >（已过期）</strong
             >
+          </dd>
+        </div>
+        <div>
+          <dt>当前证书覆盖地址</dt>
+          <dd data-testid="certificate-names">
+            {{ state.certificate.domains }}
           </dd>
         </div>
         <div>

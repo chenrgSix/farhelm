@@ -33,7 +33,37 @@
     },
     "challenge_type": {
       "enum": ["http-01", "tls-alpn-01"]
+    },
+    "additional_domains": {
+      "description": "Additional DNS names or IP addresses on the same private-CA certificate. Omission preserves existing private-mode entries; an empty array removes them.",
+      "type": "array",
+      "maxItems": 31,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 253
+      }
     }
   },
-  "required": ["v", "revision", "domain", "email", "enabled", "tos_agreed"]
+  "required": ["v", "revision", "domain", "email", "enabled", "tos_agreed"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "private"
+          }
+        },
+        "required": ["mode"]
+      },
+      "else": {
+        "properties": {
+          "additional_domains": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ]
 }

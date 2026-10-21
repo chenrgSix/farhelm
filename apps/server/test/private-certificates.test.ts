@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { X509Certificate } from "node:crypto";
+import { request as httpsRequest } from "node:https";
+import { checkServerIdentity } from "node:tls";
 import { setTimeout as delay } from "node:timers/promises";
 import { Store } from "../src/store.js";
 import { PrivateAuthority, privateCertificateHost } from "../src/private-ca.js";
@@ -251,6 +253,156 @@ test("CA handles IP SANs, refuses damaged and expiring roots and retains trust o
     await f.close();
   }
 });
+test("adding private certificate addresses reissues with the same CA and persists them through renewal", async () => {
+  const f = await fixture();
+  const config = { ...draft, domain: "123.88.4.44" };
+  try {
+    f.manager.save(config, f.actor);
+    await f.manager.prepare({ v: 1, revision: 1 }, f.actor);
+    f.manager.save({ ...config, revision: 1, enabled: true }, f.actor);
+    await until(() => f.manager.snapshot().status === "valid");
+    const original = f.active(),
+      ca = f.manager.downloadCA();
+    f.time(f.manager.snapshot().retry_allowed_at! + 1000);
+    const added = f.manager.save(
+      {
+        ...config,
+        revision: 2,
+        enabled: true,
+        additional_domains: [
+          "192.168.1.5",
+          "FLEET.internal",
+          "2001:0db8::5",
+          "192.168.1.5",
+          config.domain,
+        ],
+      },
+      f.actor,
+    );
+    const expected = ["192.168.1.5", "2001:db8::5", "fleet.internal"];
+    assert.deepEqual(added.additional_domains, expected);
+    assert.equal(added.status, "pending");
+    assert.equal(
+      f.active().cert,
+      original.cert,
+      "old certificate serves until the replacement is ready",
+    );
+    assertValid("certificate-status", added);
+    await until(() => f.manager.snapshot().status === "valid");
+    const first = f.active();
+    assert.notEqual(first.cert, original.cert);
+    assert.deepEqual(f.manager.downloadCA(), ca);
+    const assertNames = (bundle: typeof first) => {
+      validateCertificate(
+        bundle,
+        Date.parse(new X509Certificate(bundle.cert).validFrom) + 1000,
+      );
+      const leaf = new X509Certificate(bundle.cert);
+      assert.ok(leaf.checkIP(config.domain));
+      assert.ok(leaf.checkIP("192.168.1.5"));
+      assert.ok(leaf.checkIP("2001:db8::5"));
+      assert.ok(leaf.checkHost("fleet.internal"));
+      assert.ok(leaf.verify(new X509Certificate(ca.certificate_pem).publicKey));
+    };
+    assertNames(first);
+    for (const host of [config.domain, "192.168.1.5", "fleet.internal"])
+      assert.equal(
+        f.manager.agentCA(`https://${host}:8444`, ""),
+        ca.certificate_pem,
+      );
+    const proof = await f.manager.trustProof(3);
+    assert.ok(new X509Certificate(proof.proof_pem).checkIP("192.168.1.5"));
+    assert.equal(
+      f.manager.save({ ...config, revision: 3, enabled: true }, f.actor)
+        .revision,
+      3,
+      "an older client omitting additional_domains must preserve the list",
+    );
+    assert.deepEqual(f.manager.snapshot().additional_domains, expected);
+    assert.throws(
+      () =>
+        validateCertificate({ ...first, additionalDomains: ["192.168.1.99"] }),
+      /Invalid certificate identity/,
+    );
+    f.time(certificateInfo(first.cert).renew_at + 1000);
+    await f.manager.tick();
+    assert.notEqual(f.active().cert, first.cert);
+    assertNames(f.active());
+    assert.deepEqual(
+      managedCertificate(f.store.dataDir)!.additionalDomains,
+      expected,
+    );
+    assert.deepEqual(f.manager.downloadCA(), ca);
+    f.time(f.manager.snapshot().retry_allowed_at! + 1000);
+    f.manager.save(
+      { ...config, revision: 3, enabled: true, additional_domains: [] },
+      f.actor,
+    );
+    await until(() => f.manager.snapshot().status === "valid");
+    assert.equal(
+      new X509Certificate(f.active().cert).checkIP("192.168.1.5"),
+      undefined,
+    );
+    assert.ok(new X509Certificate(f.active().cert).checkIP(config.domain));
+  } finally {
+    await f.close();
+  }
+});
+test("additional certificate addresses are validated and legacy databases migrate without changing the CA", async () => {
+  const f = await fixture();
+  const dataDir = f.store.dataDir;
+  let ca;
+  try {
+    for (const value of [
+      null,
+      "192.168.1.5",
+      [123],
+      ["https://192.168.1.5"],
+      ["*.internal"],
+      Array(32).fill("fleet.internal"),
+    ])
+      assert.throws(() =>
+        f.manager.save({ ...draft, additional_domains: value }, f.actor),
+      );
+    assert.throws(
+      () =>
+        f.manager.save(
+          {
+            ...draft,
+            mode: "acme",
+            domain: "fleet.example.com",
+            email: "ops@example.com",
+            additional_domains: ["192.168.1.5"],
+          },
+          f.actor,
+        ),
+      /CERTIFICATE_ADDITIONAL_DOMAINS_PRIVATE_ONLY/,
+    );
+    f.manager.save(draft, f.actor);
+    await f.manager.prepare({ v: 1, revision: 1 }, f.actor);
+    ca = f.manager.downloadCA();
+    f.store.db.exec(
+      "ALTER TABLE certificate_settings DROP COLUMN additional_domains_json",
+    );
+  } finally {
+    await f.close();
+  }
+  const store = new Store(dataDir);
+  try {
+    assert.equal(
+      store.db
+        .prepare("SELECT additional_domains_json FROM certificate_settings")
+        .get()!.additional_domains_json,
+      "[]",
+    );
+    assert.equal(
+      new PrivateAuthority(store).info()!.fingerprint,
+      ca!.fingerprint,
+    );
+  } finally {
+    store.close();
+  }
+});
 test("private certificate APIs are admin-only and installers capture the active CA automatically", async () => {
   const dataDir = mkdtempSync(join(root, "api-")),
     webDist = join(dataDir, "web"),
@@ -355,6 +507,7 @@ test("private certificate APIs are admin-only and installers capture the active 
           ...draft,
           revision: 1,
           enabled: true,
+          additional_domains: ["123.88.4.44", "192.168.1.5", "127.0.0.1"],
         })
       ).statusCode,
       200,
@@ -366,6 +519,37 @@ test("private certificate APIs are admin-only and installers capture the active 
       await delay(10);
     }
     assert.equal(state.status, "valid", JSON.stringify(state.last_error));
+    const health = (host: string) =>
+      new Promise<void>((resolve, reject) => {
+        const address = server.app.server.address() as { port: number };
+        // Both IPs reach the same loopback test listener, with no SNI. TLS still
+        // verifies the actual requested IP and the CA, exactly as an IP URL does.
+        const req = httpsRequest(
+          {
+            hostname: "127.0.0.1",
+            port: address.port,
+            path: "/healthz",
+            ca: ca.certificate_pem,
+            servername: "",
+            agent: false,
+            checkServerIdentity: (_name, cert) =>
+              checkServerIdentity(host, cert),
+          },
+          (res) => {
+            res.resume();
+            res.on("end", () => {
+              assert.equal(res.statusCode, 200);
+              resolve();
+            });
+          },
+        );
+        req.setTimeout(3000, () => req.destroy(Error("TLS timeout")));
+        req.on("error", reject);
+        req.end();
+      });
+    await health("123.88.4.44");
+    await health("192.168.1.5");
+    await assert.rejects(() => health("192.168.1.99"), /not in the cert/);
     assert.equal(
       (await api("GET", "/agent-install/options")).json().private_ca,
       true,
@@ -391,12 +575,33 @@ test("private certificate APIs are admin-only and installers capture the active 
       ).config_json,
     );
     assert.equal(stored.ca, ca.certificate_pem);
+    for (const host of ["123.88.4.44", "192.168.1.5"]) {
+      const response = await api("POST", "/agent-installations", {
+        v: 1,
+        name: "ip-agent",
+        server_url: `https://${host}:8444`,
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.ok(response.json().command.includes("--cacert"));
+      assert.ok(
+        response
+          .json()
+          .command.includes(Buffer.from(ca.certificate_pem).toString("base64")),
+      );
+    }
     assert.equal(
       (await server.app.inject({ method: "GET", url: "/" })).statusCode,
       200,
     );
     await server.close();
     server = await buildServer(config);
+    await server.app.listen({ host: "127.0.0.1", port: 0 });
+    await health("123.88.4.44");
+    await health("192.168.1.5");
+    assert.deepEqual(
+      (await api("GET", "/settings/certificate")).json().additional_domains,
+      ["123.88.4.44", "127.0.0.1", "192.168.1.5"],
+    );
     assert.equal(
       (await api("GET", "/settings/certificate/ca")).json().fingerprint,
       ca.fingerprint,

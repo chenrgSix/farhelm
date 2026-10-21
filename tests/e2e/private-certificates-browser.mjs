@@ -21,7 +21,10 @@ const server = await buildServer({
 let browser;
 try {
   await server.app.listen({ host: "127.0.0.1", port: 0 });
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    channel: process.env.FLEET_TEST_BROWSER_CHANNEL,
+  });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1050 },
   });
@@ -37,6 +40,9 @@ try {
   await page
     .locator('[name="certificate-domain"]')
     .fill("private.browser.internal");
+  await page
+    .locator('[name="certificate-additional-domains"]')
+    .fill("123.88.4.44\n192.168.1.5");
   await page.getByRole("button", { name: "保存证书设置", exact: true }).click();
   const create = page.getByRole("button", { name: "创建内网 CA", exact: true });
   await create.click();
@@ -53,11 +59,38 @@ try {
   await page.locator('[name="certificate-enabled"]').check();
   await page.getByRole("button", { name: "保存证书设置", exact: true }).click();
   await page.getByText("证书有效", { exact: true }).waitFor();
+  const active = JSON.parse(
+    readFileSync(join(temp, "certificates/active.json"), "utf8"),
+  );
+  const leaf = new X509Certificate(active.cert);
+  assert.ok(leaf.checkHost("private.browser.internal"));
+  assert.ok(leaf.checkIP("123.88.4.44"));
+  assert.ok(leaf.checkIP("192.168.1.5"));
+  assert.match(
+    await page.getByTestId("certificate-names").innerText(),
+    /123\.88\.4\.44/,
+  );
+  assert.match(
+    await page.getByTestId("certificate-names").innerText(),
+    /192\.168\.1\.5/,
+  );
+  assert.ok(leaf.verify(new X509Certificate(ca).publicKey));
+  assert.equal(
+    await page.locator('[name="certificate-additional-domains"]').inputValue(),
+    "123.88.4.44\n192.168.1.5",
+  );
   assert.match(
     await page.getByTestId("certificate-expiry").innerText(),
     /20\d{2}/,
   );
-  await page.getByText("首次信任与统一入口说明", { exact: true }).click();
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/v1/settings/certificate") &&
+        response.request().method() === "GET",
+    ),
+    page.getByRole("button", { name: "重新加载证书配置", exact: true }).click(),
+  ]);
   await page
     .getByRole("heading", { name: "HTTPS 证书", exact: true })
     .scrollIntoViewIfNeeded();
@@ -67,10 +100,16 @@ try {
     path: join(out, "private-certificates-desktop.png"),
     fullPage: true,
   });
+  await page
+    .locator(".certificate-panel")
+    .screenshot({ path: join(out, "private-certificates-panel.png") });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page
+    .locator('[name="certificate-additional-domains"]')
+    .scrollIntoViewIfNeeded();
   await page.screenshot({
     path: join(out, "private-certificates-mobile.png"),
-    fullPage: true,
+    fullPage: false,
   });
   assert.equal(
     await page.evaluate(
@@ -85,6 +124,7 @@ try {
     real_settings_api: true,
     ca_download_fingerprint: true,
     private_issuance: true,
+    multiple_addresses_same_ca: true,
     bootstrap_preserved: true,
     mobile_no_overflow: true,
   };

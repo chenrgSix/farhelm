@@ -17,7 +17,11 @@ import {
   challengeHostMatches,
 } from "./certificate-host.js";
 import { X509Certificate } from "node:crypto";
-import { PrivateAuthority, privateCertificateHost } from "./private-ca.js";
+import {
+  PrivateAuthority,
+  privateCertificateHost,
+  privateCertificateAdditionalDomains,
+} from "./private-ca.js";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
 import { fail, integer, keys, object, str, version } from "./util.js";
@@ -42,6 +46,7 @@ type Row = {
   mode: "acme" | "private";
   revision: number;
   domain: string;
+  additional_domains_json: string;
   email: string;
   enabled: number;
   tos_agreed: number;
@@ -58,6 +63,7 @@ const empty: Row = {
   mode: "acme",
   revision: 0,
   domain: "",
+  additional_domains_json: "[]",
   email: "",
   enabled: 0,
   tos_agreed: 0,
@@ -174,8 +180,13 @@ export class CertificateManager {
   private matches(row: Row) {
     return (
       this.active?.domain === row.domain &&
+      JSON.stringify(this.active.additionalDomains ?? []) ===
+        row.additional_domains_json &&
       (this.active.mode ?? "acme") === row.mode
     );
+  }
+  private additionalDomains(row = this.current()): string[] {
+    return JSON.parse(row.additional_domains_json);
   }
   private challengeReady(row = this.current()) {
     return row.challenge_type === "tls-alpn-01" ? !!this.d.tlsAlpn : this.ready;
@@ -225,9 +236,15 @@ export class CertificateManager {
       acme_available: !!this.d.config,
       private_ca_available: !!this.d.privateAvailable,
       private_ca: ca,
-      activation_ready: !!ca && !caError && this.safeToActivate(),
+      activation_ready:
+        !!ca &&
+        !caError &&
+        [row.domain, ...this.additionalDomains(row)].every((host) =>
+          this.safeToActivate(host),
+        ),
       revision: row.revision,
       domain: row.domain,
+      additional_domains: this.additionalDomains(row),
       email: row.email,
       enabled: !!row.enabled,
       tos_agreed: !!row.tos_agreed,
@@ -265,6 +282,7 @@ export class CertificateManager {
       "v",
       "revision",
       "domain",
+      "additional_domains",
       "email",
       "enabled",
       "tos_agreed",
@@ -288,6 +306,22 @@ export class CertificateManager {
           ? privateCertificateHost(b.domain)
           : certificateDomain(b.domain),
       email = str(b.email, 0, 254).trim();
+    const previous = this.current();
+    const additionalDomains = privateCertificateAdditionalDomains(
+      domain,
+      b.additional_domains === undefined
+        ? mode === "private" && previous.mode === "private"
+          ? this.additionalDomains(previous)
+          : []
+        : b.additional_domains,
+    );
+    if (
+      mode !== "private" &&
+      Array.isArray(b.additional_domains) &&
+      b.additional_domains.length
+    )
+      fail(400, "CERTIFICATE_ADDITIONAL_DOMAINS_PRIVATE_ONLY");
+    const additionalJSON = JSON.stringify(additionalDomains);
     if (
       mode === "acme" &&
       !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,63}$/.test(
@@ -308,7 +342,11 @@ export class CertificateManager {
       fail(409, "ACME_TLS_UNAVAILABLE");
     if (b.enabled && mode === "private" && !this.authority.info())
       fail(409, "PRIVATE_CA_NOT_PREPARED");
-    if (b.enabled && mode === "private" && !this.safeToActivate(domain))
+    if (
+      b.enabled &&
+      mode === "private" &&
+      ![domain, ...additionalDomains].every((host) => this.safeToActivate(host))
+    )
       fail(409, "AGENT_CA_SYNC_INCOMPLETE");
     const saved = this.d.store.transaction(() => {
       const row = this.current();
@@ -318,6 +356,7 @@ export class CertificateManager {
         row.challenge_type === challengeType &&
         row.mode === mode &&
         row.domain === domain &&
+        row.additional_domains_json === additionalJSON &&
         row.email === email &&
         !!row.enabled === b.enabled &&
         !!row.tos_agreed === b.tos_agreed
@@ -333,10 +372,10 @@ export class CertificateManager {
       this.d.store.db
         .prepare(
           `INSERT INTO certificate_settings
-        (id,revision,domain,email,enabled,tos_agreed,updated_at,next_attempt_at,mode,challenge_type)
-        VALUES(1,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
+        (id,revision,domain,email,enabled,tos_agreed,updated_at,next_attempt_at,mode,challenge_type,additional_domains_json)
+        VALUES(1,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
         domain=excluded.domain,email=excluded.email,enabled=excluded.enabled,tos_agreed=excluded.tos_agreed,
-        updated_at=excluded.updated_at,next_attempt_at=excluded.next_attempt_at,mode=excluded.mode,challenge_type=excluded.challenge_type,last_error=NULL,failures=0`,
+        updated_at=excluded.updated_at,next_attempt_at=excluded.next_attempt_at,mode=excluded.mode,challenge_type=excluded.challenge_type,additional_domains_json=excluded.additional_domains_json,last_error=NULL,failures=0`,
         )
         .run(
           revision + 1,
@@ -348,10 +387,12 @@ export class CertificateManager {
           next,
           mode,
           challengeType,
+          additionalJSON,
         );
       this.d.store.audit("certificate.configured", actor, null, null, {
         revision: revision + 1,
         domain,
+        additional_domains: additionalDomains,
         mode,
         challenge_type: challengeType,
         enabled: b.enabled,
@@ -450,7 +491,11 @@ export class CertificateManager {
     if (row.mode !== "private" || !this.d.privateAvailable)
       fail(409, "CERTIFICATE_MANAGEMENT_UNAVAILABLE");
     const ca = this.downloadCA();
-    const proof = await this.authority.issue(row.domain);
+    const proof = await this.authority.issue(
+      row.domain,
+      undefined,
+      this.additionalDomains(row),
+    );
     if (this.closed || this.current().revision !== revision)
       fail(409, "CERTIFICATE_REVISION_CONFLICT");
     return {
@@ -628,7 +673,11 @@ export class CertificateManager {
           : "ACME_REQUEST_FAILED";
       const result =
         row.mode === "private"
-          ? await this.authority.issue(row.domain, this.d.privateLeafLifetimeMs)
+          ? await this.authority.issue(
+              row.domain,
+              this.d.privateLeafLifetimeMs,
+              this.additionalDomains(row),
+            )
           : await this.issue({
               domain: row.domain,
               challengeType: row.challenge_type,
@@ -658,10 +707,20 @@ export class CertificateManager {
       if (!current()) return;
       phase = "ACME_INVALID_CERTIFICATE";
       const bundle = validateCertificate(
-        { ...result, domain: row.domain, mode: row.mode },
+        {
+          ...result,
+          domain: row.domain,
+          mode: row.mode,
+          additionalDomains: this.additionalDomains(row),
+        },
         this.now(),
       );
-      if (row.mode === "private" && !this.safeToActivate())
+      if (
+        row.mode === "private" &&
+        ![row.domain, ...this.additionalDomains(row)].every((host) =>
+          this.safeToActivate(host),
+        )
+      )
         throw new CertificateError("AGENT_CA_SYNC_INCOMPLETE");
       phase = "ACME_STORAGE_FAILED";
       const path = join(directory, "active.json");

@@ -17,6 +17,7 @@ export type CertificateBundle = {
   cert: string;
   key: string;
   domain: string;
+  additionalDomains?: string[];
   mode?: "acme" | "private";
 };
 export function certificateMatches(cert: X509Certificate, host: string) {
@@ -64,6 +65,12 @@ export function validateCertificate(bundle: CertificateBundle, now?: number) {
     typeof bundle?.cert !== "string" ||
     typeof bundle.key !== "string" ||
     typeof bundle.domain !== "string" ||
+    (bundle.additionalDomains !== undefined &&
+      (!Array.isArray(bundle.additionalDomains) ||
+        bundle.additionalDomains.length > 31 ||
+        bundle.additionalDomains.some(
+          (host) => typeof host !== "string" || !host || host.length > 253,
+        ))) ||
     bundle.cert.length > 131072 ||
     bundle.key.length > 16384
   )
@@ -73,7 +80,8 @@ export function validateCertificate(bundle: CertificateBundle, now?: number) {
     leaf.ca ||
     (leaf.keyUsage && !leaf.keyUsage.includes("1.3.6.1.5.5.7.3.1")) ||
     !leaf.checkPrivateKey(createPrivateKey(bundle.key)) ||
-    !certificateMatches(leaf, bundle.domain)
+    !certificateMatches(leaf, bundle.domain) ||
+    bundle.additionalDomains?.some((host) => !certificateMatches(leaf, host))
   )
     throw new Error("Invalid certificate identity or private key");
   const chain =

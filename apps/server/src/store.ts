@@ -351,6 +351,25 @@ export class Store {
         "utf8",
       ),
     );
+    if (
+      !(
+        this.db
+          .prepare("PRAGMA table_info(certificate_settings)")
+          .all() as any[]
+      ).some((c) => c.name === "additional_domains_json")
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL(
+              "../migrations/035_certificate_additional_domains.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ),
+      );
+    }
     migrateAccountAuthorizations(this.db);
     this.db
       .prepare(

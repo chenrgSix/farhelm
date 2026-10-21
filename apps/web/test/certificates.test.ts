@@ -269,6 +269,56 @@ it("changing certificate mode stops automatic activation until the new mode is s
   ).toBe(false);
   w.unmount();
 });
+it("adds LAN certificate addresses while preserving the public address and unsaved edits during polling", async () => {
+  vi.useFakeTimers();
+  const saved = {
+    ...initial,
+    mode: "private",
+    revision: 4,
+    domain: "123.88.4.44",
+    additional_domains: ["fleet.internal"],
+  };
+  const request = vi.spyOn(api, "request").mockResolvedValue(saved);
+  const w = mount(CertificateSettingsPanel, {
+    global: { stubs: { AgentCASyncPanel: true } },
+  });
+  await flushPromises();
+  const field = w.get<HTMLTextAreaElement>(
+    '[name="certificate-additional-domains"]',
+  );
+  expect(field.element.value).toBe("fleet.internal");
+  await field.setValue("fleet.internal\n192.168.1.5, fd00::5");
+  await vi.advanceTimersByTimeAsync(5000);
+  await flushPromises();
+  expect(field.element.value).toContain("192.168.1.5");
+  request.mockResolvedValueOnce({
+    ...saved,
+    revision: 5,
+    additional_domains: ["192.168.1.5", "fd00::5", "fleet.internal"],
+  });
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/settings/certificate", {
+    method: "PUT",
+    body: expect.objectContaining({
+      domain: "123.88.4.44",
+      additional_domains: ["fleet.internal", "192.168.1.5", "fd00::5"],
+    }),
+  });
+  expect(field.element.value).toBe("192.168.1.5\nfd00::5\nfleet.internal");
+  await field.setValue("");
+  await w.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith("/settings/certificate", {
+    method: "PUT",
+    body: expect.objectContaining({ additional_domains: [] }),
+  });
+  await w.get('[name="certificate-mode"]').setValue("acme");
+  expect(w.find('[name="certificate-additional-domains"]').exists()).toBe(
+    false,
+  );
+  w.unmount();
+});
 
 it("manual private renewal uses its own action, blocks duplicate clicks and respects cooldown and drafts", async () => {
   const state = {
