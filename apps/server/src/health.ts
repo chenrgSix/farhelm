@@ -134,11 +134,20 @@ export function registerHealth(app: FastifyInstance, d: Dependencies) {
       ? { revision: row.revision, checks: JSON.parse(row.checks_json) }
       : { revision: 0, checks: [] };
   }
-  function checkView(id: string, c: HealthCheck, revision: number) {
-    const row = db
-      .prepare("SELECT * FROM health_results WHERE device_id=? AND check_id=?")
-      .get(id, c.id) as any;
-    const agent = d.agent(id);
+  function checkView(
+    id: string,
+    c: HealthCheck,
+    revision: number,
+    read?: { row: any; agent: Agent | undefined },
+  ) {
+    const row = read
+      ? read.row
+      : (db
+          .prepare(
+            "SELECT * FROM health_results WHERE device_id=? AND check_id=?",
+          )
+          .get(id, c.id) as any);
+    const agent = read ? read.agent : d.agent(id);
     const fresh =
       !!row &&
       !!agent?.supported &&
@@ -245,6 +254,56 @@ export function registerHealth(app: FastifyInstance, d: Dependencies) {
   });
   return {
     snapshot,
+    summaries(
+      ids: string[],
+      agent: (id: string) => Agent | undefined = d.agent,
+    ) {
+      const encoded = JSON.stringify(ids);
+      const configs = new Map(
+        (
+          db
+            .prepare(
+              "SELECT device_id,revision,checks_json FROM health_configs WHERE device_id IN (SELECT value FROM json_each(?))",
+            )
+            .all(encoded) as any[]
+        ).map((row) => [row.device_id, row]),
+      );
+      const results = new Map(
+        (
+          db
+            .prepare(
+              "SELECT * FROM health_results WHERE device_id IN (SELECT value FROM json_each(?))",
+            )
+            .all(encoded) as any[]
+        ).map((row) => [row.device_id + ":" + row.check_id, row]),
+      );
+      return new Map(
+        ids.map((id) => {
+          const config = configs.get(id),
+            currentAgent = agent(id);
+          const checks: HealthCheck[] = config
+            ? JSON.parse(config.checks_json)
+            : [];
+          const states = checks
+            .filter((check) => check.enabled)
+            .map(
+              (check) =>
+                checkView(id, check, config.revision, {
+                  row: results.get(id + ":" + check.id),
+                  agent: currentAgent,
+                }).result.status,
+            );
+          return [
+            id,
+            states.includes("unhealthy")
+              ? false
+              : states.length && states.every((state) => state === "healthy")
+                ? true
+                : null,
+          ];
+        }),
+      );
+    },
     summary(id: string): boolean | null {
       const config = snapshot(id),
         enabled = config.checks.filter((c) => c.enabled);

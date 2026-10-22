@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import ssh2 from "ssh2";
 import type { Store } from "./store.js";
-import type { registerNetworkRoutes, RouteChannel } from "./network-routes.js";
+import type {
+  registerNetworkRoutes,
+  RouteChannel,
+  NetworkPolicy,
+} from "./network-routes.js";
 import type { TargetTerminal } from "./ssh-target.js";
 import type { User } from "./types.js";
 import { Credentials } from "./credentials.js";
@@ -21,6 +25,14 @@ import {
   version,
   type RateLimiter,
 } from "./util.js";
+
+export function sshRouteAvailable(policy: NetworkPolicy | null) {
+  return (
+    !policy ||
+    !!policy.ssh?.vpn_host ||
+    (policy.mode === "vpn_preferred" && !!policy.ssh?.public_host)
+  );
+}
 
 export function registerDeviceConnections(
   app: FastifyInstance,
@@ -396,11 +408,7 @@ export function registerDeviceConnections(
     canSsh: (id: string) => {
       if (!hasSsh(id)) return false;
       const p = d.routes.current(id).policy;
-      return (
-        !p ||
-        !!p.ssh?.vpn_host ||
-        (p.mode === "vpn_preferred" && !!p.ssh?.public_host)
-      );
+      return sshRouteAvailable(p);
     },
     status(id: string) {
       const row = saved(id);

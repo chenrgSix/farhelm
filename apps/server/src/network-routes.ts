@@ -206,26 +206,41 @@ export function registerNetworkRoutes(
       ? { host: config.host as string, port: config.port as number }
       : null;
   }
-  function current(id: string): {
+  type AgentState = ReturnType<typeof d.agent>;
+  type ListRead = {
+    global: ReturnType<typeof platform>;
+    device: { connection_kind: string };
+    route: { revision: number; config_json: string } | undefined;
+    address: ReturnType<typeof addresses>;
+    ssh: ReturnType<typeof sshConfig>;
+    sshActive: boolean;
+    agent: AgentState;
+  };
+  function current(
+    id: string,
+    read?: ListRead,
+  ): {
     revision: number;
     policy: NetworkPolicy | null;
   } {
-    const row = db
-      .prepare(
-        "SELECT revision,config_json FROM device_network_routes WHERE device_id=?",
-      )
-      .get(id) as any;
+    const row = read
+      ? read.route
+      : (db
+          .prepare(
+            "SELECT revision,config_json FROM device_network_routes WHERE device_id=?",
+          )
+          .get(id) as any);
     const saved = row
       ? {
           revision: row.revision,
           policy: JSON.parse(row.config_json) as NetworkPolicy | null,
         }
       : { revision: 0, policy: null };
-    const global = platform();
+    const global = read?.global ?? platform();
     if (!global.revision) return saved;
-    const device = d.requireDevice(id),
-      a = addresses(id),
-      ssh = sshConfig(id);
+    const device = read?.device ?? d.requireDevice(id),
+      a = read?.address ?? addresses(id),
+      ssh = read ? read.ssh : sshConfig(id);
     const vpnHost = a.vpn_ip ?? (ssh && privateIP(ssh.host) ? ssh.host : null);
     const vpnPort = vpnHost ? (a.ssh_port ?? ssh?.port ?? 22) : null;
     const fallback =
@@ -326,10 +341,15 @@ export function registerNetworkRoutes(
       fail(409, "NETWORK_ROUTE_BUSY");
   }
   function allowed(id: string) {
-    const config = current(id);
+    return applied(id, current(id), d.agent(id));
+  }
+  function applied(
+    id: string,
+    config: ReturnType<typeof current>,
+    a: AgentState,
+  ) {
     if (!config.policy) return true;
-    const a = d.agent(id),
-      state = agentStates.get(id);
+    const state = agentStates.get(id);
     return !!(
       config.policy.agent &&
       a?.supported &&
@@ -341,9 +361,9 @@ export function registerNetworkRoutes(
         state.observation.channel === "vpn")
     );
   }
-  function snapshot(id: string) {
-    const config = current(id),
-      a = d.agent(id),
+  function snapshot(id: string, read?: ListRead) {
+    const config = current(id, read),
+      a = read ? read.agent : d.agent(id),
       s = agentStates.get(id);
     const agent = s
       ? {
@@ -354,9 +374,9 @@ export function registerNetworkRoutes(
             Date.now() - s.observation.checked_at < 75000,
         }
       : null;
-    const global = platform(),
-      address = addresses(id),
-      sshConfigValue = sshConfig(id);
+    const global = read?.global ?? platform(),
+      address = read?.address ?? addresses(id),
+      sshConfigValue = read ? read.ssh : sshConfig(id);
     return {
       ...config,
       source: global.revision
@@ -372,7 +392,7 @@ export function registerNetworkRoutes(
       blocked_reason:
         config.policy &&
         d.agentEnabled !== false &&
-        d.requireDevice(id).connection_kind === "agent" &&
+        (read?.device ?? d.requireDevice(id)).connection_kind === "agent" &&
         !config.policy.agent
           ? "AGENT_PLATFORM_ENDPOINT_REQUIRED"
           : config.policy?.mode === "private_only" &&
@@ -380,16 +400,80 @@ export function registerNetworkRoutes(
               !config.policy.ssh?.vpn_host
             ? "SSH_VPN_IP_REQUIRED"
             : null,
-      ssh_active: !!db
-        .prepare(
-          "SELECT 1 FROM terminal_sessions WHERE device_id=? AND backend='ssh' AND ended_at IS NULL",
-        )
-        .get(id),
+      ssh_active: read
+        ? read.sshActive
+        : !!db
+            .prepare(
+              "SELECT 1 FROM terminal_sessions WHERE device_id=? AND backend='ssh' AND ended_at IS NULL",
+            )
+            .get(id),
       agent_supported: a ? a.supported : null,
-      agent_applied: allowed(id),
+      agent_applied: applied(id, config, a),
       agent,
       ssh: sshStates.get(id) ?? null,
     };
+  }
+  // A fresh, request-scoped snapshot: never cache permission or route changes across requests.
+  function snapshots(
+    devices: {
+      id: string;
+      connection_kind: string;
+      connection_config: string | null;
+    }[],
+    agent: (id: string) => AgentState = d.agent,
+  ) {
+    const ids = JSON.stringify(devices.map((device) => device.id));
+    const global = platform();
+    const routes = new Map(
+      (
+        db
+          .prepare(
+            "SELECT device_id,revision,config_json FROM device_network_routes WHERE device_id IN (SELECT value FROM json_each(?))",
+          )
+          .all(ids) as any[]
+      ).map((row) => [row.device_id, row]),
+    );
+    const addressRows = new Map(
+      (
+        db
+          .prepare(
+            "SELECT device_id,revision,vpn_ip,ssh_port FROM device_network_addresses WHERE device_id IN (SELECT value FROM json_each(?))",
+          )
+          .all(ids) as any[]
+      ).map((row) => [row.device_id, row]),
+    );
+    const active = new Set(
+      (
+        db
+          .prepare(
+            "SELECT DISTINCT device_id FROM terminal_sessions WHERE backend='ssh' AND ended_at IS NULL AND device_id IN (SELECT value FROM json_each(?))",
+          )
+          .all(ids) as any[]
+      ).map((row) => row.device_id),
+    );
+    return new Map(
+      devices.map((device) => {
+        const config = device.connection_config
+          ? JSON.parse(device.connection_config)
+          : null;
+        return [
+          device.id,
+          snapshot(device.id, {
+            global,
+            device,
+            route: routes.get(device.id),
+            address: addressRows.get(device.id) ?? {
+              revision: 0,
+              vpn_ip: null,
+              ssh_port: null,
+            },
+            ssh: config?.host ? { host: config.host, port: config.port } : null,
+            sshActive: active.has(device.id),
+            agent: agent(device.id),
+          }),
+        ];
+      }),
+    );
   }
   function deliver(id: string) {
     const a = d.agent(id);
@@ -559,6 +643,7 @@ export function registerNetworkRoutes(
     current,
     platformSnapshot,
     snapshot,
+    snapshots,
     allowed,
     deliver,
     receive,

@@ -103,6 +103,14 @@ function bytes(value: unknown) {
     fail(400, "INVALID_TERMINAL_DATA");
   return decoded;
 }
+export function terminalBackend(
+  kind: "agent" | "ssh",
+  agentTerminal: boolean,
+  sshAvailable: boolean,
+): "agent" | "ssh" | null {
+  if (kind === "agent" && agentTerminal) return "agent";
+  return sshAvailable ? "ssh" : null;
+}
 export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   const { store, rate } = d,
     db = store.db;
@@ -263,12 +271,13 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     return { row, user };
   }
   function backend(deviceId: string): "agent" | "ssh" | null {
-    if (d.connections.kind(deviceId) === "ssh")
-      return d.connections.canSsh?.(deviceId) === false ? null : "ssh";
-    if (d.agent(deviceId)?.terminal) return "agent";
-    return (d.connections.canSsh?.(deviceId) ?? d.connections.hasSsh(deviceId))
-      ? "ssh"
-      : null;
+    const kind = d.connections.kind(deviceId);
+    return terminalBackend(
+      kind,
+      kind === "agent" && !!d.agent(deviceId)?.terminal,
+      d.connections.canSsh?.(deviceId) ??
+        (kind === "ssh" || d.connections.hasSsh(deviceId)),
+    );
   }
   function create(
     user: User,

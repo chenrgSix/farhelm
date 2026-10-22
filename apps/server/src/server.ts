@@ -46,7 +46,7 @@ import {
   canReadOtherHistory,
   type Permission,
 } from "./permissions.js";
-import { registerTerminals } from "./terminal.js";
+import { registerTerminals, terminalBackend } from "./terminal.js";
 import { registerTargetAccounts } from "./target-accounts.js";
 import { registerAccessAuthorizations } from "./access-authorizations-api.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
@@ -56,7 +56,10 @@ import { registerNetworkProbes } from "./network-probes.js";
 import { registerAgentNetwork } from "./agent-network.js";
 import { registerHealth } from "./health.js";
 import { registerTerminalPrivilege } from "./terminal-privilege.js";
-import { registerDeviceConnections } from "./device-connections.js";
+import {
+  registerDeviceConnections,
+  sshRouteAvailable,
+} from "./device-connections.js";
 import { registerAgentReleases, legacyArtifacts } from "./agent-releases.js";
 import { registerAgentInstall } from "./agent-install.js";
 import { registerSettings } from "./settings.js";
@@ -1283,44 +1286,121 @@ export async function buildServer(config: ServerConfig) {
   });
   app.get("/api/v1/devices", async (req) => {
     const user = permitted(req, "devices.read");
-    const devices = (
-      db.prepare("SELECT * FROM devices ORDER BY created_at,id").all() as any[]
-    )
-      .filter((d) => inScope(user, d.id))
-      .map((d) => ({
+    // Apply visibility before loading related data; credentials never enter this projection.
+    const rows = db
+      .prepare(
+        `SELECT d.id,d.name,d.connection_kind,d.last_seen,d.revoked_at,d.agent_version,
+      c.config_json AS connection_config,c.last_checked_at,c.last_error,n.snapshot AS network_snapshot
+      FROM devices d LEFT JOIN device_connections c ON c.device_id=d.id
+      LEFT JOIN agent_network n ON n.device_id=d.id
+      WHERE (? OR d.id IN (SELECT value FROM json_each(?))) ORDER BY d.created_at,d.id`,
+      )
+      .all(
+        Number(user.role === "admin" || user.device_scope === "*"),
+        JSON.stringify(user.device_scope === "*" ? [] : user.device_scope),
+      ) as any[];
+    const ids = rows.map((row) => row.id as string),
+      encoded = JSON.stringify(ids);
+    const groups = new Map<string, { id: string; name: string }[]>();
+    for (const row of db
+      .prepare(
+        `SELECT m.device_id,g.id,g.name FROM device_group_members m
+      JOIN device_groups g ON g.id=m.group_id WHERE m.device_id IN (SELECT value FROM json_each(?)) ORDER BY g.name,g.id`,
+      )
+      .all(encoded) as any[]) {
+      const values = groups.get(row.device_id) ?? [];
+      values.push({ id: row.id, name: row.name });
+      groups.set(row.device_id, values);
+    }
+    const now = Date.now();
+    const validTokens = new Set(
+      (
+        db
+          .prepare(
+            `SELECT t.token_hash FROM device_tokens t JOIN devices d ON d.id=t.device_id
+      WHERE t.expires_at>? AND d.revoked_at IS NULL AND d.id IN (SELECT value FROM json_each(?))`,
+          )
+          .all(now, encoded) as any[]
+      ).map((row) => row.token_hash),
+    );
+    const online = new Map<string, Connection>();
+    for (const id of ids) {
+      const c = connections.get(id);
+      if (
+        c?.ready &&
+        c.socket.readyState === WebSocket.OPEN &&
+        validTokens.has(c.tokenHash) &&
+        now - c.lastHeartbeat <= heartbeatTimeout
+      )
+        online.set(id, c);
+    }
+    const routes = networkRoutes.snapshots(rows, (id) => {
+      const c = online.get(id);
+      return c
+        ? {
+            supported: c.route,
+            connectionId: c.healthSession,
+            send: (type, body) => send(c, type, body),
+          }
+        : undefined;
+    });
+    const summaries = health.summaries(ids, (id) => {
+      const c = online.get(id);
+      return c
+        ? {
+            supported: c.health,
+            connectionId: c.healthSession,
+            send: (type, body) => send(c, type, body),
+          }
+        : undefined;
+    });
+    const devices = rows.map((d) => {
+      const route = routes.get(d.id)!;
+      const hasSsh = !!(
+        d.connection_config && JSON.parse(d.connection_config).host
+      );
+      const backend = d.revoked_at
+        ? null
+        : terminalBackend(
+            d.connection_kind,
+            !!online.get(d.id)?.terminal && route.agent_applied,
+            hasSsh && sshRouteAvailable(route.policy),
+          );
+      return {
         id: d.id,
         name: d.name,
-        device_groups: db
-          .prepare(
-            "SELECT g.id,g.name FROM device_groups g JOIN device_group_members m ON m.group_id=g.id WHERE m.device_id=? ORDER BY g.name",
-          )
-          .all(d.id),
-        control_online:
-          !!connections.get(d.id)?.ready &&
-          live(connections.get(d.id)!) &&
-          Date.now() - connections.get(d.id)!.lastHeartbeat <= heartbeatTimeout,
-        private_data_reachable: networkRoutes.snapshot(d.id).agent?.connected
-          ? networkRoutes.snapshot(d.id).agent!.channel === "vpn"
+        device_groups: groups.get(d.id) ?? [],
+        control_online: online.has(d.id),
+        private_data_reachable: route.agent?.connected
+          ? route.agent.channel === "vpn"
           : null,
-        network_route: networkRoutes.snapshot(d.id),
-        business_healthy: health.summary(d.id),
+        network_route: route,
+        business_healthy: summaries.get(d.id) ?? null,
         last_seen: d.last_seen,
         revoked_at: d.revoked_at,
         agent_version: d.agent_version,
         ip_addresses:
-          d.connection_kind === "agent"
-            ? (network.snapshot(d.id)?.addresses ?? []).map(
+          d.connection_kind === "agent" && d.network_snapshot
+            ? JSON.parse(d.network_snapshot).addresses.map(
                 (a: any) => a.address,
               )
             : [],
         connection_kind: d.connection_kind,
-        ssh_configured: deviceConnections.hasSsh(d.id),
-        terminal_backend: d.revoked_at ? null : terminals.backend(d.id),
-        terminal_available: !d.revoked_at && !!terminals.backend(d.id),
-        ...(deviceConnections.hasSsh(d.id)
-          ? deviceConnections.status(d.id)
+        ssh_configured: hasSsh,
+        terminal_backend: backend,
+        terminal_available: !!backend,
+        ...(hasSsh
+          ? {
+              ssh_checked_at: d.last_checked_at ?? null,
+              ssh_status: !d.last_checked_at
+                ? "unknown"
+                : d.last_error
+                  ? "failed"
+                  : "connected",
+            }
           : {}),
-      }));
+      };
+    });
     return { v: 1, devices };
   });
   app.post("/api/v1/devices/:id/revoke", async (req) => {
