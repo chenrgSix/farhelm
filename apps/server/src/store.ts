@@ -382,6 +382,12 @@ export class Store {
         "utf8",
       ),
     );
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/038_task_summary.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     migrateAccountAuthorizations(this.db);
     this.db
       .prepare(

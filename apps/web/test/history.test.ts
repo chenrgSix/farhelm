@@ -42,6 +42,7 @@ async function setup(
     if (path === "/login") return { access_token: "test", user };
     if (path === "/me") return user;
     if (path.split("?")[0] === "/devices") return { devices: [] };
+    if (path === "/tasks/summary") return { v: 1, active: 0, unknown: 0 };
     if (path === "/tasks") return { tasks: [] };
     if (path.startsWith("/tasks?"))
       return history(new URLSearchParams(path.split("?")[1]));

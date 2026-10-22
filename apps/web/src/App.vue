@@ -17,6 +17,7 @@ import { diskPercent } from "./disk";
 import { api, ApiError } from "./api/client";
 import { readTabSession, writeTabSession } from "./tab-session";
 import { useDeviceResource } from "./composables/useDeviceResource";
+import { useTaskSummary } from "./composables/useTaskSummary";
 import { useListResource } from "./composables/useListResource";
 import {
   useHistoryList,
@@ -120,7 +121,7 @@ watch(pagedDevices.page, (page) => {
     deviceGroupOptions.value = page.groups;
   }
 });
-const overviewTaskList = useListResource<Task>("/tasks", "tasks");
+const overviewTaskList = useTaskSummary();
 const taskHistory = useHistoryList<Task>("/tasks", "tasks");
 const auditHistory = useHistoryList<AuditEntry>("/audit", "audit");
 const sessionHistory = useHistoryList<TerminalSession>(
@@ -337,15 +338,8 @@ const onlineCount = computed(
     filteredDevices.value.filter((d) => d.control_online && !d.revoked_at)
       .length,
 );
-const activeCount = computed(
-  () =>
-    overviewTaskList.items.value.filter((t) => !terminalStates.has(t.status))
-      .length,
-);
-const unknownCount = computed(
-  () =>
-    overviewTaskList.items.value.filter((t) => t.status === "UNKNOWN").length,
-);
+const activeCount = computed(() => overviewTaskList.data.value?.active ?? 0);
+const unknownCount = computed(() => overviewTaskList.data.value?.unknown ?? 0);
 const isExecAllowed = computed(
   () => agentEnabled.value && canExecute(user.value),
 );
@@ -604,6 +598,7 @@ function refreshUser() {
           freshUser.permissions,
         ]);
       if (scopeChanged) {
+        overviewTaskList.reset();
         deviceList.reset();
         pagedDevices.reset();
         devicePageNumber.value = 1;
@@ -1090,18 +1085,18 @@ onBeforeUnmount(() => {
             <p>Agent WSS 心跳状态，SSH 按需连接</p>
           </div>
           <div class="metric">
-            <span>最近任务进行中</span
+            <span>任务进行中</span
             ><strong
               >{{ tasksReady ? activeCount : "—" }}<small>条</small></strong
             >
-            <p>最近 500 条中的排队、下发、接收或运行中</p>
+            <p>全部可见任务中的排队、下发、接收或运行中</p>
           </div>
           <div class="metric">
-            <span>最近任务待核对</span
+            <span>任务待核对</span
             ><strong :class="unknownCount ? 'text-warning' : ''"
               >{{ tasksReady ? unknownCount : "—" }}<small>条</small></strong
             >
-            <p>最近 500 条中的 UNKNOWN，不会自动重跑</p>
+            <p>全部可见任务中的 UNKNOWN，不会自动重跑</p>
           </div>
         </section>
         <p v-if="!navigation.length" class="notice">

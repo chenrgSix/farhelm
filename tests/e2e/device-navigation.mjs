@@ -56,6 +56,24 @@ try {
     role: "ops",
     deviceScope: ["one"],
   });
+  const adminId = db
+    .prepare("SELECT id FROM users WHERE username='admin'")
+    .get().id;
+  server.store.transaction(() => {
+    const insert = db.prepare(
+      "INSERT INTO tasks(id,device_id,actor_id,task_json,payload_hash,status,created_at,updated_at) VALUES(?,'one',?,'{}',?,?,?,0)",
+    );
+    for (let i = 0; i < 600; i++)
+      insert.run(
+        `complete-${i}`,
+        adminId,
+        `complete-${i}`,
+        "SUCCEEDED",
+        i + 100,
+      );
+    insert.run("old-running", adminId, "old-running", "RUNNING", 1);
+    insert.run("old-unknown", adminId, "old-unknown", "UNKNOWN", 2);
+  });
   web = createServer(async (req, res) => {
     try {
       const chunks = [];
@@ -100,6 +118,27 @@ try {
   await page.clock.install();
   await page.goto(origin);
   await login(page, "admin");
+  await expect(
+    page.locator(".metric").filter({ hasText: "任务进行中" }).locator("strong"),
+  ).toHaveText("1条");
+  await expect(
+    page.locator(".metric").filter({ hasText: "任务待核对" }).locator("strong"),
+  ).toHaveText("1条");
+  assert.ok(
+    requests.includes("/tasks/summary") && !requests.includes("/tasks"),
+  );
+  requests.length = 0;
+  db.prepare(
+    "UPDATE tasks SET status='SUCCEEDED' WHERE id='old-running'",
+  ).run();
+  await page.clock.runFor(10001);
+  await expect(
+    page.locator(".metric").filter({ hasText: "任务进行中" }).locator("strong"),
+  ).toHaveText("0条");
+  assert.ok(
+    requests.includes("/tasks/summary") && !requests.includes("/tasks"),
+  );
+
   await page
     .getByRole("button", { name: "查看设备详情：一号服务器", exact: true })
     .click();
@@ -198,6 +237,7 @@ try {
       {
         passed: true,
         checks: [
+          "overview polls counts including tasks older than the last 500, without task payloads",
           "detail timer fetches only me and selected device",
           "health and network shortcuts",
           "back/forward across devices",

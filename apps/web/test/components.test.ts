@@ -221,6 +221,7 @@ describe("login and real-data-only console", () => {
         return { access_token: "test-token", user: business };
       if (path === "/me") return business;
       if (path.split("?")[0] === "/devices") return { devices: [] };
+      if (path === "/tasks/summary") return { v: 1, active: 0, unknown: 0 };
       if (path === "/tasks") return { tasks: [] };
       if (path === "/terminal-sessions") return { sessions: [] };
       if (path === "/settings/network")
@@ -256,6 +257,7 @@ describe("login and real-data-only console", () => {
         return { access_token: "test-token", user: loggedInUser };
       if (path === "/me") return loggedInUser;
       if (path.split("?")[0] === "/devices") return { devices: [] };
+      if (path === "/tasks/summary") return { v: 1, active: 0, unknown: 0 };
       if (path === "/tasks") return { tasks: [] };
       if (path === "/terminal-sessions") return { sessions: [] };
       if (path === "/settings/network")

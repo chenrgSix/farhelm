@@ -37,6 +37,7 @@ function mock() {
     if (path === "/devices/missing")
       throw new ApiError("设备不存在或无权查看", 404);
     if (path.split("?")[0] === "/devices") return { devices: [device] };
+    if (path === "/tasks/summary") return { v: 1, active: 0, unknown: 0 };
     if (path.startsWith("/tasks")) return { tasks: [] };
     return {};
   });

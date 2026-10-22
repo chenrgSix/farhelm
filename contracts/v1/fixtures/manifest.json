@@ -1898,5 +1898,10 @@
     "path": "valid/devices-paged.json",
     "schema": "devices-response.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/task-summary.json",
+    "schema": "task-summary-response.schema.json",
+    "valid": true
   }
 ]

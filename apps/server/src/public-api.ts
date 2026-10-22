@@ -119,6 +119,13 @@ export const publicOperations: Operation[] = [
   },
   {
     method: "GET",
+    path: "/tasks/summary",
+    summary: "统计全部可见任务中的进行中和待核对数量",
+    permission: "tasks.read",
+    response: "task-summary-response",
+  },
+  {
+    method: "GET",
     path: "/tasks/:id",
     summary: "查询任务结果",
     permission: "tasks.read",

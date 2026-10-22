@@ -39,7 +39,7 @@ import { deployment } from "./deployment.js";
 import { WebListener, isWebRequest, type WebBinding } from "./web-listener.js";
 import { localAdminServer } from "./local-admin.js";
 import { deviceListPage } from "./device-list.js";
-import { historyPage } from "./history.js";
+import { historyPage, taskSummary } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
 import { registerAccessControl } from "./access-control.js";
 import { ApiTokens } from "./api-tokens.js";
@@ -1621,6 +1621,11 @@ export async function buildServer(config: ServerConfig) {
     const user = permitted(req, "tasks.read");
     const { rows, page } = historyPage(db, user, "tasks", req.query);
     return { v: 1, tasks: rows.map((r) => store.taskView(r)), page };
+  });
+  app.get("/api/v1/tasks/summary", async (req) => {
+    const user = permitted(req, "tasks.read");
+    keys(object(req.query), []);
+    return taskSummary(db, user);
   });
   app.get("/api/v1/tasks/:id", async (req) => {
     const user = permitted(req, "tasks.read");

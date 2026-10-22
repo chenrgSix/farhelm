@@ -311,6 +311,11 @@ const device = {
   agent_version: "0.1.0",
 };
 fixture("device", "device", device);
+fixture("task-summary", "task-summary-response", {
+  v: 1,
+  active: 3,
+  unknown: 1,
+});
 fixture("devices-response", "devices-response", { v: 1, devices: [device] });
 fixture("devices-paged", "devices-response", {
   v: 1,

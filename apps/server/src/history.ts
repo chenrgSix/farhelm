@@ -18,6 +18,46 @@ const taskStatuses = [
 ];
 const sessionStatuses = ["OPENING", "OPEN", "CLOSED", "INTERRUPTED"];
 
+export function historyVisibility(user: User, kind: Kind) {
+  const conditions: string[] = [];
+  const values: SQLInputValue[] = [];
+  const add = (condition: string, ...args: SQLInputValue[]) => {
+    conditions.push(`(${condition})`);
+    values.push(...args);
+  };
+  const scope = Array.isArray(user.device_scope) ? user.device_scope : [];
+  if (user.role !== "admin") {
+    if (kind === "audit") {
+      if (!canReadOtherHistory(user, kind)) add("r.actor_id=?", user.id);
+      else if (user.device_scope === "*") {
+        /* Explicit global audit scope. */
+      } else if (scope.length)
+        add(
+          "r.actor_id=? OR r.device_id IN (SELECT value FROM json_each(?))",
+          user.id,
+          JSON.stringify(scope),
+        );
+      else add("r.actor_id=?", user.id);
+    } else if (user.device_scope !== "*") {
+      if (scope.length)
+        add(
+          "r.device_id IN (SELECT value FROM json_each(?))",
+          JSON.stringify(scope),
+        );
+      else add("0");
+    }
+  }
+  if (kind !== "audit" && !canReadOtherHistory(user, kind))
+    add("r.actor_id=?", user.id);
+  // A scoped token cannot use its owner's personal audit history to read other devices.
+  if (kind === "audit" && user.api_token_id && user.device_scope !== "*")
+    add(
+      "r.device_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(scope),
+    );
+  return { conditions, values };
+}
+
 /** Apply authorization before pagination, including when a client supplies a cursor. */
 export function historyPage(
   db: DatabaseSync,
@@ -82,42 +122,11 @@ export function historyPage(
       to,
     }),
   );
-  const conditions: string[] = [];
-  const values: SQLInputValue[] = [];
+  const { conditions, values } = historyVisibility(user, kind);
   const add = (condition: string, ...args: SQLInputValue[]) => {
     conditions.push(`(${condition})`);
     values.push(...args);
   };
-  const scope = Array.isArray(user.device_scope) ? user.device_scope : [];
-  if (user.role !== "admin") {
-    if (kind === "audit") {
-      if (!canReadOtherHistory(user, kind)) add("r.actor_id=?", user.id);
-      else if (user.device_scope === "*") {
-        /* Explicit global audit scope. */
-      } else if (scope.length)
-        add(
-          "r.actor_id=? OR r.device_id IN (SELECT value FROM json_each(?))",
-          user.id,
-          JSON.stringify(scope),
-        );
-      else add("r.actor_id=?", user.id);
-    } else if (user.device_scope !== "*") {
-      if (scope.length)
-        add(
-          "r.device_id IN (SELECT value FROM json_each(?))",
-          JSON.stringify(scope),
-        );
-      else add("0");
-    }
-  }
-  if (kind !== "audit" && !canReadOtherHistory(user, kind))
-    add("r.actor_id=?", user.id);
-  // A scoped token cannot use its owner's personal audit history to read other devices.
-  if (kind === "audit" && user.api_token_id && user.device_scope !== "*")
-    add(
-      "r.device_id IN (SELECT value FROM json_each(?))",
-      JSON.stringify(scope),
-    );
   if (device) add("r.device_id=?", device);
   if (actor) {
     const names =
@@ -206,4 +215,25 @@ export function historyPage(
         ).toString("base64url")
       : null;
   return { rows, page: { limit, has_more: hasMore, next_cursor: nextCursor } };
+}
+
+/** Count all visible unresolved tasks without loading payloads or results. */
+export function taskSummary(db: DatabaseSync, user: User) {
+  const { conditions, values } = historyVisibility(user, "tasks");
+  conditions.push(
+    "r.status IN ('QUEUED','SENT','ACCEPTED','RUNNING','UNKNOWN')",
+  );
+  const counts = db
+    .prepare(
+      `SELECT
+    coalesce(sum(r.status <> 'UNKNOWN'),0) AS active,
+    coalesce(sum(r.status = 'UNKNOWN'),0) AS unknown
+    FROM tasks r WHERE ${conditions.join(" AND ")}`,
+    )
+    .get(...values)!;
+  return {
+    v: 1,
+    active: Number(counts.active),
+    unknown: Number(counts.unknown),
+  };
 }

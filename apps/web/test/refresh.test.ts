@@ -52,6 +52,7 @@ function mockApi(extra: (path: string) => unknown = () => undefined) {
     if (path === "/me") return user;
     if (path === "/devices") return { devices: [device] };
     if (path === "/devices/device-1") return device;
+    if (path === "/tasks/summary") return { v: 1, active: 0, unknown: 0 };
     if (path === "/tasks") return { tasks: [] };
     if (path === "/audit") return { audit: [] };
     if (path === "/terminal-sessions") return { sessions: [] };
@@ -74,7 +75,8 @@ function mockApi(extra: (path: string) => unknown = () => undefined) {
 describe("independent list refresh", () => {
   it("keeps device operations available when the task overview fails", async () => {
     const request = mockApi((path) => {
-      if (path === "/tasks") throw new Error("task service unavailable");
+      if (path === "/tasks/summary")
+        throw new Error("task service unavailable");
     });
     wrapper = mount(App);
     await login();
@@ -324,4 +326,33 @@ it("clears stale detail and device choices immediately when the user's scope cha
   expect(wrapper.text()).not.toContain("秘密设备详情");
   expect(wrapper.text()).toContain("无权查看");
   expect(request.mock.calls.map(([p]) => p)).toEqual(["/me"]);
+});
+
+it("polls task counts without downloading task history on the overview", async () => {
+  vi.useFakeTimers();
+  const request = mockApi((path) =>
+    path === "/tasks/summary" ? { v: 1, active: 27, unknown: 6 } : undefined,
+  );
+  wrapper = mount(App);
+  await login();
+  expect(wrapper.text()).toContain("全部可见任务");
+  const metrics = wrapper.findAll(".metric");
+  expect(
+    metrics
+      .find((m) => m.text().includes("任务进行中"))!
+      .get("strong")
+      .text(),
+  ).toContain("27");
+  expect(
+    metrics
+      .find((m) => m.text().includes("任务待核对"))!
+      .get("strong")
+      .text(),
+  ).toContain("6");
+  expect(request.mock.calls.some(([p]) => p === "/tasks")).toBe(false);
+  request.mockClear();
+  await vi.advanceTimersByTimeAsync(10000);
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith("/tasks/summary");
+  expect(request.mock.calls.some(([p]) => p === "/tasks")).toBe(false);
 });

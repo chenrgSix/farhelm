@@ -60,6 +60,7 @@ async function setup(extra: (path: string) => unknown = () => undefined) {
         },
       };
     }
+    if (path === "/tasks/summary") return { v: 1, active: 0, unknown: 0 };
     if (path === "/tasks") return { tasks: [] };
     if (path === "/device-groups") return { device_groups: [] };
     throw new Error(`Unexpected request: ${path}`);
