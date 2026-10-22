@@ -38,6 +38,7 @@ import { auditContext, auditText } from "./audit-context.js";
 import { deployment } from "./deployment.js";
 import { WebListener, isWebRequest, type WebBinding } from "./web-listener.js";
 import { localAdminServer } from "./local-admin.js";
+import { deviceListPage } from "./device-list.js";
 import { historyPage } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
 import { registerAccessControl } from "./access-control.js";
@@ -1329,7 +1330,7 @@ export async function buildServer(config: ServerConfig) {
       };
     });
   });
-  function deviceViews(user: User, deviceId?: string) {
+  function deviceViews(user: User, deviceId?: string, pageIds?: string[]) {
     // Apply visibility before loading related data; credentials never enter this projection.
     const rows = db
       .prepare(
@@ -1339,12 +1340,13 @@ export async function buildServer(config: ServerConfig) {
       FROM devices d LEFT JOIN device_connections c ON c.device_id=d.id
       LEFT JOIN agent_network n ON n.device_id=d.id
       LEFT JOIN device_disks disk ON disk.device_id=d.id
-      WHERE (? OR d.id IN (SELECT value FROM json_each(?))) ${deviceId === undefined ? "" : "AND d.id=?"} ORDER BY d.created_at,d.id`,
+      WHERE (? OR d.id IN (SELECT value FROM json_each(?))) ${deviceId === undefined ? "" : "AND d.id=?"} ${pageIds === undefined ? "" : "AND d.id IN (SELECT value FROM json_each(?))"} ORDER BY d.created_at,d.id`,
       )
       .all(
         Number(user.role === "admin" || user.device_scope === "*"),
         JSON.stringify(user.device_scope === "*" ? [] : user.device_scope),
         ...(deviceId === undefined ? [] : [deviceId]),
+        ...(pageIds === undefined ? [] : [JSON.stringify(pageIds)]),
       ) as any[];
     const ids = rows.map((row) => row.id as string),
       encoded = JSON.stringify(ids);
@@ -1459,10 +1461,15 @@ export async function buildServer(config: ServerConfig) {
     });
     return devices;
   }
-  app.get("/api/v1/devices", async (req) => ({
-    v: 1,
-    devices: deviceViews(permitted(req, "devices.read")),
-  }));
+  app.get("/api/v1/devices", async (req) => {
+    const user = permitted(req, "devices.read");
+    const result = deviceListPage(db, user, req.query);
+    return {
+      v: 1,
+      devices: deviceViews(user, undefined, result?.ids),
+      ...(result ? { page: result.page } : {}),
+    };
+  });
   app.get("/api/v1/devices/:id", async (req) => {
     const user = permitted(req, "devices.read");
     const id = str((req.params as any).id, 1, 128);

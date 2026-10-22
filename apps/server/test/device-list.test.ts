@@ -81,6 +81,77 @@ test("device list batches reads, preserves route/SSH projections and immediately
       `Expected bounded batched SQL reads; got ${queries}`,
     );
     assert.ok(!response.body.includes("never-expose-this"));
+    const full = response.json().devices;
+    async function page(query: string, headers = admin) {
+      const r = await server.app.inject({
+        url: `/api/v1/devices?${query}`,
+        headers,
+      });
+      assert.equal(r.statusCode, 200, r.body);
+      assertValid("devices-response", r.json());
+      return r.json();
+    }
+    const firstPage = await page("page=1&limit=50");
+    assert.deepEqual(firstPage.devices, full.slice(0, 50));
+    assert.deepEqual(firstPage.page, {
+      number: 1,
+      limit: 50,
+      total: 500,
+      pages: 10,
+      visible_total: 500,
+      groups: [{ id: "group", name: "Test group" }],
+    });
+    const secondPage = await page("page=2&limit=50");
+    assert.deepEqual(secondPage.devices, full.slice(50, 100));
+    assert.deepEqual(
+      (await page("page=999&limit=50")).devices,
+      full.slice(450),
+    );
+    assert.equal((await page("q=no-such-device&page=99")).page.number, 1);
+    assert.equal((await page("q=no-such-device")).page.total, 0);
+    for (const q of ["DEVICE-0", "192.168.1.10", "test group"])
+      assert.deepEqual(
+        (await page(`q=${encodeURIComponent(q)}`)).devices.map(
+          (d: any) => d.id,
+        ),
+        ["device-0"],
+      );
+    assert.equal((await page("q=%25")).page.total, 0);
+    assert.equal((await page("q=%27%20OR%201%3D1--")).page.total, 0);
+    assert.equal((await page("group=group&q=device-1")).page.total, 0);
+    assert.equal((await page("group=__ungrouped__")).page.total, 499);
+    assert.equal((await page("group=missing")).page.total, 0);
+    const scopedPage = await page("page=2&limit=25", limited);
+    assert.equal(scopedPage.page.visible_total, 1);
+    assert.equal(scopedPage.page.total, 1);
+    assert.equal(scopedPage.page.number, 1);
+    assert.deepEqual(
+      scopedPage.devices.map((d: any) => d.id),
+      ["device-0"],
+    );
+    assert.equal((await page("q=device-1", limited)).page.total, 0);
+    for (const invalid of [
+      "page=0",
+      "page=-1",
+      "page=1.5",
+      "page=9007199254740992",
+      "limit=101",
+      "limit=0",
+      "page=1&page=2",
+      "q=" + "x".repeat(257),
+      "group=" + "x".repeat(129),
+      "unknown=1",
+    ])
+      assert.equal(
+        (
+          await server.app.inject({
+            url: `/api/v1/devices?${invalid}`,
+            headers: admin,
+          })
+        ).statusCode,
+        400,
+        invalid,
+      );
     const first = response.json().devices[0];
     assert.equal(first.terminal_backend, "ssh");
     assert.equal(first.ssh_status, "connected");
@@ -148,6 +219,28 @@ test("device list batches reads, preserves route/SSH projections and immediately
       ).statusCode,
       403,
     );
+    const newScope = await page("page=1", limited);
+    assert.equal(newScope.page.total, 1);
+    assert.deepEqual(newScope.page.groups, []);
+    assert.deepEqual(
+      newScope.devices.map((d: any) => d.id),
+      ["device-1"],
+    );
+    db.prepare("UPDATE devices SET created_at=1").run();
+    const tied = (
+      await server.app.inject({ url: "/api/v1/devices", headers: admin })
+    ).json().devices;
+    assert.deepEqual(
+      (await page("page=2&limit=100")).devices,
+      tied.slice(100, 200),
+    );
+    db.prepare("UPDATE devices SET name='literal_%' WHERE id='device-1'").run();
+    assert.equal((await page("q=literal_%25")).page.total, 1);
+    db.prepare(
+      "UPDATE devices SET agent_version='UniqueVersion' WHERE id='device-1'",
+    ).run();
+    assert.equal((await page("q=uniqueversion")).page.total, 1);
+
     db.prepare(
       "UPDATE device_connections SET config_json='{}' WHERE device_id='device-0'",
     ).run();

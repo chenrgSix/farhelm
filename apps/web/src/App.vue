@@ -26,6 +26,7 @@ import HistoryFilters from "./components/HistoryFilters.vue";
 import type {
   AuditEntry,
   Device,
+  DevicePage,
   Task,
   User,
   TerminalSession,
@@ -100,6 +101,25 @@ const view = ref<View>(initialRoute?.view ?? "devices");
 let navigationReady = false;
 const closingSession = ref<string | null>(null);
 const deviceList = useListResource<Device>("/devices", "devices");
+const devicePageNumber = ref(1);
+const devicePageLimit = ref(50);
+const appliedDeviceSearch = ref("");
+const deviceGroupOptions = ref<DevicePage["groups"]>([]);
+const pagedDevices = useListResource<Device, DevicePage>(() => {
+  const params = new URLSearchParams({
+    page: String(devicePageNumber.value),
+    limit: String(devicePageLimit.value),
+  });
+  if (appliedDeviceSearch.value) params.set("q", appliedDeviceSearch.value);
+  if (deviceGroupFilter.value) params.set("group", deviceGroupFilter.value);
+  return `/devices?${params}`;
+}, "devices");
+watch(pagedDevices.page, (page) => {
+  if (page) {
+    devicePageNumber.value = page.number;
+    deviceGroupOptions.value = page.groups;
+  }
+});
 const overviewTaskList = useListResource<Task>("/tasks", "tasks");
 const taskHistory = useHistoryList<Task>("/tasks", "tasks");
 const auditHistory = useHistoryList<AuditEntry>("/audit", "audit");
@@ -136,12 +156,16 @@ const historyState = computed(() => ({
 function applyHistoryFilters(filters: HistoryCriteria) {
   currentHistory.value?.apply(filters);
 }
-const devices = deviceList.items;
+const devices = computed(() =>
+  deviceList.updatedAt.value
+    ? deviceList.items.value
+    : pagedDevices.items.value,
+);
 const tasks = taskList.items;
 const audit = auditList.items;
 const terminalSessions = sessionList.items;
 const lists = {
-  devices: deviceList,
+  devices: pagedDevices,
   tasks: taskList,
   audit: auditList,
   terminals: sessionList,
@@ -163,8 +187,8 @@ const refreshing = computed(
 const apiReady = computed(
   () =>
     !sessionError.value &&
-    !!deviceList.updatedAt.value &&
-    !deviceList.error.value,
+    !!pagedDevices.updatedAt.value &&
+    !pagedDevices.error.value,
 );
 const currentReady = computed(
   () =>
@@ -179,7 +203,7 @@ const lastUpdated = computed(
     (currentList.value ? null : sessionUpdatedAt.value),
 );
 const listError = computed(() => currentList.value?.error.value ?? "");
-const deviceError = deviceList.error;
+const deviceError = pagedDevices.error;
 const taskError = overviewTaskList.error;
 const tasksReady = computed(
   () =>
@@ -258,21 +282,33 @@ const titles = {
   settings: ["系统设置", "查看平台运行方式，管理接入与证书设置"],
   upgrades: ["Agent 升级", "批量更新，跟踪每台设备的真实升级结果"],
 };
-const filteredDevices = computed(() =>
-  devices.value.filter((d) => {
-    const groupMatches =
-      !deviceGroupFilter.value ||
-      (deviceGroupFilter.value === "__ungrouped__"
-        ? !d.device_groups?.length
-        : d.device_groups?.some((g) => g.id === deviceGroupFilter.value));
-    return (
-      groupMatches &&
-      `${d.name} ${d.id} ${d.device_groups?.map((g) => g.name).join(" ") ?? ""} ${d.agent_version ?? ""} ${(d.ip_addresses ?? []).join(" ")}`
-        .toLowerCase()
-        .includes(search.value.toLowerCase())
-    );
-  }),
-);
+let deviceSearchTimer: ReturnType<typeof setTimeout> | undefined;
+function applyDeviceFilters() {
+  clearTimeout(deviceSearchTimer);
+  appliedDeviceSearch.value = search.value.trim();
+  devicePageNumber.value = 1;
+  pagedDevices.reset();
+  if (
+    user.value &&
+    !user.value.must_change_password &&
+    view.value === "devices" &&
+    !detailDeviceId.value &&
+    hasPermission(user.value, "devices.read")
+  )
+    void pagedDevices.load();
+}
+watch(search, () => {
+  clearTimeout(deviceSearchTimer);
+  deviceSearchTimer = setTimeout(applyDeviceFilters, 300);
+});
+watch([deviceGroupFilter, devicePageLimit], applyDeviceFilters);
+function changeDevicePage(number: number) {
+  if (pagedDevices.loading.value) return;
+  devicePageNumber.value = number;
+  pagedDevices.reset();
+  void pagedDevices.load();
+}
+const filteredDevices = pagedDevices.items;
 const visibleDeviceIds = computed(() => filteredDevices.value.map((d) => d.id));
 const allVisibleSelected = computed(
   () =>
@@ -290,13 +326,16 @@ function toggleVisibleDevices(selected: boolean) {
       );
 }
 function refreshDeviceTags() {
-  void deviceList.load();
+  deviceList.reset();
+  void pagedDevices.load();
 }
 const filteredTasks = tasks;
 const filteredAudit = audit;
 const filteredSessions = terminalSessions;
 const onlineCount = computed(
-  () => devices.value.filter((d) => d.control_online && !d.revoked_at).length,
+  () =>
+    filteredDevices.value.filter((d) => d.control_online && !d.revoked_at)
+      .length,
 );
 const activeCount = computed(
   () =>
@@ -342,6 +381,11 @@ function clearSession(message = "", preserveSaved = false) {
   view.value = "devices";
   password.value = "";
   for (const list of Object.values(lists)) list.reset();
+  deviceList.reset();
+  devicePageNumber.value = 1;
+  appliedDeviceSearch.value = "";
+  clearTimeout(deviceSearchTimer);
+  deviceGroupOptions.value = [];
   overviewTaskList.reset();
   detailResource.reset();
   taskHistory.reset();
@@ -519,7 +563,7 @@ function refreshTargets(poll = false) {
       (!detailDeviceId.value ||
         hasPermission(user.value, "devices.read", detailDeviceId.value))
     )
-      targets.push(detailDeviceId.value ? detailResource : deviceList);
+      targets.push(detailDeviceId.value ? detailResource : pagedDevices);
     else if (
       ["tasks", "audit", "terminals", "access", "api"].includes(view.value) &&
       (!poll || !deviceList.updatedAt.value)
@@ -561,6 +605,10 @@ function refreshUser() {
         ]);
       if (scopeChanged) {
         deviceList.reset();
+        pagedDevices.reset();
+        devicePageNumber.value = 1;
+        deviceGroupOptions.value = [];
+        selectedDeviceIds.value = [];
         detailResource.reset();
       }
       user.value = freshUser;
@@ -612,9 +660,6 @@ async function refresh(poll = false) {
     return;
   await Promise.all(refreshTargets(poll === true).map((list) => list.load()));
   if (generation === sessionGeneration) {
-    selectedDeviceIds.value = selectedDeviceIds.value.filter((id) =>
-      devices.value.some((d) => d.id === id),
-    );
     if (view.value === "tasks" && selectedTask.value && !loadingTask.value)
       await selectTask(selectedTask.value.task_id, true);
   }
@@ -639,6 +684,7 @@ async function selectTask(id: string, quiet = false) {
 }
 function openExec(id = "") {
   execDevice.value = id;
+  if (!detailDeviceId.value) void deviceList.load();
   execOpen.value = true;
 }
 async function onCreated(id: string) {
@@ -756,6 +802,7 @@ function deviceName(id: string) {
   return devices.value.find((d) => d.id === id)?.name ?? id;
 }
 onBeforeUnmount(() => {
+  clearTimeout(deviceSearchTimer);
   window.removeEventListener("popstate", restoreRoute);
   window.removeEventListener("hashchange", restoreRoute);
   clearSession("", true);
@@ -1026,12 +1073,17 @@ onBeforeUnmount(() => {
           <div class="metric">
             <span>授权范围内设备</span
             ><strong
-              >{{ lastUpdated ? devices.length : "—" }}<small>台</small></strong
+              >{{
+                lastUpdated
+                  ? (pagedDevices.page.value?.visible_total ??
+                    filteredDevices.length)
+                  : "—"
+              }}<small>台</small></strong
             >
             <p>来自已认证的设备清单</p>
           </div>
           <div class="metric">
-            <span><span class="dot green"></span>Agent 在线</span
+            <span><span class="dot green"></span>本页 Agent 在线</span
             ><strong
               >{{ apiReady ? onlineCount : "—" }}<small>台</small></strong
             >
@@ -1178,7 +1230,8 @@ onBeforeUnmount(() => {
                             : "审计记录"
                     }}<span class="count">{{
                       view === "devices"
-                        ? devices.length
+                        ? (pagedDevices.page.value?.total ??
+                          filteredDevices.length)
                         : view === "tasks"
                           ? tasks.length
                           : view === "terminals"
@@ -1223,7 +1276,17 @@ onBeforeUnmount(() => {
               />
               <div v-if="view === 'devices'" class="device-list-filters">
                 <DeviceGroupTools
-                  :devices="devices"
+                  :key="
+                    user.id +
+                    JSON.stringify([
+                      user.role,
+                      user.device_scope,
+                      user.permissions,
+                    ])
+                  "
+                  :devices="filteredDevices"
+                  :group-options="deviceGroupOptions"
+                  paged
                   :admin="user.role === 'admin'"
                   v-model:filter="deviceGroupFilter"
                   v-model:selected-ids="selectedDeviceIds"
@@ -1235,7 +1298,9 @@ onBeforeUnmount(() => {
                   ><input
                     v-model="search"
                     type="search"
-                    placeholder="搜索设备名称或 ID"
+                    placeholder="搜索名称、ID、IP、版本或组名"
+                    maxlength="256"
+                    @keydown.enter="applyDeviceFilters"
                     aria-label="筛选当前列表"
                 /></label>
               </div>
@@ -1288,7 +1353,7 @@ onBeforeUnmount(() => {
                           ($event.target as HTMLInputElement).checked,
                         )
                       "
-                    />选择当前筛选的全部设备
+                    />选择当前页设备
                   </label>
                   <table
                     class="device-table"
@@ -1302,7 +1367,7 @@ onBeforeUnmount(() => {
                         >
                           <input
                             type="checkbox"
-                            aria-label="选择当前筛选的全部设备"
+                            aria-label="选择当前页设备"
                             :checked="allVisibleSelected"
                             :indeterminate="
                               someVisibleSelected && !allVisibleSelected
@@ -1852,6 +1917,56 @@ onBeforeUnmount(() => {
                     </button>
                   </div>
                 </template>
+                <template v-else-if="view === 'devices'">
+                  <span role="status"
+                    >第 {{ devicePageNumber }} /
+                    {{ pagedDevices.page.value?.pages ?? devicePageNumber }} 页
+                    · 共
+                    {{
+                      pagedDevices.page.value?.total ?? filteredDevices.length
+                    }}
+                    台 · 已选 {{ selectedDeviceIds.length }} 台</span
+                  >
+                  <div class="history-pagination" aria-label="设备分页">
+                    <label
+                      >每页
+                      <select v-model="devicePageLimit" aria-label="每页设备数">
+                        <option :value="25">25 台</option>
+                        <option :value="50">50 台</option>
+                        <option :value="100">100 台</option>
+                      </select></label
+                    >
+                    <button
+                      class="button secondary small"
+                      :disabled="
+                        pagedDevices.loading.value || devicePageNumber === 1
+                      "
+                      @click="changeDevicePage(1)"
+                    >
+                      首页
+                    </button>
+                    <button
+                      class="button secondary small"
+                      :disabled="
+                        pagedDevices.loading.value || devicePageNumber === 1
+                      "
+                      @click="changeDevicePage(devicePageNumber - 1)"
+                    >
+                      上一页
+                    </button>
+                    <button
+                      class="button secondary small"
+                      :disabled="
+                        pagedDevices.loading.value ||
+                        !pagedDevices.page.value ||
+                        devicePageNumber >= pagedDevices.page.value.pages
+                      "
+                      @click="changeDevicePage(devicePageNumber + 1)"
+                    >
+                      下一页
+                    </button>
+                  </div>
+                </template>
                 <span v-else>仅显示当前账号可见设备</span
                 ><span
                   >10 秒自动刷新 ·
@@ -2108,6 +2223,18 @@ onBeforeUnmount(() => {
 }
 .mobile-device-selection {
   display: none;
+}
+.history-pagination label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.history-pagination select {
+  width: auto;
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 8px;
 }
 .history-pagination {
   display: flex;

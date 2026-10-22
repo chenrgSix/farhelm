@@ -312,6 +312,18 @@ const device = {
 };
 fixture("device", "device", device);
 fixture("devices-response", "devices-response", { v: 1, devices: [device] });
+fixture("devices-paged", "devices-response", {
+  v: 1,
+  devices: [],
+  page: {
+    number: 1,
+    limit: 50,
+    total: 0,
+    pages: 1,
+    visible_total: 100,
+    groups: [{ id: "group-1", name: "生产" }],
+  },
+});
 const detail = {
   ...task,
   status: "SUCCEEDED",

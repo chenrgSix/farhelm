@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type { HistoryPage } from "../api/types";
 
 /** Each list keeps its own last successful data and refresh status. */
-export function useListResource<T>(
+export function useListResource<T, P = HistoryPage>(
   path: string | (() => string),
   field: string,
 ) {
@@ -11,7 +11,7 @@ export function useListResource<T>(
   const loading = ref(false);
   const error = ref("");
   const updatedAt = ref<number | null>(null);
-  const page = shallowRef<HistoryPage | null>(null);
+  const page = shallowRef<P | null>(null);
   let generation = 0;
   let pending = false;
   let running: Promise<void> | undefined;
@@ -39,7 +39,7 @@ export function useListResource<T>(
         pending = false;
         try {
           const response = await api.request<
-            Record<string, T[]> & { page?: HistoryPage }
+            Record<string, T[]> & { page?: P }
           >(typeof path === "function" ? path() : path);
           if (current !== generation) return;
           if (!Array.isArray(response[field]))

@@ -404,3 +404,12 @@ export interface AccessManagement {
   device_groups: ManagedDeviceGroup[];
   permissions: { id: Permission; label: string; description: string }[];
 }
+
+export interface DevicePage {
+  number: number;
+  limit: number;
+  total: number;
+  pages: number;
+  visible_total: number;
+  groups: { id: string; name: string }[];
+}

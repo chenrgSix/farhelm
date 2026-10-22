@@ -4,6 +4,8 @@ import { api } from "../api/client";
 import type { Device, ManagedDeviceGroup } from "../api/types";
 const props = defineProps<{
   devices: Device[];
+  paged?: boolean;
+  groupOptions?: { id: string; name: string }[];
   admin: boolean;
   selectedIds: string[];
   visibleIds: string[];
@@ -14,6 +16,9 @@ const emit = defineEmits<{
   "update:selectedIds": [value: string[]];
   changed: [];
 }>();
+const editorDevices = ref<Device[]>([]);
+const choicesLoading = ref(false);
+const choicesFailed = ref(false);
 const groups = ref<ManagedDeviceGroup[]>([]),
   loading = ref(false),
   saving = ref(false),
@@ -26,10 +31,12 @@ const targets = ref<string[]>([]),
   tagIds = ref<string[]>([]),
   formError = ref(""),
   uncertain = ref(false);
+let editorGeneration = 0;
 let disposed = false,
   reloadPending = false;
 const options = computed(() => {
   const values = new Map<string, string>();
+  for (const g of props.groupOptions ?? []) values.set(g.id, g.name);
   for (const d of props.devices)
     for (const g of d.device_groups ?? []) values.set(g.id, g.name);
   if (props.admin) for (const g of groups.value) values.set(g.id, g.name);
@@ -80,17 +87,24 @@ async function load() {
 }
 function dismiss() {
   if (!saving.value) {
+    editorGeneration++;
+    choicesLoading.value = false;
+    choicesFailed.value = false;
     mode.value = null;
     formError.value = "";
   }
 }
 async function manage() {
+  editorGeneration++;
+  choicesLoading.value = false;
+  choicesFailed.value = false;
   mode.value = "manage";
   formError.value = "";
   await load();
 }
-function edit(item?: ManagedDeviceGroup) {
+async function edit(item?: ManagedDeviceGroup) {
   if (saving.value || loading.value) return;
+  const generation = ++editorGeneration;
   editing.value = item;
   draft.value = {
     name: item?.name ?? "",
@@ -100,9 +114,31 @@ function edit(item?: ManagedDeviceGroup) {
   formError.value = "";
   uncertain.value = false;
   mode.value = item ? "edit" : "create";
+  editorDevices.value = props.devices;
+  choicesFailed.value = false;
+  if (props.paged) {
+    choicesLoading.value = true;
+    try {
+      const response = await api.request<{ devices: Device[] }>("/devices");
+      if (!Array.isArray(response.devices)) throw new Error("设备列表格式错误");
+      if (!disposed && generation === editorGeneration)
+        editorDevices.value = response.devices;
+    } catch (e) {
+      if (!disposed && generation === editorGeneration) {
+        choicesFailed.value = true;
+        formError.value = e instanceof Error ? e.message : "读取设备失败";
+      }
+    } finally {
+      if (!disposed && generation === editorGeneration)
+        choicesLoading.value = false;
+    }
+  }
 }
 async function batch(operation: "add" | "remove") {
   if (!props.selectedIds.length) return;
+  editorGeneration++;
+  choicesLoading.value = false;
+  choicesFailed.value = false;
   targets.value = [...props.selectedIds];
   tagIds.value = [];
   formError.value = "";
@@ -111,7 +147,14 @@ async function batch(operation: "add" | "remove") {
   await load();
 }
 async function save() {
-  if (saving.value || loading.value || uncertain.value) return;
+  if (
+    saving.value ||
+    loading.value ||
+    uncertain.value ||
+    choicesLoading.value ||
+    choicesFailed.value
+  )
+    return;
   const kind = mode.value;
   if (
     kind !== "create" &&
@@ -212,9 +255,9 @@ async function remove(group: ManagedDeviceGroup) {
   }
 }
 watch(
-  () => props.devices,
+  () => props.admin,
   () => {
-    void load();
+    if (!props.paged) void load();
   },
   { immediate: true },
 );
@@ -246,7 +289,7 @@ onBeforeUnmount(() => {
       <template v-if="admin && selectedIds.length">
         <span class="selected-count"
           >已选 {{ selectedIds.length }} 台<span v-if="hiddenCount"
-            >（{{ hiddenCount }} 台在当前筛选外）</span
+            >（{{ hiddenCount }} 台不在当前页）</span
           ></span
         >
         <button
@@ -361,7 +404,16 @@ onBeforeUnmount(() => {
             </p>
           </template>
           <form v-else @submit.prevent="save">
-            <fieldset :disabled="saving || loading || uncertain">
+            <p v-if="choicesLoading" role="status">正在读取完整设备列表…</p>
+            <fieldset
+              :disabled="
+                saving ||
+                loading ||
+                uncertain ||
+                choicesLoading ||
+                choicesFailed
+              "
+            >
               <template v-if="mode === 'create' || mode === 'edit'">
                 <label
                   >设备组名称<input
@@ -379,7 +431,7 @@ onBeforeUnmount(() => {
                   <legend>组内设备（可不选）</legend>
                   <div class="tag-device-list">
                     <label
-                      v-for="device in devices"
+                      v-for="device in editorDevices"
                       :key="device.id"
                       class="tag-check"
                       ><input
@@ -390,14 +442,17 @@ onBeforeUnmount(() => {
                       />{{ device.name }}</label
                     >
                   </div>
-                  <p v-if="!devices.length" class="field-hint">
+                  <p
+                    v-if="!editorDevices.length && !choicesLoading"
+                    class="field-hint"
+                  >
                     当前没有设备，可先创建空设备组。
                   </p>
                 </fieldset>
               </template>
               <template v-else>
                 <p>
-                  对已选的 {{ targets.length }} 台设备{{
+                  对跨页已选的全部 {{ targets.length }} 台设备{{
                     mode === "add" ? "添加" : "移除"
                   }}以下标签：
                 </p>
@@ -434,6 +489,8 @@ onBeforeUnmount(() => {
                 type="submit"
                 :disabled="
                   saving ||
+                  choicesLoading ||
+                  choicesFailed ||
                   loading ||
                   uncertain ||
                   ((mode === 'add' || mode === 'remove') &&
@@ -454,9 +511,7 @@ onBeforeUnmount(() => {
                 type="button"
                 :disabled="saving"
                 @click="
-                  mode === 'create' || mode === 'edit'
-                    ? (mode = 'manage')
-                    : dismiss()
+                  mode === 'create' || mode === 'edit' ? manage() : dismiss()
                 "
               >
                 取消

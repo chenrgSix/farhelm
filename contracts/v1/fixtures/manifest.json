@@ -1893,5 +1893,10 @@
     "path": "invalid/disk-unknown-command.json",
     "schema": "agent-disk-envelope.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/devices-paged.json",
+    "schema": "devices-response.schema.json",
+    "valid": true
   }
 ]

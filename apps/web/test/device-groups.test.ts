@@ -72,7 +72,7 @@ it("filter is available to readers without fetching privileged groups or exposin
 });
 it("batch requests use a frozen selection across filters, preserve selection afterwards and never replace all group members", async () => {
   const { wrapper, request } = await setup();
-  expect(wrapper.text()).toContain("1 台在当前筛选外");
+  expect(wrapper.text()).toContain("1 台不在当前页");
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "添加标签")!

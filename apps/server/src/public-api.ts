@@ -302,6 +302,37 @@ export function openApiDocument() {
           ? { type: "string", enum: ["stdout", "stderr"] }
           : { type: "string" },
     }));
+    if (op.path === "/devices" && op.method === "GET") {
+      for (const [name, schema, description] of [
+        [
+          "page",
+          { type: "integer", minimum: 1 },
+          "页码，从 1 开始；超出末页时返回末页。传入任意查询参数即启用分页。",
+        ],
+        [
+          "limit",
+          { type: "integer", minimum: 1, maximum: 100, default: 50 },
+          "每页设备数；无查询参数时保留完整列表。",
+        ],
+        [
+          "q",
+          { type: "string", maxLength: 256 },
+          "搜索名称、ID、Agent 版本、IP 或组名（字面包含匹配）。",
+        ],
+        [
+          "group",
+          { type: "string", maxLength: 128 },
+          "设备组 ID；__ungrouped__ 表示未分组。",
+        ],
+      ])
+        parameters.push({
+          name,
+          in: "query",
+          required: false,
+          schema,
+          description,
+        });
+    }
     if (op.history)
       for (const name of [
         "limit",

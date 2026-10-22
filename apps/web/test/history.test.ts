@@ -41,7 +41,7 @@ async function setup(
   const request = vi.spyOn(api, "request").mockImplementation(async (path) => {
     if (path === "/login") return { access_token: "test", user };
     if (path === "/me") return user;
-    if (path === "/devices") return { devices: [] };
+    if (path.split("?")[0] === "/devices") return { devices: [] };
     if (path === "/tasks") return { tasks: [] };
     if (path.startsWith("/tasks?"))
       return history(new URLSearchParams(path.split("?")[1]));
