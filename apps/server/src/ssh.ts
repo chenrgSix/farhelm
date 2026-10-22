@@ -21,7 +21,7 @@ interface Dependencies {
     password: string,
     target: string | undefined,
     ip: string,
-  ): SshLogin;
+  ): SshLogin | Promise<SshLogin>;
   currentUser(login: SshLogin): User;
   devices(login: SshLogin, page: number): SshDevicePage;
   accounts?(login: SshLogin, deviceId: string): { id: string; name: string }[];
@@ -108,15 +108,18 @@ export function createSshGateway(
     )!;
     let login: SshLogin | undefined;
     let attempts = 0;
+    let authenticating = false;
+    let closed = false;
     let used = false;
     let handle: ReturnType<Dependencies["terminals"]["openSsh"]> | undefined;
     connection.on("error", () => socket.destroy());
     connection.on("close", () => {
+      closed = true;
       handle?.disconnect();
       if (login) d.release(login.sessionHash);
     });
-    connection.on("authentication", (ctx) => {
-      if (++attempts > 6 || login) {
+    connection.on("authentication", async (ctx) => {
+      if (++attempts > 6 || login || authenticating) {
         ctx.reject();
         socket.destroy();
         return;
@@ -125,11 +128,12 @@ export function createSshGateway(
         ctx.reject(["password"]);
         return;
       }
+      authenticating = true;
       try {
         const composite = str(ctx.username, 1, 257);
         const separator = composite.lastIndexOf(":");
         if (separator === 0) throw new Error("Username required");
-        login = auditContext.run(
+        const authenticated = await auditContext.run(
           { source: "ssh", remote_address: auditText(info.ip, 128) },
           () =>
             d.authenticate(
@@ -139,10 +143,17 @@ export function createSshGateway(
               info.ip,
             ),
         );
+        if (closed || socket.destroyed) {
+          d.release(authenticated.sessionHash);
+          return;
+        }
+        login = authenticated;
         deadline(socket, 30000); // Authenticated clients must open a shell promptly.
         ctx.accept();
       } catch {
-        ctx.reject(["password"]);
+        if (!closed && !socket.destroyed) ctx.reject(["password"]);
+      } finally {
+        authenticating = false;
       }
     });
     // Explicitly deny all paths that could bypass the PTY audit/authorization flow.

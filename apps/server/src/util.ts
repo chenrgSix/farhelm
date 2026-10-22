@@ -2,6 +2,7 @@ import {
   createHash,
   randomBytes,
   scryptSync,
+  scrypt,
   timingSafeEqual,
 } from "node:crypto";
 export class ApiError extends Error {
@@ -60,6 +61,45 @@ export function passwordVerify(password: string, encoded: string) {
     r: 8,
     p: 1,
   });
+  const expected = Buffer.from(key, "hex");
+  return (
+    expected.length === computed.length && timingSafeEqual(expected, computed)
+  );
+}
+// Bound both worker-pool use and queued password material. Startup seeding stays synchronous.
+let passwordWorkers = 0;
+const passwordQueue: (() => void)[] = [];
+function derivePassword(password: string, salt: Buffer): Promise<Buffer> {
+  if (passwordWorkers >= 2 && passwordQueue.length >= 16)
+    return Promise.reject(new ApiError(429, "PASSWORD_AUTH_BUSY"));
+  return new Promise((resolve, reject) => {
+    const start = () => {
+      passwordWorkers++;
+      const done = (error: Error | null, key?: Buffer) => {
+        passwordWorkers--;
+        passwordQueue.shift()?.();
+        if (error) reject(error);
+        else resolve(key!);
+      };
+      try {
+        scrypt(password, salt, 32, { N: 16384, r: 8, p: 1 }, done);
+      } catch (error) {
+        done(error as Error);
+      }
+    };
+    if (passwordWorkers < 2) start();
+    else passwordQueue.push(start);
+  });
+}
+export async function passwordHashAsync(password: string) {
+  const salt = randomBytes(16);
+  const key = await derivePassword(password, salt);
+  return "scrypt$16384$" + salt.toString("hex") + "$" + key.toString("hex");
+}
+export async function passwordVerifyAsync(password: string, encoded: string) {
+  const [alg, n, salt, key] = encoded.split("$");
+  if (alg !== "scrypt" || n !== "16384" || !salt || !key) return false;
+  const computed = await derivePassword(password, Buffer.from(salt, "hex"));
   const expected = Buffer.from(key, "hex");
   return (
     expected.length === computed.length && timingSafeEqual(expected, computed)

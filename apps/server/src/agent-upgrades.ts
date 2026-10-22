@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readVerifiedFile } from "./verified-file.js";
 import { join } from "node:path";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
@@ -353,6 +353,7 @@ export function registerAgentUpgrades(
     tick();
     return { v: 1, batch_id: id };
   });
+  const downloads = new Set<object>();
   app.get<{ Params: { id: string } }>(
     "/api/agent/upgrades/:id/package",
     async (req, reply) => {
@@ -364,10 +365,24 @@ export function registerAgentUpgrades(
           .get(req.params.id, device.id) as Job | undefined;
       if (!job || Date.now() - job.created_at > 86400000)
         fail(404, "UPGRADE_NOT_FOUND");
-      const bytes = readFileSync(join(dir, job.sha256));
-      if (bytes.length !== job.size || hash(bytes) !== job.sha256)
-        fail(409, "AGENT_PACKAGE_CHANGED");
-      return reply.type("application/octet-stream").send(bytes);
+      // Bound retained buffers through the end of the response, including slow clients.
+      if (downloads.size >= 2) fail(429, "AGENT_DOWNLOAD_BUSY");
+      downloads.add(reply);
+      const release = () => downloads.delete(reply);
+      reply.raw.once("finish", release);
+      reply.raw.once("close", release);
+      try {
+        const bytes = await readVerifiedFile(
+          join(dir, job.sha256),
+          job.size,
+          job.sha256,
+        );
+        d.deviceAuth(req); // Revocation/token expiry may occur during asynchronous I/O.
+        return reply.type("application/octet-stream").send(bytes);
+      } catch (error) {
+        release();
+        throw error;
+      }
     },
   );
   return { tick, remember, result, active };

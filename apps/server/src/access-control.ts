@@ -10,8 +10,8 @@ import {
   keys,
   object,
   accountPassword,
-  passwordHash,
-  passwordVerify,
+  passwordHashAsync,
+  passwordVerifyAsync,
   str,
   version,
   type RateLimiter,
@@ -392,8 +392,13 @@ export function registerAccessControl(
         .map(deviceGroupView),
     };
   });
-  app.post("/api/v1/users", async (req) =>
-    mutate(req, "access.user_created", () => {
+  app.post("/api/v1/users", async (req) => {
+    d.admin(req);
+    d.rate.check("password-hash-global", 100);
+    const password = await passwordHashAsync(
+      accountPassword(object(req.body).password),
+    );
+    return mutate(req, "access.user_created", () => {
       const b = object(req.body);
       keys(b, [
         "v",
@@ -418,8 +423,7 @@ export function registerAccessControl(
       };
       unique("users", "username", input.username);
       limit("users", 1000);
-      const password = passwordHash(accountPassword(b.password)),
-        userId = randomUUID();
+      const userId = randomUUID();
       db.prepare(
         "INSERT INTO users(id,username,password_hash,role,device_scope,created_at,enabled,must_change_password) VALUES(?,?,?,'business',?,?,?,?)",
       ).run(
@@ -439,8 +443,8 @@ export function registerAccessControl(
         changes: input,
         result: { v: 1, user: userView(row("users", userId)) },
       };
-    }),
-  );
+    });
+  });
   app.put("/api/v1/users/:id", async (req) =>
     mutate(req, "access.user_updated", () => {
       const b = object(req.body);
@@ -489,14 +493,21 @@ export function registerAccessControl(
     d.rate.check("password-change-user:" + actor.id, 5);
     d.availableStorage();
     const current = row("users", actor.id);
-    if (!passwordVerify(currentPassword, current.password_hash)) {
+    if (!(await passwordVerifyAsync(currentPassword, current.password_hash))) {
       d.store.audit("user.password_change_failed", actor.id, null, null);
       // An incorrect current password does not invalidate the authenticated session.
       fail(400, "CURRENT_PASSWORD_INCORRECT");
     }
     if (currentPassword === newPassword) fail(400, "PASSWORD_UNCHANGED");
-    const encoded = passwordHash(newPassword);
+    const encoded = await passwordHashAsync(newPassword);
+    d.passwordAuth(req);
     d.store.transaction(() => {
+      const fresh = row("users", actor.id);
+      if (
+        fresh.password_hash !== current.password_hash ||
+        fresh.revision !== current.revision
+      )
+        fail(409, "REVISION_CONFLICT");
       db.prepare(
         "UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?",
       ).run(encoded, actor.id);
@@ -512,15 +523,19 @@ export function registerAccessControl(
     d.changed();
     return { v: 1, ok: true };
   });
-  app.post("/api/v1/users/:id/password", async (req) =>
-    mutate(req, "access.password_reset", () => {
+  app.post("/api/v1/users/:id/password", async (req) => {
+    d.admin(req);
+    d.rate.check("password-hash-global", 100);
+    const password = await passwordHashAsync(
+      accountPassword(object(req.body).password),
+    );
+    return mutate(req, "access.password_reset", () => {
       const b = object(req.body);
       keys(b, ["v", "revision", "password"]);
       version(b);
       const userId = id(req),
         current = row("users", userId);
       checkRevision(current, b.revision);
-      const password = passwordHash(accountPassword(b.password));
       db.prepare("UPDATE users SET password_hash=? WHERE id=?").run(
         password,
         userId,
@@ -532,8 +547,8 @@ export function registerAccessControl(
         changes: {},
         result: { v: 1, ok: true },
       };
-    }),
-  );
+    });
+  });
   app.post("/api/v1/roles", async (req) =>
     mutate(req, "access.role_created", () => {
       const b = object(req.body);

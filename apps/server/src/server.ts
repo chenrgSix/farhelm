@@ -31,6 +31,7 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { Store } from "./store.js";
 import { auditContext, auditText } from "./audit-context.js";
@@ -81,7 +82,7 @@ import {
   base64,
   digest,
   passwordHash,
-  passwordVerify,
+  passwordVerifyAsync,
   RateLimiter,
 } from "./util.js";
 import {
@@ -921,7 +922,7 @@ export async function buildServer(config: ServerConfig) {
     ok: true,
     server_instance: store.instance,
   }));
-  function passwordUser(username: string, password: string, ip: string) {
+  async function passwordUser(username: string, password: string, ip: string) {
     str(username, 1, 128);
     str(password, 1, 1024);
     rate.check("login-ip:" + ip, 20);
@@ -931,14 +932,27 @@ export async function buildServer(config: ServerConfig) {
     const row = db
       .prepare("SELECT * FROM users WHERE username=?")
       .get(username) as any;
-    const valid = passwordVerify(password, row?.password_hash ?? dummyPassword);
-    if (!row || !valid || !row.enabled) {
+    const valid = await passwordVerifyAsync(
+      password,
+      row?.password_hash ?? dummyPassword,
+    );
+    // A reset/disable/rename may complete while scrypt runs; never authenticate a stale identity.
+    const fresh = row
+      ? (db.prepare("SELECT * FROM users WHERE id=?").get(row.id) as any)
+      : undefined;
+    if (
+      !row ||
+      !valid ||
+      !fresh?.enabled ||
+      fresh.username !== username ||
+      fresh.password_hash !== row.password_hash
+    ) {
       store.audit("user.login_failed", null, null, null, {
         username_hash: hash(username),
       });
       fail(401, "INVALID_CREDENTIALS");
     }
-    return store.user(row);
+    return store.user(fresh);
   }
   function loginSession(user: User) {
     const accessToken = token();
@@ -953,7 +967,7 @@ export async function buildServer(config: ServerConfig) {
   app.post("/api/v1/login", async (req) => {
     const b = object(req.body);
     keys(b, ["username", "password"]);
-    const user = passwordUser(b.username, b.password, req.ip);
+    const user = await passwordUser(b.username, b.password, req.ip);
     return { access_token: loginSession(user), user };
   });
   app.post("/api/v1/logout", async (req) => {
@@ -989,10 +1003,10 @@ export async function buildServer(config: ServerConfig) {
     config.ssh
       ? createSshGateway(config.dataDir, config.ssh, {
           terminals,
-          authenticate(username, password, target, ip) {
+          async authenticate(username, password, target, ip) {
             if (config.deploymentControl?.terminalsBlocked())
               fail(503, "DEPLOYMENT_APPLYING");
-            const user = passwordUser(username, password, ip);
+            const user = await passwordUser(username, password, ip);
             if (user.must_change_password) {
               store.audit("authorization.denied", user.id, null, null, {
                 reason: "PASSWORD_CHANGE_REQUIRED",
@@ -2165,7 +2179,7 @@ export async function buildServer(config: ServerConfig) {
       );
       return reply
         .type(mime[extname(actual)] ?? "application/octet-stream")
-        .send(readFileSync(actual));
+        .send(await readFile(actual));
     };
     app.get("/", serve);
     app.get("/*", serve);
