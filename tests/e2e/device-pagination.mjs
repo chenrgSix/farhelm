@@ -333,6 +333,105 @@ try {
   ]);
   await page.getByRole("button", { name: "已保存，关闭", exact: true }).click();
   assert.ok(!requests.includes("/devices"));
+
+  // Browser reload restores only navigation, never batch selections.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: /设备总览/ }).click();
+  await page.getByLabel("按设备组筛选").selectOption("");
+  await page.getByLabel("每页设备数").selectOption("25");
+  await page.getByLabel("筛选当前列表", { exact: true }).fill("服务器-0");
+  await page.getByLabel("筛选当前列表", { exact: true }).press("Enter");
+  await expect(page.locator(".table-footer")).toContainText("第 1 / 4 页");
+  await paging.getByRole("button", { name: "下一页", exact: true }).click();
+  await row(25).check();
+  await page.reload();
+  await expect(page.locator(".table-footer")).toContainText("第 2 / 4 页");
+  await expect(page.getByLabel("每页设备数")).toHaveValue("25");
+  await expect(page.getByLabel("筛选当前列表", { exact: true })).toHaveValue(
+    "服务器-0",
+  );
+  await expect(
+    page.locator('tbody input[type="checkbox"]:checked'),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "查看设备详情：服务器-025", exact: true })
+    .click();
+  await expect(page.getByRole("meter")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("meter")).toBeVisible();
+  await page
+    .getByRole("button", { name: "← 返回设备列表", exact: true })
+    .click();
+  await expect(page.locator(".table-footer")).toContainText("第 2 / 4 页");
+  await page.getByLabel("筛选当前列表", { exact: true }).fill("");
+  await page.getByLabel("按设备组筛选").selectOption("tail");
+  await expect(page.locator("tbody tr")).toHaveCount(3);
+  await page.reload();
+  await expect(page.getByLabel("按设备组筛选")).toHaveValue("tail");
+  await expect(page.locator("tbody tr")).toHaveCount(3);
+  await page.screenshot({
+    path: join(out, "device-list-restored.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "登录 →", exact: true }),
+  ).toBeVisible();
+  assert.equal(
+    await page.evaluate(() => sessionStorage.getItem("farhelm.device-list.v1")),
+    null,
+  );
+  await login(page, "reader");
+  await expect(page.locator(".table-footer")).toContainText("共 1 台");
+  await expect(page.getByLabel("每页设备数")).toHaveValue("50");
+  await expect(page.getByLabel("按设备组筛选")).toHaveValue("");
+
+  // Authorization changes while reloading must be checked before using saved filters.
+  await page.getByLabel("每页设备数").selectOption("25");
+  await page.getByLabel("筛选当前列表", { exact: true }).fill("服务器-000");
+  await page.getByLabel("筛选当前列表", { exact: true }).press("Enter");
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  db.prepare("UPDATE users SET device_scope=? WHERE id=?").run(
+    JSON.stringify(["device-001"]),
+    reader.id,
+  );
+  requests.length = 0;
+  await page.reload();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.getByLabel("筛选当前列表", { exact: true })).toHaveValue(
+    "",
+  );
+  await expect(page.getByLabel("每页设备数")).toHaveValue("50");
+  await expect(
+    page.getByRole("button", { name: "查看设备详情：服务器-001", exact: true }),
+  ).toBeVisible();
+  assert.ok(
+    requests
+      .filter((p) => p.startsWith("/devices?"))
+      .every((p) => p === "/devices?page=1&limit=50"),
+  );
+  // The same clearing also happens without a browser reload.
+  await page.getByLabel("每页设备数").selectOption("25");
+  await page.getByLabel("筛选当前列表", { exact: true }).fill("服务器-001");
+  await page.getByLabel("筛选当前列表", { exact: true }).press("Enter");
+  await expect(
+    page.getByRole("button", { name: "查看设备详情：服务器-001", exact: true }),
+  ).toBeVisible();
+  db.prepare("UPDATE users SET device_scope=? WHERE id=?").run(
+    JSON.stringify(["device-000"]),
+    reader.id,
+  );
+  await page.getByRole("button", { name: "↻ 刷新", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "查看设备详情：服务器-000", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("每页设备数")).toHaveValue("50");
+  await expect(page.getByLabel("筛选当前列表", { exact: true })).toHaveValue(
+    "",
+  );
+  await expect(
+    page.locator('tbody input[type="checkbox"]:checked'),
+  ).toHaveCount(0);
   assert.deepEqual(errors, []);
   writeFileSync(
     join(out, "device-pagination-e2e.json"),
@@ -352,6 +451,10 @@ try {
           "group edit preserves off-page members",
           "API token persists exact cross-page selection after individual removal",
           "desktop and mobile device pickers",
+          "reload preserves page, size, search and group without selections",
+          "detail reload preserves return location",
+          "logout and account switch clear navigation",
+          "fresh and live authorization changes clear stale navigation",
         ],
       },
       null,

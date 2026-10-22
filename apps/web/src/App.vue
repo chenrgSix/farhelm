@@ -16,6 +16,14 @@ import {
 import { diskPercent } from "./disk";
 import { api, ApiError } from "./api/client";
 import { readTabSession, writeTabSession } from "./tab-session";
+import {
+  clearDeviceListState,
+  defaultDeviceListState,
+  deviceListAuthorization,
+  readDeviceListState,
+  writeDeviceListState,
+  type DeviceListState,
+} from "./device-list-state";
 import { useDeviceResource } from "./composables/useDeviceResource";
 import { useTaskSummary } from "./composables/useTaskSummary";
 import { useListResource } from "./composables/useListResource";
@@ -118,6 +126,7 @@ watch(pagedDevices.page, (page) => {
   if (page) {
     devicePageNumber.value = page.number;
     deviceGroupOptions.value = page.groups;
+    saveDeviceListState();
   }
 });
 const overviewTaskList = useTaskSummary();
@@ -287,10 +296,34 @@ const titles = {
   upgrades: ["Agent 升级", "批量更新，跟踪每台设备的真实升级结果"],
 };
 let deviceSearchTimer: ReturnType<typeof setTimeout> | undefined;
+let settingDeviceListState = false;
+function setDeviceListState(state: DeviceListState = defaultDeviceListState) {
+  settingDeviceListState = true;
+  clearTimeout(deviceSearchTimer);
+  devicePageNumber.value = state.page;
+  devicePageLimit.value = state.limit;
+  search.value = state.q;
+  appliedDeviceSearch.value = state.q;
+  deviceGroupFilter.value = state.group;
+  settingDeviceListState = false;
+}
+function saveDeviceListState() {
+  if (!user.value || !hasPermission(user.value, "devices.read")) return;
+  const q = search.value.trim();
+  writeDeviceListState(user.value, {
+    // Save a pending search immediately, including when a reload beats debounce.
+    page: q === appliedDeviceSearch.value ? devicePageNumber.value : 1,
+    limit: devicePageLimit.value,
+    q,
+    group: deviceGroupFilter.value,
+  });
+}
 function applyDeviceFilters() {
+  if (settingDeviceListState) return;
   clearTimeout(deviceSearchTimer);
   appliedDeviceSearch.value = search.value.trim();
   devicePageNumber.value = 1;
+  saveDeviceListState();
   pagedDevices.reset();
   if (
     user.value &&
@@ -301,14 +334,23 @@ function applyDeviceFilters() {
   )
     void pagedDevices.load();
 }
-watch(search, () => {
-  clearTimeout(deviceSearchTimer);
-  deviceSearchTimer = setTimeout(applyDeviceFilters, 300);
+watch(
+  search,
+  () => {
+    if (settingDeviceListState) return;
+    clearTimeout(deviceSearchTimer);
+    saveDeviceListState();
+    deviceSearchTimer = setTimeout(applyDeviceFilters, 300);
+  },
+  { flush: "sync" },
+);
+watch([deviceGroupFilter, devicePageLimit], applyDeviceFilters, {
+  flush: "sync",
 });
-watch([deviceGroupFilter, devicePageLimit], applyDeviceFilters);
 function changeDevicePage(number: number) {
   if (pagedDevices.loading.value) return;
   devicePageNumber.value = number;
+  saveDeviceListState();
   pagedDevices.reset();
   void pagedDevices.load();
 }
@@ -367,7 +409,10 @@ function clearSession(message = "", preserveSaved = false) {
   restorePending.value = false;
   restoreBusy.value = false;
   restoreError.value = "";
-  if (!preserveSaved) writeTabSession(null);
+  if (!preserveSaved) {
+    writeTabSession(null);
+    clearDeviceListState();
+  }
   sessionGeneration++;
   taskGeneration++;
   api.setToken(null);
@@ -377,9 +422,7 @@ function clearSession(message = "", preserveSaved = false) {
   view.value = "devices";
   password.value = "";
   for (const list of Object.values(lists)) list.reset();
-  devicePageNumber.value = 1;
-  appliedDeviceSearch.value = "";
-  clearTimeout(deviceSearchTimer);
+  setDeviceListState();
   deviceGroupOptions.value = [];
   overviewTaskList.reset();
   detailResource.reset();
@@ -439,6 +482,12 @@ async function establishSession(
     throw new ApiError("登录身份无效，请重新登录", 401);
   navigationReady = false;
   user.value = verified;
+  if (hasPermission(verified, "devices.read") && !verified.must_change_password)
+    setDeviceListState(readDeviceListState(verified));
+  else {
+    clearDeviceListState();
+    setDeviceListState();
+  }
   const requested = readAppRoute();
   const target =
     navigation.value.find(
@@ -583,16 +632,9 @@ function refreshUser() {
       const freshUser = await api.request<User>("/me");
       if (generation !== sessionGeneration) return;
       const scopeChanged =
-        JSON.stringify([
-          user.value?.role,
-          user.value?.device_scope,
-          user.value?.permissions,
-        ]) !==
-        JSON.stringify([
-          freshUser.role,
-          freshUser.device_scope,
-          freshUser.permissions,
-        ]);
+        !user.value ||
+        deviceListAuthorization(user.value) !==
+          deviceListAuthorization(freshUser);
       if (scopeChanged) {
         taskHistory.reset();
         auditHistory.reset();
@@ -603,7 +645,8 @@ function refreshUser() {
         execOpen.value = false;
         overviewTaskList.reset();
         pagedDevices.reset();
-        devicePageNumber.value = 1;
+        clearDeviceListState();
+        setDeviceListState();
         deviceGroupOptions.value = [];
         selectedDeviceIds.value = [];
         detailResource.reset();

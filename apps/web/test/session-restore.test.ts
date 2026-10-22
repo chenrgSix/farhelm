@@ -3,6 +3,12 @@ import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import App from "../src/App.vue";
 import { api, ApiError } from "../src/api/client";
 import { readTabSession, writeTabSession } from "../src/tab-session";
+import {
+  readDeviceListState,
+  writeDeviceListState,
+} from "../src/device-list-state";
+import type { User } from "../src/api/types";
+const savedList = { page: 2, limit: 25, q: "saved-filter", group: "group" };
 
 const admin = {
   id: "admin-1",
@@ -59,6 +65,7 @@ it("restores a verified login and selected page across reload without posting cr
 });
 
 it("withholds protected UI until verification and ignores a saved page outside current permissions", async () => {
+  writeDeviceListState(admin as User, savedList);
   writeTabSession({ token: "saved-token", view: "settings" });
   let finish!: (v: unknown) => void;
   const pending = new Promise((resolve) => {
@@ -81,9 +88,12 @@ it("withholds protected UI until verification and ignores a saved page outside c
   expect(wrapper.get("h1").text()).toBe("设备总览");
   expect(wrapper.get("nav").text()).not.toContain("系统设置");
   expect(readTabSession()?.view).toBe("devices");
+  expect(sessionStorage.getItem("farhelm.device-list.v1")).toBeNull();
+  expect(request).toHaveBeenCalledWith("/devices?page=1&limit=50");
 });
 
 it("retains the credential on network failure and retries only identity verification", async () => {
+  writeDeviceListState(admin as User, savedList);
   writeTabSession({ token: "saved-token", view: "devices" });
   let offline = true;
   const request = mockApi(() => {
@@ -95,14 +105,19 @@ it("retains the credential on network failure and retries only identity verifica
   expect(wrapper.get('[role="alert"]').text()).toContain("暂时无法校验");
   expect(wrapper.find("nav").exists()).toBe(false);
   expect(readTabSession()?.token).toBe("saved-token");
+  expect(readDeviceListState(admin as User)).toEqual(savedList);
   offline = false;
   await wrapper.get(".session-restore button").trigger("click");
   await flushPromises();
   expect(wrapper.get(".account").text()).toContain("admin");
   expect(request.mock.calls.some(([p]) => p === "/login")).toBe(false);
+  expect(request).toHaveBeenCalledWith(
+    "/devices?page=2&limit=25&q=saved-filter&group=group",
+  );
 });
 
 it("clears an expired or revoked credential and does not restore it on another reload", async () => {
+  writeDeviceListState(admin as User, savedList);
   writeTabSession({ token: "expired-token", view: "settings" });
   const request = mockApi(() => {
     throw new ApiError("expired", 401);
@@ -112,6 +127,7 @@ it("clears an expired or revoked credential and does not restore it on another r
   expect(wrapper.find('[name="password"]').exists()).toBe(true);
   expect(wrapper.text()).toContain("登录已失效");
   expect(readTabSession()).toBeNull();
+  expect(sessionStorage.getItem("farhelm.device-list.v1")).toBeNull();
   wrapper.unmount();
   request.mockClear();
   wrapper = mount(App);

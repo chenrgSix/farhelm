@@ -4,6 +4,12 @@ import App from "../src/App.vue";
 import DeviceGroupTools from "../src/components/DeviceGroupTools.vue";
 import { api } from "../src/api/client";
 import { writeTabSession } from "../src/tab-session";
+import {
+  readDeviceListState,
+  writeDeviceListState,
+  defaultDeviceListState,
+} from "../src/device-list-state";
+import type { User } from "../src/api/types";
 
 const admin = {
   id: "admin",
@@ -270,4 +276,102 @@ it("preserves all existing group members when option loading fails", async () =>
       device_ids: ["d0", "d119"],
     },
   });
+});
+
+async function reloadApp() {
+  wrapper!.unmount();
+  wrapper = mount(App, { global: { stubs: { Teleport: true } } });
+  await flushPromises();
+}
+it("restores size, page and search after reload without restoring selected devices", async () => {
+  const request = await setup();
+  await wrapper!.get('[aria-label="每页设备数"]').setValue(25);
+  await wrapper!.get('[aria-label="筛选当前列表"]').setValue("Device 1");
+  await wrapper!.get('[aria-label="筛选当前列表"]').trigger("keydown.enter");
+  await flushPromises();
+  await click("下一页");
+  await wrapper!.get('[aria-label="选择设备 Device 114"]').setValue(true);
+  request.mockClear();
+  await reloadApp();
+  expect(wrapper!.text()).toContain("第 2 / 2 页 · 共 31 台");
+  expect(
+    wrapper!.get<HTMLInputElement>('[aria-label="筛选当前列表"]').element.value,
+  ).toBe("Device 1");
+  expect(
+    wrapper!.get<HTMLSelectElement>('[aria-label="每页设备数"]').element.value,
+  ).toBe("25");
+  expect(wrapper!.text()).toContain("已选 0 台");
+  expect(request.mock.calls.filter(([p]) => p.startsWith("/devices?"))).toEqual(
+    [["/devices?page=2&limit=25&q=Device+1"]],
+  );
+});
+it("restores groups and saves pending search before the debounce fires", async () => {
+  vi.useFakeTimers();
+  const request = await setup();
+  await wrapper!.get('[aria-label="按设备组筛选"]').setValue("last");
+  await flushPromises();
+  await wrapper!.get('[aria-label="筛选当前列表"]').setValue("Device 119");
+  request.mockClear();
+  await reloadApp();
+  expect(
+    wrapper!.get<HTMLSelectElement>('[aria-label="按设备组筛选"]').element
+      .value,
+  ).toBe("last");
+  expect(wrapper!.text()).toContain("第 1 / 1 页 · 共 1 台");
+  expect(request.mock.calls.filter(([p]) => p.startsWith("/devices?"))).toEqual(
+    [["/devices?page=1&limit=50&q=Device+119&group=last"]],
+  );
+});
+it("checks fresh authorization before restoration and clears all old navigation and selection on live changes", async () => {
+  vi.useFakeTimers();
+  let currentUser = admin as User;
+  const request = await setup((p) => (p === "/me" ? currentUser : undefined));
+  await wrapper!.get('[aria-label="每页设备数"]').setValue(25);
+  await wrapper!.get('[aria-label="按设备组筛选"]').setValue("last");
+  await flushPromises();
+  await wrapper!.get('[aria-label="选择设备 Device 119"]').setValue(true);
+  await wrapper!.get('[aria-label="筛选当前列表"]').setValue("pending");
+  currentUser = { ...currentUser, permissions: ["devices.read"] };
+  request.mockClear();
+  await click("↻ 刷新");
+  await vi.advanceTimersByTimeAsync(301);
+  await flushPromises();
+  expect(wrapper!.text()).toContain("已选 0 台");
+  expect(
+    wrapper!.get<HTMLInputElement>('[aria-label="筛选当前列表"]').element.value,
+  ).toBe("");
+  expect(
+    wrapper!.get<HTMLSelectElement>('[aria-label="按设备组筛选"]').element
+      .value,
+  ).toBe("");
+  expect(readDeviceListState(currentUser)).toEqual(defaultDeviceListState);
+  expect(request.mock.calls.filter(([p]) => p.startsWith("/devices?"))).toEqual(
+    [["/devices?page=1&limit=50"]],
+  );
+  await wrapper!.get('[aria-label="按设备组筛选"]').setValue("last");
+  await flushPromises();
+  currentUser = { ...currentUser, device_scope: ["d0"] };
+  request.mockClear();
+  await reloadApp();
+  expect(request.mock.calls.filter(([p]) => p.startsWith("/devices?"))).toEqual(
+    [["/devices?page=1&limit=50"]],
+  );
+  expect(
+    wrapper!.get<HTMLSelectElement>('[aria-label="按设备组筛选"]').element
+      .value,
+  ).toBe("");
+});
+it("persists a server-clamped page and clears saved state on logout", async () => {
+  writeDeviceListState(admin as User, {
+    page: 999,
+    limit: 25,
+    q: "",
+    group: "",
+  });
+  await setup((p) => (p === "/logout" ? {} : undefined));
+  expect(wrapper!.text()).toContain("第 5 / 5 页");
+  expect(readDeviceListState(admin as User).page).toBe(5);
+  await wrapper!.get('[aria-label="退出登录"]').trigger("click");
+  await flushPromises();
+  expect(sessionStorage.getItem("farhelm.device-list.v1")).toBeNull();
 });
