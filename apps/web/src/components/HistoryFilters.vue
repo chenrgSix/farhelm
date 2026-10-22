@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DevicePicker from "./DevicePicker.vue";
 import { computed, ref, watch } from "vue";
 import type { Device } from "../api/types";
 import { statusLabels } from "../model";
@@ -69,14 +70,14 @@ function clear() {
         maxlength="256"
         placeholder="搜索 ID、设备名称或内容"
     /></label>
-    <label
-      >设备<select v-model="draft.device_id">
-        <option value="">全部可见设备</option>
-        <option v-for="device in devices" :key="device.id" :value="device.id">
-          {{ device.name }}
-        </option>
-      </select></label
-    >
+    <DevicePicker
+      label="历史设备"
+      :multiple="false"
+      empty-label="全部可见设备"
+      :seed="devices"
+      :model-value="draft.device_id ? [draft.device_id] : []"
+      @update:model-value="draft.device_id = $event[0] ?? ''"
+    />
     <label
       >操作人账号或 ID<input
         v-model="draft.actor_id"

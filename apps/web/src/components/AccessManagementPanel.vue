@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DevicePicker from "./DevicePicker.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   PASSWORD_HINT,
@@ -804,23 +805,13 @@ onBeforeUnmount(() => {
                     </p>
                     <strong>已选设备与单台选择</strong>
                   </div>
-                  <div v-if="!draft.all_devices" class="access-device-list">
-                    <label
-                      v-for="device in devices"
-                      :key="device.id"
-                      class="access-check"
-                      ><input
-                        v-model="draft.device_ids"
-                        type="checkbox"
-                        :value="device.id"
-                        :aria-label="`授权设备 ${device.name}`"
-                      />{{ device.name }}
-                      <small>{{ device.id.slice(0, 12) }}</small></label
-                    >
-                    <p v-if="!devices.length" class="field-hint">
-                      尚无设备，创建后可再授权。
-                    </p>
-                  </div>
+                  <DevicePicker
+                    v-if="!draft.all_devices"
+                    v-model="draft.device_ids"
+                    label="授权设备"
+                    :seed="devices"
+                    :disabled="saving"
+                  />
                   <p class="field-hint">
                     未选择设备时，仅保留其他来源的设备授权。组角色与直接角色合并后，可用于所有已授权设备。
                   </p>

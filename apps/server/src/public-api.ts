@@ -22,6 +22,13 @@ export const publicOperations: Operation[] = [
   { method: "GET", path: "/openapi.json", summary: "获取通用 API 文档" },
   {
     method: "GET",
+    path: "/device-options",
+    summary: "分页搜索授权设备的轻量选择项",
+    permission: "devices.read",
+    response: "device-options-response",
+  },
+  {
+    method: "GET",
     path: "/devices",
     summary: "查询授权设备",
     permission: "devices.read",
@@ -309,7 +316,10 @@ export function openApiDocument() {
           ? { type: "string", enum: ["stdout", "stderr"] }
           : { type: "string" },
     }));
-    if (op.path === "/devices" && op.method === "GET") {
+    if (
+      ["/devices", "/device-options"].includes(op.path) &&
+      op.method === "GET"
+    ) {
       for (const [name, schema, description] of [
         [
           "page",
@@ -339,6 +349,25 @@ export function openApiDocument() {
           schema,
           description,
         });
+    }
+    if (op.path === "/device-options") {
+      parameters.push({
+        name: "purpose",
+        in: "query",
+        schema: { type: "string", enum: ["read", "exec"], default: "read" },
+        description: "exec 额外要求 tasks.execute，仅返回未撤销的 Agent 设备。",
+      });
+      parameters.push({
+        name: "ids",
+        in: "query",
+        schema: { type: "string", maxLength: 20000 },
+        description:
+          "最多 50 个设备 ID 的 JSON 数组，用于解析已有选择；仍应用当前权限。",
+      });
+      parameters.find((p) => p.name === "page").description =
+        "页码，从 1 开始；本接口始终分页。";
+      parameters.find((p) => p.name === "limit").description =
+        "每页设备数，默认 50，最多 100；不返回设备运行状态。";
     }
     if (op.history)
       for (const name of [

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DevicePicker from "./DevicePicker.vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { Device, ManagedDeviceGroup } from "../api/types";
@@ -16,9 +17,6 @@ const emit = defineEmits<{
   "update:selectedIds": [value: string[]];
   changed: [];
 }>();
-const editorDevices = ref<Device[]>([]);
-const choicesLoading = ref(false);
-const choicesFailed = ref(false);
 const groups = ref<ManagedDeviceGroup[]>([]),
   loading = ref(false),
   saving = ref(false),
@@ -31,7 +29,6 @@ const targets = ref<string[]>([]),
   tagIds = ref<string[]>([]),
   formError = ref(""),
   uncertain = ref(false);
-let editorGeneration = 0;
 let disposed = false,
   reloadPending = false;
 const options = computed(() => {
@@ -87,24 +84,17 @@ async function load() {
 }
 function dismiss() {
   if (!saving.value) {
-    editorGeneration++;
-    choicesLoading.value = false;
-    choicesFailed.value = false;
     mode.value = null;
     formError.value = "";
   }
 }
 async function manage() {
-  editorGeneration++;
-  choicesLoading.value = false;
-  choicesFailed.value = false;
   mode.value = "manage";
   formError.value = "";
   await load();
 }
-async function edit(item?: ManagedDeviceGroup) {
+function edit(item?: ManagedDeviceGroup) {
   if (saving.value || loading.value) return;
-  const generation = ++editorGeneration;
   editing.value = item;
   draft.value = {
     name: item?.name ?? "",
@@ -114,31 +104,10 @@ async function edit(item?: ManagedDeviceGroup) {
   formError.value = "";
   uncertain.value = false;
   mode.value = item ? "edit" : "create";
-  editorDevices.value = props.devices;
-  choicesFailed.value = false;
-  if (props.paged) {
-    choicesLoading.value = true;
-    try {
-      const response = await api.request<{ devices: Device[] }>("/devices");
-      if (!Array.isArray(response.devices)) throw new Error("设备列表格式错误");
-      if (!disposed && generation === editorGeneration)
-        editorDevices.value = response.devices;
-    } catch (e) {
-      if (!disposed && generation === editorGeneration) {
-        choicesFailed.value = true;
-        formError.value = e instanceof Error ? e.message : "读取设备失败";
-      }
-    } finally {
-      if (!disposed && generation === editorGeneration)
-        choicesLoading.value = false;
-    }
-  }
 }
+
 async function batch(operation: "add" | "remove") {
   if (!props.selectedIds.length) return;
-  editorGeneration++;
-  choicesLoading.value = false;
-  choicesFailed.value = false;
   targets.value = [...props.selectedIds];
   tagIds.value = [];
   formError.value = "";
@@ -147,14 +116,7 @@ async function batch(operation: "add" | "remove") {
   await load();
 }
 async function save() {
-  if (
-    saving.value ||
-    loading.value ||
-    uncertain.value ||
-    choicesLoading.value ||
-    choicesFailed.value
-  )
-    return;
+  if (saving.value || loading.value || uncertain.value) return;
   const kind = mode.value;
   if (
     kind !== "create" &&
@@ -404,16 +366,7 @@ onBeforeUnmount(() => {
             </p>
           </template>
           <form v-else @submit.prevent="save">
-            <p v-if="choicesLoading" role="status">正在读取完整设备列表…</p>
-            <fieldset
-              :disabled="
-                saving ||
-                loading ||
-                uncertain ||
-                choicesLoading ||
-                choicesFailed
-              "
-            >
+            <fieldset :disabled="saving || loading || uncertain">
               <template v-if="mode === 'create' || mode === 'edit'">
                 <label
                   >设备组名称<input
@@ -429,25 +382,12 @@ onBeforeUnmount(() => {
                 </label>
                 <fieldset class="tag-options">
                   <legend>组内设备（可不选）</legend>
-                  <div class="tag-device-list">
-                    <label
-                      v-for="device in editorDevices"
-                      :key="device.id"
-                      class="tag-check"
-                      ><input
-                        v-model="draft.device_ids"
-                        type="checkbox"
-                        :value="device.id"
-                        :aria-label="`组内设备 ${device.name}`"
-                      />{{ device.name }}</label
-                    >
-                  </div>
-                  <p
-                    v-if="!editorDevices.length && !choicesLoading"
-                    class="field-hint"
-                  >
-                    当前没有设备，可先创建空设备组。
-                  </p>
+                  <DevicePicker
+                    v-model="draft.device_ids"
+                    label="组内设备"
+                    :seed="devices"
+                    :disabled="saving || loading || uncertain"
+                  />
                 </fieldset>
               </template>
               <template v-else>
@@ -489,8 +429,6 @@ onBeforeUnmount(() => {
                 type="submit"
                 :disabled="
                   saving ||
-                  choicesLoading ||
-                  choicesFailed ||
                   loading ||
                   uncertain ||
                   ((mode === 'add' || mode === 'remove') &&

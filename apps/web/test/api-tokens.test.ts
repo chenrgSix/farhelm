@@ -52,7 +52,23 @@ async function setup(handler?: (path: string, options: any) => any) {
   const request = vi
     .spyOn(api, "request")
     .mockImplementation(async (path, options) =>
-      handler ? handler(path, options) : structuredClone(data),
+      path.startsWith("/device-options?")
+        ? {
+            devices: path.includes("group=prod")
+              ? devices.slice(0, 1)
+              : devices,
+            page: {
+              number: 1,
+              limit: 25,
+              total: 1,
+              pages: 1,
+              visible_total: 2,
+              groups: [{ id: "prod", name: "生产组" }],
+            },
+          }
+        : handler
+          ? handler(path, options)
+          : structuredClone(data),
     );
   const wrapper = mount(ApiTokensPanel, {
     props: { currentUserId: "admin", devices },
@@ -71,7 +87,11 @@ it("creates a scoped token using concrete device group selections, reveals its s
   );
   await button("创建 Token").trigger("click");
   await wrapper.get('input[placeholder="例如：每日巡检"]').setValue("AI 巡检");
-  await wrapper.get('[aria-label="批量选择设备组 生产组"]').setValue(true);
+  await button("选择授权设备").trigger("click");
+  await flushPromises();
+  await wrapper.get('[aria-label="授权设备分组"]').setValue("prod");
+  await flushPromises();
+  await wrapper.get('[aria-label="选择当前页授权设备"]').setValue(true);
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   const creation = request.mock.calls.find(

@@ -177,3 +177,40 @@ it("does not let a list refresh replace a pending task selection", async () => {
   await flushPromises();
   expect(wrapper.get(".task-detail").text()).toContain("second");
 });
+
+it("clears history filters and ignores pending task details when device scope changes", async () => {
+  let resolve!: (value: unknown) => void;
+  const request = await setup(
+    () => ({
+      tasks: [task("old-scope-task")],
+      page: { limit: 50, has_more: false, next_cursor: null },
+    }),
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await wrapper
+    .get('input[placeholder="搜索 ID、设备名称或内容"]')
+    .setValue("old-scope");
+  await button("查询历史").trigger("click");
+  await flushPromises();
+  await wrapper.get(".task-link").trigger("click");
+  await flushPromises();
+  request.mockImplementation(async (path) =>
+    path === "/me"
+      ? { ...user, role: "ops", device_scope: [] }
+      : { tasks: [], page: { limit: 50, has_more: false, next_cursor: null } },
+  );
+  await button("↻ 刷新").trigger("click");
+  await flushPromises();
+  resolve(task("old-scope-task"));
+  await flushPromises();
+  expect(wrapper.find(".task-detail").exists()).toBe(false);
+  expect(wrapper.text()).not.toContain("old-scope-task");
+  expect(
+    wrapper.get<HTMLInputElement>(
+      'input[placeholder="搜索 ID、设备名称或内容"]',
+    ).element.value,
+  ).toBe("");
+});

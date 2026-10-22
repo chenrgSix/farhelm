@@ -1,12 +1,24 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { User } from "./types.js";
+import { hasPermission } from "./permissions.js";
 import { fail, integer, keys, object, str } from "./util.js";
 
 /** Legacy callers keep the full list. Opt-in queries filter and page IDs before projection. */
-export function deviceListPage(db: DatabaseSync, user: User, raw: unknown) {
+export function deviceListPage(
+  db: DatabaseSync,
+  user: User,
+  raw: unknown,
+  options = false,
+) {
   const query = object(raw);
-  keys(query, ["page", "limit", "q", "group"]);
-  if (!Object.keys(query).length) return null;
+  keys(query, [
+    "page",
+    "limit",
+    "q",
+    "group",
+    ...(options ? ["purpose", "ids"] : []),
+  ]);
+  if (!options && !Object.keys(query).length) return null;
   const number = (name: string, fallback: number, max: number) => {
     if (query[name] === undefined) return fallback;
     const text = str(query[name], 1, 16);
@@ -25,6 +37,31 @@ export function deviceListPage(db: DatabaseSync, user: User, raw: unknown) {
   ];
   const conditions = [scope],
     args = [...scopeArgs];
+  if (options) {
+    if (
+      query.purpose !== undefined &&
+      query.purpose !== "read" &&
+      query.purpose !== "exec"
+    )
+      fail(400, "INVALID_DEVICE_PURPOSE");
+    if (query.purpose === "exec") {
+      if (!hasPermission(user, "tasks.execute")) fail(403, "PERMISSION_DENIED");
+      conditions.push("d.connection_kind='agent' AND d.revoked_at IS NULL");
+    }
+    if (query.ids !== undefined) {
+      let ids: unknown;
+      try {
+        ids = JSON.parse(str(query.ids, 2, 20000));
+      } catch {
+        fail(400, "INVALID_DEVICE_IDS");
+      }
+      if (!Array.isArray(ids) || ids.length > 50)
+        fail(400, "INVALID_DEVICE_IDS");
+      const selected = ids.map((id) => str(id, 1, 128));
+      conditions.push("d.id IN (SELECT value FROM json_each(?))");
+      args.push(JSON.stringify(selected));
+    }
+  }
   if (group === "__ungrouped__")
     conditions.push(
       "NOT EXISTS (SELECT 1 FROM device_group_members m WHERE m.device_id=d.id)",
@@ -75,4 +112,16 @@ export function deviceListPage(db: DatabaseSync, user: User, raw: unknown) {
     ids,
     page: { number: page, limit, total, pages, visible_total, groups },
   };
+}
+
+/** Device choices deliberately omit live network, health, disk and credential projections. */
+export function deviceOptions(db: DatabaseSync, user: User, raw: unknown) {
+  const result = deviceListPage(db, user, raw, true)!;
+  const devices = db
+    .prepare(
+      `SELECT id,name,connection_kind,revoked_at FROM devices
+    WHERE id IN (SELECT value FROM json_each(?)) ORDER BY created_at,id`,
+    )
+    .all(JSON.stringify(result.ids));
+  return { v: 1, devices, page: result.page };
 }

@@ -42,9 +42,21 @@ async function setup(admin = true) {
   const request = vi
     .spyOn(api, "request")
     .mockImplementation(async (_path, options) =>
-      options
-        ? { v: 1, changed_count: 2 }
-        : ({ v: 1, device_groups: structuredClone(groups) } as any),
+      _path.startsWith("/device-options?")
+        ? {
+            devices,
+            page: {
+              number: 1,
+              limit: 25,
+              total: devices.length,
+              pages: 1,
+              visible_total: devices.length,
+              groups: [],
+            },
+          }
+        : options
+          ? { v: 1, changed_count: 2 }
+          : ({ v: 1, device_groups: structuredClone(groups) } as any),
     );
   const wrapper = mount(DeviceGroupTools, {
     props: {
@@ -131,6 +143,11 @@ it("management supports empty and overlapping groups and prevents stale editor o
     body: { v: 1, name: "空组", description: "", device_ids: [] },
   });
   await wrapper.get('[aria-label="编辑设备组 地区"]').trigger("click");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "选择组内设备")!
+    .trigger("click");
+  await flushPromises();
   await wrapper.get('[aria-label="组内设备 Linux-1"]').setValue(true);
   request.mockRejectedValueOnce(new Error("ACCESS_REVISION_CONFLICT"));
   await wrapper.get("form").trigger("submit");

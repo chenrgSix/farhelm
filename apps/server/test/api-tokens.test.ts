@@ -1082,3 +1082,64 @@ test("API tokens: terminal tickets, recorded output, immediate revocation and ex
     await f.close();
   }
 });
+
+test("API tokens: lightweight device options stay scoped and execution choices need explicit permission", async () => {
+  const f = await fixture();
+  try {
+    const grant = await f.create();
+    const r = await f.api("GET", "/device-options", undefined, grant.secret);
+    assert.equal(r.status, 200);
+    assertValid("device-options-response", r.body);
+    assert.deepEqual(
+      r.body.devices.map((d: any) => d.id),
+      ["one"],
+    );
+    const lookup = await f.api(
+      "GET",
+      "/device-options?ids=" +
+        encodeURIComponent(JSON.stringify(["one", "two"])),
+      undefined,
+      grant.secret,
+    );
+    assert.deepEqual(
+      lookup.body.devices.map((d: any) => d.id),
+      ["one"],
+    );
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          "/device-options?purpose=exec",
+          undefined,
+          grant.secret,
+        )
+      ).status,
+      403,
+    );
+    const exec = await f.create({
+      permissions: ["devices.read", "tasks.execute"],
+    });
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          "/device-options?purpose=exec",
+          undefined,
+          exec.secret,
+        )
+      ).body.devices.length,
+      1,
+    );
+    assert.equal(
+      (await f.api("POST", `/api-tokens/${grant.token.id}/revoke`, { v: 1 }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await f.api("GET", "/device-options", undefined, grant.secret)).status,
+      401,
+    );
+  } finally {
+    await f.close();
+  }
+});

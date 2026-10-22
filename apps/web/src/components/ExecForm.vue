@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref, onBeforeUnmount } from "vue";
+import DevicePicker from "./DevicePicker.vue";
+import { reactive, ref, onBeforeUnmount } from "vue";
 import type { CommandResponse, Device, User } from "../api/types";
 import { api } from "../api/client";
 import { canExecute, CommandAttempt, parseCommand } from "../model";
@@ -20,14 +21,6 @@ const form = reactive({
 const attempt = ref<CommandAttempt | null>(null);
 const busy = ref(false);
 const error = ref("");
-const allowedDevices = computed(() =>
-  props.devices.filter(
-    (d) =>
-      d.connection_kind !== "ssh" &&
-      !d.revoked_at &&
-      canExecute(props.user, d.id),
-  ),
-);
 async function submit() {
   if (busy.value || attempt.value?.state === "confirmed") return;
   error.value = "";
@@ -106,19 +99,15 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", warnUnload));
     </div>
     <form @submit.prevent="submit">
       <fieldset :disabled="busy || !!attempt">
-        <label
-          >目标设备<select v-model="form.device_id" required>
-            <option value="" disabled>选择授权设备</option>
-            <option
-              v-for="device in allowedDevices"
-              :key="device.id"
-              :value="device.id"
-            >
-              {{ device.name }} ·
-              {{ device.control_online ? "控制在线" : "控制离线" }}
-            </option>
-          </select></label
-        >
+        <DevicePicker
+          label="目标设备"
+          purpose="exec"
+          :multiple="false"
+          :seed="devices"
+          :disabled="busy || !!attempt"
+          :model-value="form.device_id ? [form.device_id] : []"
+          @update:model-value="form.device_id = $event[0] ?? ''"
+        />
         <label
           >程序与参数 · JSON 数组<textarea
             v-model="form.argv"
@@ -193,7 +182,10 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", warnUnload));
           class="button primary"
           type="submit"
           :disabled="
-            busy || attempt?.state === 'confirmed' || !allowedDevices.length
+            busy ||
+            attempt?.state === 'confirmed' ||
+            !form.device_id ||
+            !canExecute(user, form.device_id)
           "
         >
           {{

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DevicePicker from "./DevicePicker.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "../api/client";
 import type { Device, Permission } from "../api/types";
@@ -43,13 +44,6 @@ const tokens = computed(
         .includes(search.value.toLowerCase()),
     ) ?? [],
 );
-const groups = computed(() => [
-  ...new Map(
-    props.devices.flatMap((d) =>
-      (d.device_groups ?? []).map((g) => [g.id, g] as const),
-    ),
-  ).values(),
-]);
 const status = (t: ApiToken) =>
   t.revoked_at !== null
     ? "revoked"
@@ -110,19 +104,6 @@ function show(item?: ApiToken) {
       expires: localDate(item.expires_at),
     });
   open.value = true;
-}
-function selectGroup(id: string, checked: boolean) {
-  const ids = props.devices
-    .filter((d) => d.device_groups?.some((g) => g.id === id))
-    .map((d) => d.id);
-  draft.value.device_ids = checked
-    ? [...new Set([...draft.value.device_ids, ...ids])]
-    : draft.value.device_ids.filter((id) => !ids.includes(id));
-}
-function groupSelected(id: string) {
-  return props.devices
-    .filter((d) => d.device_groups?.some((g) => g.id === id))
-    .every((d) => draft.value.device_ids.includes(d.id));
 }
 async function save() {
   if (busy.value || uncertain.value) return;
@@ -442,39 +423,14 @@ onBeforeUnmount(() => {
               ><p class="muted">
                 已选
                 {{ draft.device_ids.length }}
-                台。未选设备时无设备访问权限。设备组仅用于批量选择，保存后不会随标签变化。
+                台。未选设备时无设备访问权限。可按设备组筛选，保存后不会随标签变化。
               </p>
-              <div v-if="groups.length" class="group-picks">
-                <label
-                  v-for="group in groups"
-                  :key="group.id"
-                  class="token-check"
-                  ><input
-                    type="checkbox"
-                    :checked="groupSelected(group.id)"
-                    :aria-label="`批量选择设备组 ${group.name}`"
-                    @change="
-                      selectGroup(
-                        group.id,
-                        ($event.target as HTMLInputElement).checked,
-                      )
-                    "
-                  />{{ group.name }}</label
-                >
-              </div>
-              <div class="device-picks">
-                <label
-                  v-for="device in devices"
-                  :key="device.id"
-                  class="token-check"
-                  ><input
-                    v-model="draft.device_ids"
-                    type="checkbox"
-                    :value="device.id"
-                    :aria-label="`授权设备 ${device.name}`"
-                  />{{ device.name }}</label
-                >
-              </div>
+              <DevicePicker
+                v-model="draft.device_ids"
+                label="授权设备"
+                :seed="devices"
+                :disabled="busy"
+              />
             </template>
           </fieldset>
           <label

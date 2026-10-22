@@ -413,3 +413,8 @@ export interface DevicePage {
   visible_total: number;
   groups: { id: string; name: string }[];
 }
+
+export type DeviceOption = Pick<
+  Device,
+  "id" | "name" | "connection_kind" | "revoked_at"
+>;

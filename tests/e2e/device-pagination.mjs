@@ -207,6 +207,132 @@ try {
   await expect(
     limited.getByRole("button", { name: "管理设备组", exact: true }),
   ).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  requests.length = 0;
+  await page.getByRole("button", { name: "管理设备组", exact: true }).click();
+  await page.getByLabel("编辑设备组 末页设备", { exact: true }).click();
+  const members = page.getByRole("group", { name: "组内设备", exact: true });
+  await expect(members).toContainText("已选 1 台");
+  assert.ok(!requests.some((p) => p.startsWith("/device-options")));
+  await members
+    .getByRole("button", { name: "选择组内设备", exact: true })
+    .click();
+  await members.getByLabel("组内设备 服务器-000", { exact: true }).check();
+  await members.getByRole("button", { name: "下一页", exact: true }).click();
+  await members.getByLabel("组内设备 服务器-025", { exact: true }).check();
+  await expect(members).toContainText("已选 3 台");
+  await members.getByLabel("仅看已选组内设备", { exact: true }).check();
+  await expect(
+    members.getByLabel("移除已选 服务器-119", { exact: true }),
+  ).toBeChecked();
+  await page.getByRole("button", { name: "保存设备组", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "设备组管理", exact: true }),
+  ).toBeVisible();
+  assert.deepEqual(
+    db
+      .prepare(
+        "SELECT device_id FROM device_group_members WHERE group_id='tail' ORDER BY device_id",
+      )
+      .all()
+      .map((r) => r.device_id),
+    ["device-000", "device-025", "device-119"],
+  );
+  await page
+    .getByRole("button", { name: "关闭设备组窗口", exact: true })
+    .click();
+  await page.getByRole("button", { name: /操作审计/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "操作审计", exact: true }),
+  ).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  requests.length = 0;
+  const history = page.getByRole("group", { name: "历史设备", exact: true });
+  await history
+    .getByRole("button", { name: "选择历史设备", exact: true })
+    .click();
+  await history.getByRole("button", { name: "下一页", exact: true }).click();
+  await history.getByLabel("历史设备 服务器-025", { exact: true }).check();
+  await page.getByRole("button", { name: "查询历史", exact: true }).click();
+  await expect
+    .poll(() =>
+      requests.some(
+        (p) => p.startsWith("/audit?") && p.includes("device_id=device-025"),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: /任务中心/ }).click();
+  await page.getByRole("button", { name: /新建命令任务/ }).click();
+  const exec = page.getByRole("group", { name: "目标设备", exact: true });
+  await exec.getByRole("button", { name: "选择目标设备", exact: true }).click();
+  await exec.getByRole("button", { name: "下一页", exact: true }).click();
+  await exec.getByLabel("目标设备 服务器-025", { exact: true }).check();
+  await expect(exec).toContainText("服务器-025");
+  await expect(
+    page.getByRole("button", { name: "确认创建并执行", exact: true }),
+  ).toBeEnabled();
+  assert.ok(
+    requests.some(
+      (p) => p.startsWith("/device-options?") && p.includes("purpose=exec"),
+    ),
+  );
+  assert.ok(!requests.includes("/devices"));
+  await page.getByLabel("关闭命令表单", { exact: true }).click();
+  await page.getByRole("button", { name: /API Token/ }).click();
+  await page.getByRole("button", { name: "创建 Token", exact: true }).click();
+  await page
+    .getByPlaceholder("例如：每日巡检", { exact: true })
+    .fill("分页权限测试");
+  const grants = page.getByRole("group", { name: "授权设备", exact: true });
+  await grants
+    .getByRole("button", { name: "选择授权设备", exact: true })
+    .click();
+  await grants.getByLabel("授权设备 服务器-000", { exact: true }).check();
+  await grants.getByRole("button", { name: "下一页", exact: true }).click();
+  await grants.getByLabel("授权设备 服务器-025", { exact: true }).check();
+  await grants.getByLabel("授权设备分组", { exact: true }).selectOption("tail");
+  await grants.getByLabel("授权设备 服务器-119", { exact: true }).check();
+  await grants.getByLabel("仅看已选授权设备", { exact: true }).check();
+  await grants.getByLabel("移除已选 服务器-025", { exact: true }).click();
+  await expect(
+    grants.getByLabel("移除已选 服务器-025", { exact: true }),
+  ).toHaveCount(0);
+  await expect(grants).toContainText("已选 2 台");
+  await expect(grants.locator(".picker-options input")).toHaveCount(2);
+  await grants.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: join(out, "device-picker-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await grants.evaluate((element) =>
+    element.scrollIntoView({ block: "center" }),
+  );
+  await page.screenshot({
+    path: join(out, "device-picker-mobile.png"),
+    fullPage: true,
+  });
+  assert.ok(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Token 已创建：分页权限测试",
+      exact: true,
+    }),
+  ).toBeVisible();
+  const saved = db
+    .prepare("SELECT device_scope FROM api_tokens WHERE name='分页权限测试'")
+    .get();
+  assert.deepEqual(JSON.parse(saved.device_scope).sort(), [
+    "device-000",
+    "device-119",
+  ]);
+  await page.getByRole("button", { name: "已保存，关闭", exact: true }).click();
+  assert.ok(!requests.includes("/devices"));
   assert.deepEqual(errors, []);
   writeFileSync(
     join(out, "device-pagination-e2e.json"),
@@ -222,6 +348,10 @@ try {
           "real batch changes exactly three devices",
           "detail return preserves page",
           "desktop and mobile pagination",
+          "lazy lightweight history and execution choices",
+          "group edit preserves off-page members",
+          "API token persists exact cross-page selection after individual removal",
+          "desktop and mobile device pickers",
         ],
       },
       null,

@@ -162,7 +162,7 @@ it("resets to page one when page size changes", async () => {
   expect(wrapper!.findAll("tbody tr")).toHaveLength(100);
   expect(wrapper!.text()).toContain("第 1 / 2 页");
 });
-it("loads all membership choices only when editing and preserves off-page members", async () => {
+it("loads membership choices lazily in pages and preserves off-page members", async () => {
   const group = {
     id: "all",
     name: "跨页组",
@@ -174,7 +174,18 @@ it("loads all membership choices only when editing and preserves off-page member
     .spyOn(api, "request")
     .mockImplementation(async (path, options) => {
       if (options) return {} as any;
-      if (path === "/devices") return { devices: rows };
+      if (path.startsWith("/device-options?"))
+        return {
+          devices: rows.slice(0, 25),
+          page: {
+            number: 1,
+            limit: 25,
+            total: 120,
+            pages: 5,
+            visible_total: 120,
+            groups: [],
+          },
+        };
       if (path === "/device-groups") return { device_groups: [group] };
       throw Error(path);
     });
@@ -194,9 +205,13 @@ it("loads all membership choices only when editing and preserves off-page member
   await wrapper!.get('[aria-label="编辑设备组 跨页组"]').trigger("click");
   await flushPromises();
   expect(
-    wrapper!.get<HTMLInputElement>('[aria-label="组内设备 Device 119"]').element
-      .checked,
-  ).toBe(true);
+    request.mock.calls.some(([p]) => p.startsWith("/device-options")),
+  ).toBe(false);
+  await click("选择组内设备");
+  expect(wrapper!.text()).toContain("已选 2 台");
+  expect(wrapper!.find('[aria-label="组内设备 Device 119"]').exists()).toBe(
+    false,
+  );
   await wrapper!.get('[aria-label="组内设备 Device 0"]').setValue(false);
   await wrapper!.get("form").trigger("submit");
   await flushPromises();
@@ -212,11 +227,21 @@ it("loads all membership choices only when editing and preserves off-page member
   });
 });
 
-it("blocks group writes if complete membership choices fail to load", async () => {
-  const request = vi.spyOn(api, "request").mockImplementation(async (path) => {
-    if (path === "/device-groups") return { device_groups: [] };
-    throw new Error("完整设备列表读取失败");
-  });
+it("preserves all existing group members when option loading fails", async () => {
+  const group = {
+    id: "existing",
+    name: "已有组",
+    description: "",
+    revision: 1,
+    device_ids: ["d0", "d119"],
+  };
+  const request = vi
+    .spyOn(api, "request")
+    .mockImplementation(async (path, options) => {
+      if (options) return {} as any;
+      if (path === "/device-groups") return { device_groups: [group] };
+      throw new Error("选项读取失败");
+    });
   wrapper = mount(DeviceGroupTools, {
     props: {
       devices: rows.slice(0, 50),
@@ -229,11 +254,20 @@ it("blocks group writes if complete membership choices fail to load", async () =
     global: { stubs: { Teleport: true } },
   });
   await click("管理设备组");
-  await click("创建设备组");
-  expect(wrapper.text()).toContain("完整设备列表读取失败");
-  expect(
-    wrapper.get('button[type="submit"]').attributes("disabled"),
-  ).toBeDefined();
+  await wrapper.get('[aria-label="编辑设备组 已有组"]').trigger("click");
+  await click("选择组内设备");
+  expect(wrapper.text()).toContain("已有选择已保留");
+  await wrapper.get('input[maxlength="64"]').setValue("改名组");
   await wrapper.get("form").trigger("submit");
-  expect(request.mock.calls.every(([, options]) => !options)).toBe(true);
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith("/device-groups/existing", {
+    method: "PUT",
+    body: {
+      v: 1,
+      revision: 1,
+      name: "改名组",
+      description: "",
+      device_ids: ["d0", "d119"],
+    },
+  });
 });

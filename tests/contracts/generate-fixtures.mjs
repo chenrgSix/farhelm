@@ -316,6 +316,20 @@ fixture("task-summary", "task-summary-response", {
   active: 3,
   unknown: 1,
 });
+fixture("device-options", "device-options-response", {
+  v: 1,
+  devices: [
+    { id: "one", name: "Linux-1", connection_kind: "agent", revoked_at: null },
+  ],
+  page: {
+    number: 1,
+    limit: 25,
+    total: 1,
+    pages: 1,
+    visible_total: 1,
+    groups: [],
+  },
+});
 fixture("devices-response", "devices-response", { v: 1, devices: [device] });
 fixture("devices-paged", "devices-response", {
   v: 1,

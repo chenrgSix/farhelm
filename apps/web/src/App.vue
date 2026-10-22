@@ -101,7 +101,6 @@ const passwordOpen = ref(false);
 const view = ref<View>(initialRoute?.view ?? "devices");
 let navigationReady = false;
 const closingSession = ref<string | null>(null);
-const deviceList = useListResource<Device>("/devices", "devices");
 const devicePageNumber = ref(1);
 const devicePageLimit = ref(50);
 const appliedDeviceSearch = ref("");
@@ -157,10 +156,14 @@ const historyState = computed(() => ({
 function applyHistoryFilters(filters: HistoryCriteria) {
   currentHistory.value?.apply(filters);
 }
-const devices = computed(() =>
-  deviceList.updatedAt.value
-    ? deviceList.items.value
-    : pagedDevices.items.value,
+const devices = pagedDevices.items;
+const authorizationKey = computed(() =>
+  JSON.stringify([
+    user.value?.id,
+    user.value?.role,
+    user.value?.device_scope,
+    user.value?.permissions,
+  ]),
 );
 const tasks = taskList.items;
 const audit = auditList.items;
@@ -327,7 +330,6 @@ function toggleVisibleDevices(selected: boolean) {
       );
 }
 function refreshDeviceTags() {
-  deviceList.reset();
   void pagedDevices.load();
 }
 const filteredTasks = tasks;
@@ -375,7 +377,6 @@ function clearSession(message = "", preserveSaved = false) {
   view.value = "devices";
   password.value = "";
   for (const list of Object.values(lists)) list.reset();
-  deviceList.reset();
   devicePageNumber.value = 1;
   appliedDeviceSearch.value = "";
   clearTimeout(deviceSearchTimer);
@@ -463,7 +464,7 @@ async function establishSession(
     navigationReady = true;
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(() => {
-      if (!document.hidden && user.value) void refresh(true);
+      if (!document.hidden && user.value) void refresh();
     }, 10_000);
   }
 }
@@ -549,7 +550,7 @@ async function closeTerminalSession(session: TerminalSession) {
   }
 }
 let userRefresh: Promise<void> | undefined;
-function refreshTargets(poll = false) {
+function refreshTargets() {
   const targets = [];
   if (hasPermission(user.value, "devices.read")) {
     if (
@@ -558,11 +559,6 @@ function refreshTargets(poll = false) {
         hasPermission(user.value, "devices.read", detailDeviceId.value))
     )
       targets.push(detailDeviceId.value ? detailResource : pagedDevices);
-    else if (
-      ["tasks", "audit", "terminals", "access", "api"].includes(view.value) &&
-      (!poll || !deviceList.updatedAt.value)
-    )
-      targets.push(deviceList);
   }
   if (hasPermission(user.value, "tasks.read")) {
     if (view.value === "devices" && !detailDeviceId.value)
@@ -598,8 +594,14 @@ function refreshUser() {
           freshUser.permissions,
         ]);
       if (scopeChanged) {
+        taskHistory.reset();
+        auditHistory.reset();
+        sessionHistory.reset();
+        selectedTask.value = null;
+        taskGeneration++;
+        loadingTask.value = false;
+        execOpen.value = false;
         overviewTaskList.reset();
-        deviceList.reset();
         pagedDevices.reset();
         devicePageNumber.value = 1;
         deviceGroupOptions.value = [];
@@ -642,7 +644,7 @@ function refreshUser() {
   })();
   return userRefresh;
 }
-async function refresh(poll = false) {
+async function refresh() {
   if (!user.value || user.value.must_change_password) return;
   const generation = sessionGeneration;
   await refreshUser();
@@ -653,7 +655,7 @@ async function refresh(poll = false) {
     sessionError.value
   )
     return;
-  await Promise.all(refreshTargets(poll === true).map((list) => list.load()));
+  await Promise.all(refreshTargets().map((list) => list.load()));
   if (generation === sessionGeneration) {
     if (view.value === "tasks" && selectedTask.value && !loadingTask.value)
       await selectTask(selectedTask.value.task_id, true);
@@ -679,7 +681,6 @@ async function selectTask(id: string, quiet = false) {
 }
 function openExec(id = "") {
   execDevice.value = id;
-  if (!detailDeviceId.value) void deviceList.load();
   execOpen.value = true;
 }
 async function onCreated(id: string) {
@@ -1104,11 +1105,13 @@ onBeforeUnmount(() => {
         </p>
         <ApiTokensPanel
           v-if="view === 'api' && user.role === 'admin'"
+          :key="authorizationKey"
           :current-user-id="user.id"
           :devices="devices"
         />
         <AccessControlPanel
           v-if="view === 'access' && user.role === 'admin'"
+          :key="authorizationKey"
           :current-user-id="user.id"
           :devices="devices"
           :device-id="authorizationDevice"
@@ -1263,7 +1266,7 @@ onBeforeUnmount(() => {
               </div>
               <HistoryFilters
                 v-if="currentHistory"
-                :key="historyState.kind"
+                :key="historyState.kind + authorizationKey"
                 :kind="historyState.kind"
                 :filters="historyState.filters"
                 :devices="devices"
@@ -1653,7 +1656,7 @@ onBeforeUnmount(() => {
                         </td>
                         <td>
                           <strong class="small">{{
-                            deviceName(task.device_id)
+                            task.device_name ?? deviceName(task.device_id)
                           }}</strong
                           ><small class="muted block"
                             ><ActorIdentity
@@ -1722,7 +1725,9 @@ onBeforeUnmount(() => {
                     <tbody>
                       <tr v-for="session in filteredSessions" :key="session.id">
                         <td>
-                          <strong>{{ deviceName(session.device_id) }}</strong
+                          <strong>{{
+                            session.device_name ?? deviceName(session.device_id)
+                          }}</strong
                           ><small class="mono muted block"
                             >{{ session.id.slice(0, 12) }}…</small
                           >
@@ -1775,7 +1780,9 @@ onBeforeUnmount(() => {
                             @click="
                               terminalTarget = {
                                 id: session.device_id,
-                                name: deviceName(session.device_id),
+                                name:
+                                  session.device_name ??
+                                  deviceName(session.device_id),
                                 recording: session,
                               }
                             "
@@ -1985,7 +1992,7 @@ onBeforeUnmount(() => {
         </div>
         <ExecForm
           v-if="execOpen"
-          :key="execDevice"
+          :key="execDevice + authorizationKey"
           :devices="detailDevice ? [detailDevice] : devices"
           :user="user"
           :initial-device="execDevice"

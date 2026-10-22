@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "devices": [
+    {
+      "id": "one",
+      "name": "Linux-1",
+      "connection_kind": "agent",
+      "revoked_at": null
+    }
+  ],
+  "page": {
+    "number": 1,
+    "limit": 25,
+    "total": 1,
+    "pages": 1,
+    "visible_total": 1,
+    "groups": []
+  }
+}

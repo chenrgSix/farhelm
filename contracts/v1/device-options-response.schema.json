@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/device-options-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "devices": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "connection_kind": {
+            "enum": ["agent", "ssh"]
+          },
+          "revoked_at": {
+            "type": ["integer", "null"]
+          }
+        },
+        "required": ["id", "name", "connection_kind", "revoked_at"]
+      }
+    },
+    "page": {
+      "$ref": "devices-response.schema.json#/properties/page"
+    }
+  },
+  "required": ["v", "devices", "page"]
+}

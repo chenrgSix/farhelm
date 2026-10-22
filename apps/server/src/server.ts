@@ -38,7 +38,7 @@ import { auditContext, auditText } from "./audit-context.js";
 import { deployment } from "./deployment.js";
 import { WebListener, isWebRequest, type WebBinding } from "./web-listener.js";
 import { localAdminServer } from "./local-admin.js";
-import { deviceListPage } from "./device-list.js";
+import { deviceListPage, deviceOptions } from "./device-list.js";
 import { historyPage, taskSummary } from "./history.js";
 import { watchTlsContext } from "../../../lib/tls-context.mjs";
 import { registerAccessControl } from "./access-control.js";
@@ -1461,6 +1461,9 @@ export async function buildServer(config: ServerConfig) {
     });
     return devices;
   }
+  app.get("/api/v1/device-options", async (req) =>
+    deviceOptions(db, permitted(req, "devices.read"), req.query),
+  );
   app.get("/api/v1/devices", async (req) => {
     const user = permitted(req, "devices.read");
     const result = deviceListPage(db, user, req.query);

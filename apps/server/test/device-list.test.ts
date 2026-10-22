@@ -152,6 +152,64 @@ test("device list batches reads, preserves route/SSH projections and immediately
         400,
         invalid,
       );
+    async function options(query = "", headers = admin) {
+      const r = await server.app.inject({
+        url: `/api/v1/device-options${query ? "?" + query : ""}`,
+        headers,
+      });
+      assert.equal(r.statusCode, 200, r.body);
+      assertValid("device-options-response", r.json());
+      for (const item of r.json().devices)
+        assert.deepEqual(Object.keys(item).sort(), [
+          "connection_kind",
+          "id",
+          "name",
+          "revoked_at",
+        ]);
+      return r.json();
+    }
+    assert.equal((await options()).devices.length, 50);
+    assert.deepEqual(
+      (await options("page=2&limit=25")).devices.map((d: any) => d.id),
+      full.slice(25, 50).map((d: any) => d.id),
+    );
+    assert.deepEqual(
+      (await options("q=192.168.1.10")).devices.map((d: any) => d.id),
+      ["device-0"],
+    );
+    assert.equal((await options("group=__ungrouped__")).page.total, 499);
+    const chosen = encodeURIComponent(
+      JSON.stringify(["device-0", "device-1", "missing"]),
+    );
+    assert.deepEqual(
+      (await options(`ids=${chosen}`, limited)).devices.map((d: any) => d.id),
+      ["device-0"],
+    );
+    assert.equal((await options("ids=[]")).page.total, 0);
+    for (const invalid of [
+      "purpose=invalid",
+      "ids=oops",
+      "ids={}",
+      "ids=" + encodeURIComponent(JSON.stringify(Array(51).fill("device-0"))),
+      "ids=%5B1%5D",
+      "page=0",
+      "limit=101",
+      "purpose=exec&purpose=read",
+    ])
+      assert.equal(
+        (
+          await server.app.inject({
+            url: `/api/v1/device-options?${invalid}`,
+            headers: admin,
+          })
+        ).statusCode,
+        400,
+        invalid,
+      );
+    assert.equal(
+      (await server.app.inject({ url: "/api/v1/device-options" })).statusCode,
+      401,
+    );
     const first = response.json().devices[0];
     assert.equal(first.terminal_backend, "ssh");
     assert.equal(first.ssh_status, "connected");
@@ -223,6 +281,12 @@ test("device list batches reads, preserves route/SSH projections and immediately
     assert.equal(newScope.page.total, 1);
     assert.deepEqual(newScope.page.groups, []);
     assert.deepEqual(
+      (await options(`ids=${chosen}`, limited)).devices.map((d: any) => d.id),
+      ["device-1"],
+    );
+    assert.deepEqual((await options("page=1", limited)).page.groups, []);
+
+    assert.deepEqual(
       newScope.devices.map((d: any) => d.id),
       ["device-1"],
     );
@@ -251,6 +315,17 @@ test("device list batches reads, preserves route/SSH projections and immediately
     assert.equal(updated.ssh_configured, false);
     assert.equal(updated.terminal_backend, null);
     assert.equal(updated.control_online, false);
+    db.prepare(
+      "UPDATE devices SET connection_kind='ssh' WHERE id='device-1'",
+    ).run();
+    const execChoices = await options(
+      `purpose=exec&ids=${encodeURIComponent(JSON.stringify(["device-0", "device-1", "device-2"]))}`,
+    );
+    assert.deepEqual(
+      execChoices.devices.map((d: any) => d.id),
+      ["device-2"],
+    );
+    assert.equal((await options(`ids=${chosen}`)).devices.length, 2);
   } finally {
     await server.app.close();
     rmSync(root, { recursive: true, force: true });
