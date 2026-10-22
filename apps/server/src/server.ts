@@ -1329,8 +1329,7 @@ export async function buildServer(config: ServerConfig) {
       };
     });
   });
-  app.get("/api/v1/devices", async (req) => {
-    const user = permitted(req, "devices.read");
+  function deviceViews(user: User, deviceId?: string) {
     // Apply visibility before loading related data; credentials never enter this projection.
     const rows = db
       .prepare(
@@ -1340,11 +1339,12 @@ export async function buildServer(config: ServerConfig) {
       FROM devices d LEFT JOIN device_connections c ON c.device_id=d.id
       LEFT JOIN agent_network n ON n.device_id=d.id
       LEFT JOIN device_disks disk ON disk.device_id=d.id
-      WHERE (? OR d.id IN (SELECT value FROM json_each(?))) ORDER BY d.created_at,d.id`,
+      WHERE (? OR d.id IN (SELECT value FROM json_each(?))) ${deviceId === undefined ? "" : "AND d.id=?"} ORDER BY d.created_at,d.id`,
       )
       .all(
         Number(user.role === "admin" || user.device_scope === "*"),
         JSON.stringify(user.device_scope === "*" ? [] : user.device_scope),
+        ...(deviceId === undefined ? [] : [deviceId]),
       ) as any[];
     const ids = rows.map((row) => row.id as string),
       encoded = JSON.stringify(ids);
@@ -1457,7 +1457,19 @@ export async function buildServer(config: ServerConfig) {
           : {}),
       };
     });
-    return { v: 1, devices };
+    return devices;
+  }
+  app.get("/api/v1/devices", async (req) => ({
+    v: 1,
+    devices: deviceViews(permitted(req, "devices.read")),
+  }));
+  app.get("/api/v1/devices/:id", async (req) => {
+    const user = permitted(req, "devices.read");
+    const id = str((req.params as any).id, 1, 128);
+    requireScope(user, id);
+    const device = deviceViews(user, id)[0];
+    if (!device) fail(404, "DEVICE_NOT_FOUND");
+    return device;
   });
   app.post("/api/v1/devices/:id/revoke", async (req) => {
     const user = admin(req);

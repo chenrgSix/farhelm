@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { assertValid } from "../../../tests/contracts/validate.mjs";
 import { buildServer } from "../src/server.js";
 
 test("device list batches reads, preserves route/SSH projections and immediately applies scope and configuration changes", async () => {
@@ -88,6 +89,35 @@ test("device list batches reads, preserves route/SSH projections and immediately
     assert.deepEqual(first.device_groups, [
       { id: "group", name: "Test group" },
     ]);
+    const detail = await server.app.inject({
+      url: "/api/v1/devices/device-0",
+      headers: limited,
+    });
+    assert.equal(detail.statusCode, 200);
+    assertValid("device", detail.json());
+    assert.deepEqual(detail.json(), first);
+    assert.equal(
+      (
+        await server.app.inject({
+          url: "/api/v1/devices/device-1",
+          headers: limited,
+        })
+      ).statusCode,
+      403,
+    );
+    assert.equal(
+      (
+        await server.app.inject({
+          url: "/api/v1/devices/missing",
+          headers: admin,
+        })
+      ).statusCode,
+      404,
+    );
+    assert.equal(
+      (await server.app.inject({ url: "/api/v1/devices/device-0" })).statusCode,
+      401,
+    );
     const route = await server.app.inject({
       url: "/api/v1/devices/device-0/network-route",
       headers: limited,
@@ -108,6 +138,15 @@ test("device list batches reads, preserves route/SSH projections and immediately
         .json()
         .devices.map((d: any) => d.id),
       ["device-1"],
+    );
+    assert.equal(
+      (
+        await server.app.inject({
+          url: "/api/v1/devices/device-0",
+          headers: limited,
+        })
+      ).statusCode,
+      403,
     );
     db.prepare(
       "UPDATE device_connections SET config_json='{}' WHERE device_id='device-0'",

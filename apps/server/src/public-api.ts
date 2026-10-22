@@ -29,6 +29,13 @@ export const publicOperations: Operation[] = [
   },
   {
     method: "GET",
+    path: "/devices/:id",
+    summary: "查询单台授权设备状态",
+    permission: "devices.read",
+    response: "device",
+  },
+  {
+    method: "GET",
     path: "/devices/:id/disk",
     summary: "查看设备磁盘缓存与采集计划",
     permission: "devices.read",

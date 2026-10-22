@@ -10,6 +10,7 @@ import {
 import { diskPercent } from "./disk";
 import { api, ApiError } from "./api/client";
 import { readTabSession, writeTabSession } from "./tab-session";
+import { useDeviceResource } from "./composables/useDeviceResource";
 import { useListResource } from "./composables/useListResource";
 import {
   useHistoryList,
@@ -60,9 +61,11 @@ const DeviceDetail = defineAsyncComponent(
   () => import("./components/DeviceDetail.vue"),
 );
 const detailDeviceId = ref<string | null>(null);
-const detailDevice = computed(() =>
-  devices.value.find((d) => d.id === detailDeviceId.value),
-);
+const detailResource = useDeviceResource(detailDeviceId);
+const detailDevice = detailResource.device;
+watch(detailDeviceId, () => {
+  if (user.value) void refresh();
+});
 const TargetAccountsPanel = defineAsyncComponent(
   () => import("./components/TargetAccountsPanel.vue"),
 );
@@ -147,7 +150,11 @@ const lists = {
   terminals: sessionList,
 };
 const currentList = computed(() =>
-  view.value in lists ? lists[view.value as keyof typeof lists] : null,
+  view.value === "devices" && detailDeviceId.value
+    ? detailResource
+    : view.value in lists
+      ? lists[view.value as keyof typeof lists]
+      : null,
 );
 const sessionLoading = ref(false);
 const sessionError = ref("");
@@ -338,6 +345,7 @@ function clearSession(message = "", preserveSaved = false) {
   password.value = "";
   for (const list of Object.values(lists)) list.reset();
   overviewTaskList.reset();
+  detailResource.reset();
   taskHistory.reset();
   auditHistory.reset();
   sessionHistory.reset();
@@ -404,7 +412,7 @@ async function establishSession(
   if (user.value) {
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(() => {
-      if (!document.hidden && user.value) void refresh();
+      if (!document.hidden && user.value) void refresh(true);
     }, 10_000);
   }
 }
@@ -487,11 +495,24 @@ async function closeTerminalSession(session: TerminalSession) {
   }
 }
 let userRefresh: Promise<void> | undefined;
-function refreshTargets() {
+function refreshTargets(poll = false) {
   const targets = [];
-  if (hasPermission(user.value, "devices.read")) targets.push(deviceList);
+  if (hasPermission(user.value, "devices.read")) {
+    if (
+      view.value === "devices" &&
+      (!detailDeviceId.value ||
+        hasPermission(user.value, "devices.read", detailDeviceId.value))
+    )
+      targets.push(detailDeviceId.value ? detailResource : deviceList);
+    else if (
+      ["tasks", "audit", "terminals", "access", "api"].includes(view.value) &&
+      (!poll || !deviceList.updatedAt.value)
+    )
+      targets.push(deviceList);
+  }
   if (hasPermission(user.value, "tasks.read")) {
-    if (view.value === "devices") targets.push(overviewTaskList);
+    if (view.value === "devices" && !detailDeviceId.value)
+      targets.push(overviewTaskList);
     if (view.value === "tasks") targets.push(taskList);
   }
   if (view.value === "audit" && hasPermission(user.value, "audit.read"))
@@ -511,7 +532,29 @@ function refreshUser() {
     try {
       const freshUser = await api.request<User>("/me");
       if (generation !== sessionGeneration) return;
+      const scopeChanged =
+        JSON.stringify([
+          user.value?.role,
+          user.value?.device_scope,
+          user.value?.permissions,
+        ]) !==
+        JSON.stringify([
+          freshUser.role,
+          freshUser.device_scope,
+          freshUser.permissions,
+        ]);
+      if (scopeChanged) {
+        deviceList.reset();
+        detailResource.reset();
+      }
       user.value = freshUser;
+      if (
+        detailDeviceId.value &&
+        !hasPermission(freshUser, "devices.read", detailDeviceId.value)
+      ) {
+        detailResource.reset();
+        detailResource.error.value = "设备不存在或无权查看。";
+      }
       sessionError.value = "";
       sessionUpdatedAt.value = Date.now();
       const permissions = {
@@ -537,7 +580,7 @@ function refreshUser() {
   })();
   return userRefresh;
 }
-async function refresh() {
+async function refresh(poll = false) {
   if (!user.value || user.value.must_change_password) return;
   const generation = sessionGeneration;
   await refreshUser();
@@ -548,7 +591,7 @@ async function refresh() {
     sessionError.value
   )
     return;
-  await Promise.all(refreshTargets().map((list) => list.load()));
+  await Promise.all(refreshTargets(poll === true).map((list) => list.load()));
   if (generation === sessionGeneration) {
     selectedDeviceIds.value = selectedDeviceIds.value.filter((id) =>
       devices.value.some((d) => d.id === id),
@@ -587,6 +630,7 @@ async function onCreated(id: string) {
 function switchView(id: View) {
   if (!navigation.value.some((item) => item.id === id)) return;
   view.value = id;
+  detailDeviceId.value = null;
   if (id !== "access") authorizationDevice.value = undefined;
   search.value = "";
   error.value = "";
@@ -837,7 +881,7 @@ onBeforeUnmount(() => {
         <div class="breadcrumb">
           工作空间 <span>/</span>
           {{
-            view === "devices" && detailDevice ? "设备详情" : titles[view][0]
+            view === "devices" && detailDeviceId ? "设备详情" : titles[view][0]
           }}
         </div>
         <div class="topbar-right">
@@ -856,7 +900,7 @@ onBeforeUnmount(() => {
             "
             class="button secondary small"
             :disabled="refreshing"
-            @click="refresh"
+            @click="refresh()"
           >
             {{ refreshing ? "刷新中…" : "↻ 刷新" }}
           </button>
@@ -866,7 +910,10 @@ onBeforeUnmount(() => {
         <div v-if="!sessionStorageAvailable" class="notice" role="status">
           浏览器未允许保存标签页会话，本次登录可正常使用，刷新后需重新登录。
         </div>
-        <div v-if="!(view === 'devices' && detailDevice)" class="page-heading">
+        <div
+          v-if="!(view === 'devices' && detailDeviceId)"
+          class="page-heading"
+        >
           <div>
             <div class="eyebrow">FARHELM / {{ view.toUpperCase() }}</div>
             <h1>{{ titles[view][0] }}</h1>
@@ -900,7 +947,10 @@ onBeforeUnmount(() => {
           <span v-if="view === 'devices'">当前设备状态未知。</span>
         </div>
         <div
-          v-if="view !== 'devices' && deviceError"
+          v-if="
+            ['tasks', 'audit', 'terminals', 'access', 'api'].includes(view) &&
+            deviceError
+          "
           class="notice danger"
           role="alert"
         >
@@ -909,7 +959,7 @@ onBeforeUnmount(() => {
           }}。设备名称可能已过期，当前页面的独立查询仍可继续。
         </div>
         <div
-          v-if="view === 'devices' && taskError"
+          v-if="view === 'devices' && !detailDeviceId && taskError"
           class="notice danger"
           role="alert"
         >
@@ -920,7 +970,7 @@ onBeforeUnmount(() => {
           <button class="text-button" @click="error = ''">关闭提示</button>
         </div>
         <section
-          v-if="view === 'devices' && navigation.length && !detailDevice"
+          v-if="view === 'devices' && navigation.length && !detailDeviceId"
           class="metric-grid"
           aria-label="设备概况"
         >
@@ -988,6 +1038,21 @@ onBeforeUnmount(() => {
         <AgentUpgradePanel
           v-if="view === 'upgrades' && user.role === 'admin'"
         />
+        <section
+          v-if="view === 'devices' && detailDeviceId && !detailDevice"
+          class="panel detail-unavailable"
+        >
+          <button class="button secondary" @click="detailDeviceId = null">
+            ← 返回设备列表
+          </button>
+          <p>
+            {{
+              detailResource.loading.value
+                ? "正在读取设备详情…"
+                : "设备详情暂不可用，请刷新重试。"
+            }}
+          </p>
+        </section>
         <DeviceDetail
           v-if="view === 'devices' && detailDevice"
           :key="detailDevice.id"
@@ -999,7 +1064,7 @@ onBeforeUnmount(() => {
         <div
           v-if="
             navigation.length &&
-            !(view === 'devices' && detailDevice) &&
+            !(view === 'devices' && detailDeviceId) &&
             view !== 'settings' &&
             view !== 'upgrades' &&
             view !== 'access' &&

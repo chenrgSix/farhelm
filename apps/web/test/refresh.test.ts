@@ -50,6 +50,7 @@ function mockApi(extra: (path: string) => unknown = () => undefined) {
     if (path === "/login") return { access_token: "test-token", user };
     if (path === "/me") return user;
     if (path === "/devices") return { devices: [device] };
+    if (path === "/devices/device-1") return device;
     if (path === "/tasks") return { tasks: [] };
     if (path === "/audit") return { audit: [] };
     if (path === "/terminal-sessions") return { sessions: [] };
@@ -125,7 +126,10 @@ describe("independent list refresh", () => {
     expect(wrapper.text()).toContain("保留上次成功读取的数据");
     expect(
       request.mock.calls.some(
-        ([path]) => path === "/tasks" || path === "/terminal-sessions",
+        ([path]) =>
+          path === "/devices" ||
+          path === "/tasks" ||
+          path === "/terminal-sessions",
       ),
     ).toBe(false);
     await navigate("设备总览");
@@ -258,4 +262,65 @@ it("failed logout stays signed in with a retry notice; unauthorized cleanup neve
   expect(wrapper.find('input[name="username"]').exists()).toBe(true);
   expect(readTabSession()).toBeNull();
   expect(request.mock.calls.some(([path]) => path === "/logout")).toBe(false);
+});
+
+it("polls only the selected device and never recollects disks on the page timer", async () => {
+  vi.useFakeTimers();
+  const request = mockApi();
+  wrapper = mount(App, {
+    global: {
+      stubs: {
+        DeviceDetail: { template: "<div>详情占位</div>" },
+        SystemSettingsPanel: true,
+        NetworkSettingsPanel: true,
+        CertificateSettingsPanel: true,
+        DeploymentPanel: true,
+      },
+    },
+  });
+  await login();
+  await wrapper.get('[aria-label="查看设备详情：生产设备"]').trigger("click");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith("/devices/device-1");
+  request.mockClear();
+  await vi.advanceTimersByTimeAsync(20_000);
+  await flushPromises();
+  expect(request.mock.calls.map(([p]) => p)).toEqual([
+    "/me",
+    "/devices/device-1",
+    "/me",
+    "/devices/device-1",
+  ]);
+  await navigate("系统设置");
+  await flushPromises();
+  request.mockClear();
+  await vi.advanceTimersByTimeAsync(10_000);
+  await flushPromises();
+  expect(request.mock.calls.map(([p]) => p)).toEqual(["/me"]);
+});
+
+it("clears stale detail and device choices immediately when the user's scope changes", async () => {
+  vi.useFakeTimers();
+  let allowed = true;
+  const request = mockApi((path) =>
+    path === "/me"
+      ? { ...user, role: "ops", device_scope: allowed ? [device.id] : [] }
+      : undefined,
+  );
+  wrapper = mount(App, {
+    global: {
+      stubs: { DeviceDetail: { template: "<div>秘密设备详情</div>" } },
+    },
+  });
+  await login();
+  await wrapper.get('[aria-label="查看设备详情：生产设备"]').trigger("click");
+  await flushPromises();
+  expect(wrapper.text()).toContain("秘密设备详情");
+  allowed = false;
+  request.mockClear();
+  await vi.advanceTimersByTimeAsync(10_000);
+  await flushPromises();
+  expect(wrapper.text()).not.toContain("秘密设备详情");
+  expect(wrapper.text()).toContain("无权查看");
+  expect(request.mock.calls.map(([p]) => p)).toEqual(["/me"]);
 });
