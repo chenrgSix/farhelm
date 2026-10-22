@@ -370,6 +370,12 @@ export class Store {
         ),
       );
     }
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/036_device_disks.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     migrateAccountAuthorizations(this.db);
     this.db
       .prepare(

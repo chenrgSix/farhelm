@@ -55,6 +55,7 @@ import { createSshGateway, type SshLogin } from "./ssh.js";
 import { registerNetworkRoutes } from "./network-routes.js";
 import { registerNetworkProbes } from "./network-probes.js";
 import { registerAgentNetwork } from "./agent-network.js";
+import { registerDeviceDisks } from "./device-disks.js";
 import { registerHealth } from "./health.js";
 import { registerTerminalPrivilege } from "./terminal-privilege.js";
 import {
@@ -107,6 +108,7 @@ interface Connection {
   terminalConfig: boolean;
   terminalConfigReported: boolean;
   health: boolean;
+  disk: boolean;
   address: boolean;
   trust: boolean;
   network: boolean;
@@ -737,6 +739,35 @@ export async function buildServer(config: ServerConfig) {
     availableStorage,
     rate,
   });
+  const disks = registerDeviceDisks(app, {
+    store,
+    rate,
+    reader: (req) => permitted(req, "devices.read"),
+    admin,
+    requireScope,
+    requireDevice,
+    agent(id) {
+      const c = connections.get(id);
+      return c?.ready &&
+        c.disk &&
+        live(c) &&
+        Date.now() - c.lastHeartbeat <= heartbeatTimeout &&
+        networkRoutes.allowed(id)
+        ? {
+            connectionId: c.healthSession,
+            send: (type, body) => send(c, type, body),
+          }
+        : undefined;
+    },
+    ssh(id) {
+      if (deviceConnections.canSsh(id)) return deviceConnections.diskUsage(id);
+      const c = connections.get(id);
+      fail(
+        409,
+        c?.ready && !c.disk ? "DISK_AGENT_UPDATE_REQUIRED" : "DEVICE_OFFLINE",
+      );
+    },
+  });
   const networkProbes = registerNetworkProbes(app, {
     store,
     userAuth: (req) => permitted(req, "devices.read"),
@@ -1304,9 +1335,11 @@ export async function buildServer(config: ServerConfig) {
     const rows = db
       .prepare(
         `SELECT d.id,d.name,d.connection_kind,d.last_seen,d.revoked_at,d.agent_version,
-      c.config_json AS connection_config,c.last_checked_at,c.last_error,n.snapshot AS network_snapshot
+      c.config_json AS connection_config,c.last_checked_at,c.last_error,n.snapshot AS network_snapshot,
+      disk.snapshot_json AS disk_snapshot,disk.checked_at AS disk_checked_at,disk.last_error AS disk_error,disk.interval_hours AS disk_interval_hours
       FROM devices d LEFT JOIN device_connections c ON c.device_id=d.id
       LEFT JOIN agent_network n ON n.device_id=d.id
+      LEFT JOIN device_disks disk ON disk.device_id=d.id
       WHERE (? OR d.id IN (SELECT value FROM json_each(?))) ORDER BY d.created_at,d.id`,
       )
       .all(
@@ -1383,6 +1416,15 @@ export async function buildServer(config: ServerConfig) {
       return {
         id: d.id,
         name: d.name,
+        disk_usage: d.disk_snapshot
+          ? {
+              ...JSON.parse(d.disk_snapshot),
+              checked_at: d.disk_checked_at,
+              stale:
+                !!d.disk_error ||
+                now - d.disk_checked_at >= d.disk_interval_hours * 3600000,
+            }
+          : null,
         device_groups: groups.get(d.id) ?? [],
         control_online: online.has(d.id),
         private_data_reachable: route.agent?.connected
@@ -1938,6 +1980,7 @@ export async function buildServer(config: ServerConfig) {
         terminalConfig: false,
         terminalConfigReported: false,
         health: false,
+        disk: false,
         address: false,
         trust: false,
         network: false,
@@ -1946,13 +1989,17 @@ export async function buildServer(config: ServerConfig) {
         healthSession: randomUUID(),
       };
       const old = connections.get(auth.id);
-      if (old) terminals.disconnect(auth.id);
+      if (old) {
+        terminals.disconnect(auth.id);
+        disks.disconnect(auth.id, old.healthSession);
+      }
       connections.set(auth.id, c);
       old?.socket.close(4001, "Superseded connection");
       socket.on("error", () => {});
       socket.on("close", () => {
         if (connections.get(auth.id) === c) {
           terminals.disconnect(auth.id);
+          disks.disconnect(auth.id, c.healthSession);
           connections.delete(auth.id);
         }
       });
@@ -1990,6 +2037,7 @@ export async function buildServer(config: ServerConfig) {
                 )
               )
                 fail(400, "INVALID_CAPABILITIES");
+              c.disk = b.capabilities.includes("disk.usage.v1");
               c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.sudo = b.capabilities.includes("terminal.sudo.v1");
@@ -2098,6 +2146,9 @@ export async function buildServer(config: ServerConfig) {
             if (!renewed) fail(401, "DEVICE_AUTH_INVALID");
             c.tokenHash = th;
             c.expiresAt = renewed.expires_at;
+          } else if (env.type === "agent.disk.result") {
+            if (!c.ready || !c.disk) fail(400, "HELLO_REQUIRED");
+            disks.receive(c.deviceId, c.healthSession, b);
           } else if (env.type === "health.result") {
             if (!c.ready || !c.health) fail(400, "HEALTH_HELLO_REQUIRED");
             health.receive(c.deviceId, b);
@@ -2213,6 +2264,7 @@ export async function buildServer(config: ServerConfig) {
   timer.unref();
   app.addHook("onClose", async () => {
     clearInterval(timer);
+    await disks.close();
     terminals.close();
     await ssh?.close();
     await deviceConnections.close();

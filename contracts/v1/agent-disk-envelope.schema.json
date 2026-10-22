@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/agent-disk-envelope.schema.json",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.disk.request"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": ["request_id"]
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "agent.disk.result"
+        },
+        "body": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "usage": {
+                  "$ref": "disk-usage.schema.json"
+                },
+                "error": {
+                  "type": "null"
+                }
+              },
+              "required": ["request_id", "usage", "error"]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "usage": {
+                  "type": "null"
+                },
+                "error": {
+                  "const": "DISK_COLLECTION_FAILED"
+                }
+              },
+              "required": ["request_id", "usage", "error"]
+            }
+          ]
+        }
+      },
+      "required": ["v", "type", "body"]
+    }
+  ]
+}

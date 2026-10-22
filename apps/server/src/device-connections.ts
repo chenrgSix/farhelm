@@ -514,6 +514,28 @@ export function registerDeviceConnections(
         },
       };
     },
+    async diskUsage(id: string) {
+      const selected = routeTargets(id),
+        revision = saved(id)?.revision;
+      for (let i = 0; i < selected.targets.length; i++) {
+        try {
+          const text = await targets.diskUsage(selected.targets[i]!.config);
+          if (
+            d.requireDevice(id).revoked_at ||
+            saved(id)?.revision !== revision ||
+            d.routes.current(id).revision !== selected.revision
+          )
+            fail(409, "DEVICE_CONNECTION_CHANGED");
+          return text;
+        } catch (error) {
+          const reason =
+            error instanceof Error ? error.message : "SSH_CONNECT_FAILED";
+          if (i + 1 === selected.targets.length || !canFallback(reason))
+            throw error;
+        }
+      }
+      fail(409, "SSH_NOT_CONFIGURED");
+    },
     sudoPassword(id: string) {
       const row = saved(id);
       return row ? secrets.open(id, row.secrets).sudo_password : undefined;

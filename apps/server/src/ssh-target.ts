@@ -1,4 +1,5 @@
 import { createHash, createPrivateKey } from "node:crypto";
+import { DISK_COMMAND } from "./disk-usage.js";
 import ssh2, { type ClientChannel, type ConnectConfig } from "ssh2";
 
 export type SshTargetConfig = {
@@ -157,6 +158,77 @@ export class SshTargets {
         ),
       );
       client.on("close", () => finish("SSH_CONNECT_FAILED"));
+      try {
+        this.connect(
+          client,
+          this.connectConfig(config, () => {
+            mismatch = true;
+          }),
+        );
+      } catch {
+        finish("SSH_CONNECT_FAILED");
+      }
+    });
+  }
+  diskUsage(config: SshTargetConfig): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const client = this.client();
+      let done = false,
+        mismatch = false,
+        length = 0;
+      const chunks: Buffer[] = [];
+      const finish = (error?: string) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        this.destroy(client);
+        if (error) reject(new Error(error));
+        else resolve(Buffer.concat(chunks).toString("utf8"));
+      };
+      const timer = setTimeout(() => finish("DISK_COLLECTION_TIMEOUT"), 10000);
+      client.on("error", (error: any) =>
+        finish(
+          mismatch
+            ? "SSH_HOST_KEY_MISMATCH"
+            : error.level === "client-authentication"
+              ? "SSH_AUTH_FAILED"
+              : "SSH_CONNECT_FAILED",
+        ),
+      );
+      client.on("close", () => finish("SSH_CONNECT_FAILED"));
+      client.on("ready", () => {
+        if (done) return;
+        client.exec(DISK_COMMAND, (error, stream) => {
+          if (done) {
+            stream?.destroy();
+            return;
+          }
+          if (error) {
+            finish("DISK_COLLECTION_FAILED");
+            return;
+          }
+          stream.on("error", () => finish("DISK_COLLECTION_FAILED"));
+          stream.on("data", (data: Buffer) => {
+            length += data.length;
+            if (length > 65536) {
+              stream.destroy();
+              finish("DISK_OUTPUT_LIMIT");
+              return;
+            }
+            chunks.push(data);
+          });
+          stream.stderr.on("data", (data: Buffer) => {
+            length += data.length;
+            if (length > 65536) {
+              stream.destroy();
+              finish("DISK_OUTPUT_LIMIT");
+            }
+          });
+          stream.on("close", (code: number | null) =>
+            finish(code === 0 ? undefined : "DISK_COLLECTION_FAILED"),
+          );
+        });
+      });
       try {
         this.connect(
           client,

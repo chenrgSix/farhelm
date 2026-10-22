@@ -2,6 +2,10 @@ import type { AuditEntry } from "./api/types";
 import { formatTime, statusLabels } from "./model";
 
 export const auditActionLabels: Record<string, string> = {
+  "device.disk_requested": "请求磁盘采集",
+  "device.disk_collected": "磁盘采集完成",
+  "device.disk_failed": "磁盘采集失败",
+  "device.disk_schedule_updated": "修改磁盘采集间隔",
   "api_token.created": "创建 API Token",
   "api_token.updated": "修改 API Token 授权",
   "api_token.revoked": "撤销 API Token",

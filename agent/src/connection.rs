@@ -251,7 +251,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
             )?
             .into(),
         ))
@@ -267,6 +267,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
             ))
             .await?;
     }
+    let mut disk_samples = tokio::task::JoinSet::<serde_json::Value>::new();
     let mut downloads = tokio::task::JoinSet::<(UpgradeSpec, Result<()>)>::new();
     let mut address = AddressState::load(cfg, journal)?;
     if route.policy.is_none() {
@@ -372,6 +373,9 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                     socket.send(Message::Text(envelope("agent.network.event",event)?.into())).await?;
                 }
             }
+            Some(sample)=disk_samples.join_next(), if !disk_samples.is_empty()=>{
+                socket.send(Message::Text(envelope("agent.disk.result",sample?)?.into())).await?;
+            }
             Some(downloaded)=downloads.join_next(), if !downloads.is_empty()=>{
                 let (spec,result)=downloaded?;
                 let state=UpgradeState{spec,status:if result.is_ok(){"WAITING_IDLE"}else{"FAILED"}.into(),reason:if result.is_ok(){None}else{Some("DOWNLOAD_FAILED".into())}};
@@ -460,6 +464,20 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.disk.request"=>{
+                                let request:crate::disk::Request=serde_json::from_value(envelope.body)?;
+                                uuid::Uuid::parse_str(&request.request_id)?;
+                                if disk_samples.is_empty() {
+                                    disk_samples.spawn(async move {
+                                        match crate::disk::collect().await {
+                                            Ok(usage)=>json!({"request_id":request.request_id,"usage":usage,"error":null}),
+                                            Err(_)=>json!({"request_id":request.request_id,"usage":null,"error":"DISK_COLLECTION_FAILED"}),
+                                        }
+                                    });
+                                } else {
+                                    socket.send(Message::Text(crate::protocol::envelope("agent.disk.result",json!({"request_id":request.request_id,"usage":null,"error":"DISK_COLLECTION_FAILED"}))?.into())).await?;
+                                }
+                            }
                             "agent.terminal.config"=>{
                                 let update:crate::terminal_privilege::State=serde_json::from_value(envelope.body)?;
                                 let result=terminal_privilege.apply(update,journal,terminals.is_idle())?;

@@ -2,6 +2,7 @@
 pub mod address;
 pub mod config;
 pub mod connection;
+pub mod disk;
 pub mod executor;
 pub mod health;
 pub mod identity;

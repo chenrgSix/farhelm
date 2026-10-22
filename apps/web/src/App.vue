@@ -7,6 +7,7 @@ import {
   ref,
   watch,
 } from "vue";
+import { diskPercent } from "./disk";
 import { api, ApiError } from "./api/client";
 import { readTabSession, writeTabSession } from "./tab-session";
 import { useListResource } from "./composables/useListResource";
@@ -55,6 +56,13 @@ import DeviceActions from "./components/DeviceActions.vue";
 import ChangePasswordPanel from "./components/ChangePasswordPanel.vue";
 import ApiTokensPanel from "./components/ApiTokensPanel.vue";
 import AccessControlPanel from "./components/AccessControlPanel.vue";
+const DeviceDetail = defineAsyncComponent(
+  () => import("./components/DeviceDetail.vue"),
+);
+const detailDeviceId = ref<string | null>(null);
+const detailDevice = computed(() =>
+  devices.value.find((d) => d.id === detailDeviceId.value),
+);
 const TargetAccountsPanel = defineAsyncComponent(
   () => import("./components/TargetAccountsPanel.vue"),
 );
@@ -342,6 +350,7 @@ function clearSession(message = "", preserveSaved = false) {
   connectionTab.value = "endpoint";
   healthTarget.value = null;
   networkTarget.value = null;
+  detailDeviceId.value = null;
   networkRouteTarget.value = null;
   connectionTarget.value = undefined;
   connectionOpen.value = false;
@@ -826,7 +835,10 @@ onBeforeUnmount(() => {
     <div class="workspace">
       <header class="topbar">
         <div class="breadcrumb">
-          工作空间 <span>/</span> {{ titles[view][0] }}
+          工作空间 <span>/</span>
+          {{
+            view === "devices" && detailDevice ? "设备详情" : titles[view][0]
+          }}
         </div>
         <div class="topbar-right">
           <HealthBadge
@@ -854,7 +866,7 @@ onBeforeUnmount(() => {
         <div v-if="!sessionStorageAvailable" class="notice" role="status">
           浏览器未允许保存标签页会话，本次登录可正常使用，刷新后需重新登录。
         </div>
-        <div class="page-heading">
+        <div v-if="!(view === 'devices' && detailDevice)" class="page-heading">
           <div>
             <div class="eyebrow">FARHELM / {{ view.toUpperCase() }}</div>
             <h1>{{ titles[view][0] }}</h1>
@@ -908,7 +920,7 @@ onBeforeUnmount(() => {
           <button class="text-button" @click="error = ''">关闭提示</button>
         </div>
         <section
-          v-if="view === 'devices' && navigation.length"
+          v-if="view === 'devices' && navigation.length && !detailDevice"
           class="metric-grid"
           aria-label="设备概况"
         >
@@ -976,9 +988,18 @@ onBeforeUnmount(() => {
         <AgentUpgradePanel
           v-if="view === 'upgrades' && user.role === 'admin'"
         />
+        <DeviceDetail
+          v-if="view === 'devices' && detailDevice"
+          :key="detailDevice.id"
+          :device="detailDevice"
+          :user="user"
+          @close="detailDeviceId = null"
+          @changed="refresh"
+        />
         <div
           v-if="
             navigation.length &&
+            !(view === 'devices' && detailDevice) &&
             view !== 'settings' &&
             view !== 'upgrades' &&
             view !== 'access' &&
@@ -1145,6 +1166,7 @@ onBeforeUnmount(() => {
                         <th>连接状态</th>
                         <th>网络通道</th>
                         <th>业务健康</th>
+                        <th>磁盘占用</th>
                         <th>最近心跳 / 检查</th>
                         <th>操作</th>
                       </tr>
@@ -1168,7 +1190,12 @@ onBeforeUnmount(() => {
                               >▤</span
                             >
                             <div>
-                              <strong>{{ device.name }}</strong
+                              <button
+                                class="device-detail-link"
+                                :aria-label="`查看设备详情：${device.name}`"
+                                @click="detailDeviceId = device.id"
+                              >
+                                {{ device.name }}</button
                               ><small>{{
                                 device.device_groups
                                   ?.map((g) => g.name)
@@ -1314,6 +1341,27 @@ onBeforeUnmount(() => {
                             good="健康"
                             bad="异常"
                           />
+                        </td>
+                        <td data-label="磁盘占用">
+                          <button
+                            class="device-detail-link"
+                            :title="
+                              device.disk_usage
+                                ? `最近采集 ${formatTime(device.disk_usage.checked_at)}`
+                                : '查看设备详情后采集'
+                            "
+                            @click="detailDeviceId = device.id"
+                          >
+                            {{
+                              device.disk_usage
+                                ? `${diskPercent(device.disk_usage.used_bytes, device.disk_usage.total_bytes)}%`
+                                : "查看磁盘"
+                            }}</button
+                          ><small
+                            v-if="device.disk_usage?.stale"
+                            class="muted block"
+                            >旧数据</small
+                          >
                         </td>
                         <td
                           class="small muted device-heartbeat"
@@ -1807,6 +1855,23 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.device-detail-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #236d60;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.device-detail-link:hover {
+  text-decoration: underline;
+}
+.device-detail-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
 @media (min-width: 801px) {
   .device-table .device-actions-cell,
   .device-table th:last-child {

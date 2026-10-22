@@ -318,6 +318,55 @@
         "ssh_fallback",
         "blocked_reason"
       ]
+    },
+    "disk_usage": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "total_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "used_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "available_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "filesystem_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1024
+            },
+            "checked_at": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "stale": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "total_bytes",
+            "used_bytes",
+            "available_bytes",
+            "filesystem_count",
+            "checked_at",
+            "stale"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

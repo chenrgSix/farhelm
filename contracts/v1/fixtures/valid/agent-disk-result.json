@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "agent.disk.result",
+  "body": {
+    "request_id": "00000000-0000-4000-8000-000000000001",
+    "usage": {
+      "total_bytes": 3072000,
+      "used_bytes": 1536000,
+      "available_bytes": 1331200,
+      "filesystem_count": 2
+    },
+    "error": null
+  }
+}

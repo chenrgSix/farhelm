@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "device_id": "device-one",
+  "interval_hours": 24,
+  "revision": 0,
+  "usage": {
+    "total_bytes": 3072000,
+    "used_bytes": 1536000,
+    "available_bytes": 1331200,
+    "filesystem_count": 2
+  },
+  "checked_at": 100000,
+  "last_error": null,
+  "next_collection_at": 86500000,
+  "cache_until": 400000,
+  "collecting": false,
+  "stale": false
+}

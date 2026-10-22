@@ -75,7 +75,27 @@ export interface DeviceNetworkRoute {
   agent: NetworkRouteObservation | null;
   ssh: NetworkRouteObservation | null;
 }
+export interface DiskUsage {
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+  filesystem_count: number;
+}
+export interface DeviceDisk {
+  v: 1;
+  device_id: string;
+  interval_hours: number;
+  revision: number;
+  usage: DiskUsage | null;
+  checked_at: number | null;
+  last_error: string | null;
+  next_collection_at: number;
+  cache_until: number | null;
+  collecting: boolean;
+  stale: boolean;
+}
 export interface Device {
+  disk_usage?: (DiskUsage & { checked_at: number; stale: boolean }) | null;
   network_route?: DeviceNetworkRoute;
   ip_addresses?: string[];
   connection_kind?: "agent" | "ssh";

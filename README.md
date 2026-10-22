@@ -10,6 +10,8 @@ Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出
 
 设备页现可配置 HTTP/HTTPS、TCP 和 systemd 业务健康检查，由目标 Agent 定时执行；支持立即探测、失败阈值及结果过期，详见[健康检查](docs/health-checks.md)。网络通道与 EasyTier 路径独立于业务健康显示，详见[网络策略](docs/network-routes.md)。
 
+设备列表和详情页支持查看被管理服务器的[磁盘总占用](docs/device-disks.md)。默认每 24 小时采集，可改为 12、8、2、1 小时；查看详情按需采集，并共享缓存和并发限制，列表刷新不触发采集。
+
 Agent 自动采集本机网卡 IPv4 / IPv6，并在本地记录与平台断连的检测、恢复时间，恢复后补传。设备页「网络记录」可查看 IP 和中断历史；需要 Agent 0.2.2 或更新版本。详见[网络记录](docs/agent-network.md)。
 
 Agent 0.2.3 起可在设备「网络记录」中配置多个网络探测地址、间隔、超时及连续失败阈值。平台断开后仍独立探测、保存并补传证据，区分平台连接异常、部分目标异常和疑似网络故障。

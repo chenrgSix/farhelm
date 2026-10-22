@@ -1848,5 +1848,50 @@
     "path": "invalid/connection-invalid-auth-method.json",
     "schema": "device-connection-response.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/disk-usage.json",
+    "schema": "disk-usage.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-disk-collect-request.json",
+    "schema": "device-disk-collect-request.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-disk-settings.json",
+    "schema": "device-disk-settings.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-disk-response.json",
+    "schema": "device-disk-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-disk-envelope.json",
+    "schema": "agent-disk-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/agent-disk-result.json",
+    "schema": "agent-disk-envelope.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/disk-invalid-interval.json",
+    "schema": "device-disk-settings.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/disk-negative-capacity.json",
+    "schema": "disk-usage.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/disk-unknown-command.json",
+    "schema": "agent-disk-envelope.schema.json",
+    "valid": false
   }
 ]

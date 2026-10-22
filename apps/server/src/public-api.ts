@@ -29,6 +29,21 @@ export const publicOperations: Operation[] = [
   },
   {
     method: "GET",
+    path: "/devices/:id/disk",
+    summary: "查看设备磁盘缓存与采集计划",
+    permission: "devices.read",
+    response: "device-disk-response",
+  },
+  {
+    method: "POST",
+    path: "/devices/:id/disk/collect",
+    summary: "按需采集磁盘（服务端缓存与限流）",
+    permission: "devices.read",
+    request: "device-disk-collect-request",
+    response: "device-disk-response",
+  },
+  {
+    method: "GET",
     path: "/devices/:id/health-checks",
     summary: "查看健康检查",
     permission: "devices.read",
