@@ -12,6 +12,7 @@ const admin = {
 };
 let wrapper: VueWrapper | undefined;
 afterEach(() => {
+  window.history.replaceState(null, "", "/");
   wrapper?.unmount();
   wrapper = undefined;
   vi.restoreAllMocks();

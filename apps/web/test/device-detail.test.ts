@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import DeviceDetail from "../src/components/DeviceDetail.vue";
 import { api } from "../src/api/client";
+import * as clipboard from "../src/clipboard";
 import type { Device, DeviceDisk, User } from "../src/api/types";
 const device: Device = {
   id: "device",
@@ -40,6 +41,25 @@ const data: DeviceDisk = {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+});
+it("copies a device-specific link without any authentication material", async () => {
+  vi.spyOn(api, "request").mockResolvedValue(data);
+  const copy = vi.spyOn(clipboard, "copyText").mockResolvedValue();
+  const wrapper = mount(DeviceDetail, { props: { device, user } });
+  await flushPromises();
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "复制设备链接")!
+    .trigger("click");
+  await flushPromises();
+  expect(copy).toHaveBeenCalledWith(
+    window.location.origin +
+      window.location.pathname +
+      window.location.search +
+      "#/devices/device",
+  );
+  expect(wrapper.text()).toContain("设备链接已复制");
+  wrapper.unmount();
 });
 it("joins an existing collection even when the pending attempt has a cache deadline", async () => {
   const request = vi

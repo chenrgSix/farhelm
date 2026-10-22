@@ -4,6 +4,8 @@ import { api } from "../api/client";
 import type { Device, DeviceDisk, User } from "../api/types";
 import { formatTime } from "../model";
 import { diskBytes, diskPercent } from "../disk";
+import { copyText } from "../clipboard";
+import { routeHash } from "../navigation";
 const props = defineProps<{ device: Device; user: User }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const disk = ref<DeviceDisk>();
@@ -11,6 +13,20 @@ const interval = ref(24);
 const busy = ref(false);
 const error = ref("");
 const notice = ref("");
+const linkNotice = ref("");
+async function copyLink() {
+  try {
+    await copyText(
+      window.location.origin +
+        window.location.pathname +
+        window.location.search +
+        routeHash({ view: "devices", deviceId: props.device.id }),
+    );
+    linkNotice.value = "设备链接已复制，打开后仍需登录并拥有设备权限。";
+  } catch {
+    linkNotice.value = "复制失败，可直接复制浏览器地址栏中的设备链接。";
+  }
+}
 let disposed = false;
 const endpoint = () => `/devices/${encodeURIComponent(props.device.id)}/disk`;
 const reasons: Record<string, string> = {
@@ -120,9 +136,15 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section class="device-detail" aria-label="设备详情">
-    <button class="button secondary" @click="emit('close')">
-      ← 返回设备列表
-    </button>
+    <div class="detail-navigation">
+      <button class="button secondary" @click="emit('close')">
+        ← 返回设备列表
+      </button>
+      <button class="button secondary" @click="copyLink">复制设备链接</button>
+    </div>
+    <p v-if="linkNotice" class="notice neutral" role="status">
+      {{ linkNotice }}
+    </p>
     <header class="detail-heading">
       <div>
         <p class="eyebrow">设备详情</p>
@@ -139,6 +161,9 @@ onBeforeUnmount(() => {
               : "Agent 离线"
       }}</span>
     </header>
+    <div v-if="$slots.actions" class="detail-actions" aria-label="设备快捷操作">
+      <slot name="actions" />
+    </div>
     <div class="detail-grid">
       <section class="panel disk-card" aria-label="磁盘总占用">
         <header class="panel-heading">
@@ -276,6 +301,13 @@ onBeforeUnmount(() => {
 }
 .device-detail > button {
   justify-self: start;
+}
+.detail-navigation,
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 .detail-heading {
   display: flex;

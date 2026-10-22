@@ -20,6 +20,7 @@
     "test:terminal:browser": "node tests/e2e/terminal-browser.mjs",
     "test:health:browser": "node tests/e2e/health-browser.mjs",
     "test:disks": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/device-disks.mjs",
+    "test:navigation": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/device-navigation.mjs",
     "format": "prettier --write \"apps/**/*.{ts,vue,css,json}\" \"tests/**/*.{ts,mjs,json}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"apps/**/*.{ts,vue,css,json}\" \"tests/**/*.{ts,mjs,json}\" --ignore-path .gitignore",
     "test:startup": "bash tests/e2e/dev-smoke.sh",

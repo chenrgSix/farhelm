@@ -1,6 +1,10 @@
 # 设备磁盘总占用
 
-设备列表展示已缓存的磁盘已用比例。点击设备名称或磁盘列进入设备详情，查看总容量、已用、可用、已用比例、统计文件系统数量和上次成功采集时间。打开详情时，缓存过期或没有缓存才触发采集；页面不轮询。
+设备列表展示已缓存的磁盘已用比例。点击设备名称或磁盘列进入设备详情，查看总容量、已用、可用、已用比例、统计文件系统数量和上次成功采集时间。打开详情时，缓存过期或没有缓存才触发采集；磁盘数据不轮询。
+
+设备详情有独立链接 `/#/devices/<设备 ID>`，支持复制链接、浏览器前进/后退和刷新恢复；未登录时先登录，再打开目标设备。链接不包含登录凭据，设备权限仍由服务器检查。详情提供终端、健康检查、网络记录等入口，按已有权限及连接状态启用。返回列表保留本次页面内的搜索与分组筛选。
+
+详情每 10 秒只刷新当前设备的连接状态，不重新采集磁盘。磁盘仍沿用按需采集与下述低频计划。设备不存在或权限被撤销时隐藏详情，并提供返回列表入口；临时网络失败保留上次数据并提示错误。
 
 ## 采集周期与缓存
 
@@ -29,6 +33,7 @@ Agent 命令最多运行 5 秒，平台等待 Agent 最多 10 秒；每次 SSH �
 - `POST /api/v1/devices/:id/disk/collect`，`{v:1}`：复用缓存或等待合并后的采集。
 - `PUT /api/v1/devices/:id/disk/settings`，`{v:1,revision,interval_hours}`：管理员修改周期，包含并发版本检查。
 - `GET /api/v1/devices`：附带可为空的 `disk_usage` 摘要，不触发采集。
+- `GET /api/v1/devices/:id`：返回单个 `device`，与列表投影一致，要求 `devices.read` 和该设备范围权限。
 
 API Token 的前两个接口要求 `devices.read`；周期配置不开放给 API Token。详细结构见 `contracts/v1/device-disk-*.schema.json`。
 
@@ -37,3 +42,5 @@ API Token 的前两个接口要求 `devices.read`；周期配置不开放给 API
 服务器单测覆盖缓存持久化、并发合并、容量解析、等待期间权限变化、失败冷却、旧值保留、并发上限、周期选择与撤销设备；前端单测覆盖按需采集、无轮询、加入已有采集、权限与周期保存；Rust 单测验证相同解析样本与真实 Linux `df`。
 
 `npm run test:disks` 构建服务端和前端后运行独立 E2E：需要 Docker、`farhelm-agent-dev:local`、`farhelm-sshd-test:local`、Playwright Chromium，以及与容器架构匹配的新版 Linux Agent。通过 `FLEET_TEST_AGENT_BINARY` 指定 Agent 路径（默认 `.test-output/disk-target/debug/farhelm-agent`），可通过 `FLEET_CHROMIUM_BIN` 指定浏览器。E2E 使用临时数据库和容器，验证真实非 root Agent/TLS、固定指纹 SSH、8 个并发查看合并、API/审计契约、桌面/手机详情页和周期修改。截图与结果输出到 `.test-output/device-disks-*`。这不等同于生产验收。
+
+`npm run test:navigation` 使用隔离服务和 Chromium，验证详情链接、登录/刷新恢复、浏览器前进后退、健康/网络快捷入口、撤销可见范围、缺失设备，以及详情和历史页的定时请求范围。结果与桌面/手机截图输出到 `.test-output/device-navigation-*`。

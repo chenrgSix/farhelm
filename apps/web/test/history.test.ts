@@ -7,6 +7,7 @@ import { api } from "../src/api/client";
 
 let wrapper: VueWrapper;
 afterEach(() => {
+  window.history.replaceState(null, "", "/");
   wrapper?.unmount();
   vi.restoreAllMocks();
   api.setToken(null);

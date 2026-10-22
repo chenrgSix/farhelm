@@ -7,6 +7,12 @@ import {
   ref,
   watch,
 } from "vue";
+import {
+  readAppRoute,
+  routeHash,
+  type View,
+  type AppRoute,
+} from "./navigation";
 import { diskPercent } from "./disk";
 import { api, ApiError } from "./api/client";
 import { readTabSession, writeTabSession } from "./tab-session";
@@ -60,12 +66,11 @@ import AccessControlPanel from "./components/AccessControlPanel.vue";
 const DeviceDetail = defineAsyncComponent(
   () => import("./components/DeviceDetail.vue"),
 );
-const detailDeviceId = ref<string | null>(null);
+const initialRoute = readAppRoute();
+const detailDeviceId = ref<string | null>(initialRoute?.deviceId ?? null);
 const detailResource = useDeviceResource(detailDeviceId);
 const detailDevice = detailResource.device;
-watch(detailDeviceId, () => {
-  if (user.value) void refresh();
-});
+
 const TargetAccountsPanel = defineAsyncComponent(
   () => import("./components/TargetAccountsPanel.vue"),
 );
@@ -91,16 +96,8 @@ const restoreBusy = ref(false);
 const restoreError = ref("");
 const sessionStorageAvailable = ref(true);
 const passwordOpen = ref(false);
-type View =
-  | "devices"
-  | "tasks"
-  | "audit"
-  | "terminals"
-  | "settings"
-  | "upgrades"
-  | "access"
-  | "api";
-const view = ref<View>("devices");
+const view = ref<View>(initialRoute?.view ?? "devices");
+let navigationReady = false;
 const closingSession = ref<string | null>(null);
 const deviceList = useListResource<Device>("/devices", "devices");
 const overviewTaskList = useListResource<Task>("/tasks", "tasks");
@@ -330,6 +327,7 @@ async function logout() {
   }
 }
 function clearSession(message = "", preserveSaved = false) {
+  navigationReady = false;
   restoreAttempt++;
   restorePending.value = false;
   restoreBusy.value = false;
@@ -400,16 +398,31 @@ async function establishSession(
     !["admin", "ops", "business", "auditor"].includes(verified.role)
   )
     throw new ApiError("登录身份无效，请重新登录", 401);
+  navigationReady = false;
   user.value = verified;
-  view.value =
-    navigation.value.find((item) => item.id === preferredView)?.id ??
+  const requested = readAppRoute();
+  const target =
+    navigation.value.find(
+      (item) => item.id === (requested?.view ?? preferredView),
+    )?.id ??
     navigation.value[0]?.id ??
     "devices";
+  navigateTo(
+    {
+      view: target,
+      deviceId:
+        target === "devices" && requested?.view === "devices"
+          ? requested.deviceId
+          : null,
+    },
+    true,
+  );
   sessionStorageAvailable.value = writeTabSession({ token, view: view.value });
   sessionGeneration++;
   if (verified.must_change_password) return;
   await refresh();
   if (user.value) {
+    navigationReady = true;
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(() => {
       if (!document.hidden && user.value) void refresh(true);
@@ -442,12 +455,15 @@ async function restoreLogin() {
     if (attempt === restoreAttempt) restoreBusy.value = false;
   }
 }
-watch(view, (page) => {
+watch([view, detailDeviceId], ([page]) => {
   const saved = user.value ? readTabSession() : null;
   if (saved)
     sessionStorageAvailable.value = writeTabSession({ ...saved, view: page });
+  if (user.value && navigationReady) void refresh();
 });
 onMounted(() => {
+  window.addEventListener("popstate", restoreRoute);
+  window.addEventListener("hashchange", restoreRoute);
   if (restorePending.value) void restoreLogin();
 });
 async function login() {
@@ -553,7 +569,7 @@ function refreshUser() {
         !hasPermission(freshUser, "devices.read", detailDeviceId.value)
       ) {
         detailResource.reset();
-        detailResource.error.value = "设备不存在或无权查看。";
+        detailResource.error.value = "设备不存在或无权查看";
       }
       sessionError.value = "";
       sessionUpdatedAt.value = Date.now();
@@ -567,7 +583,10 @@ function refreshUser() {
         if (!hasPermission(freshUser, permissions[key])) lists[key].reset();
       if (!hasPermission(freshUser, "tasks.read")) overviewTaskList.reset();
       if (!navigation.value.some((item) => item.id === view.value))
-        view.value = navigation.value[0]?.id ?? "devices";
+        navigateTo(
+          { view: navigation.value[0]?.id ?? "devices", deviceId: null },
+          true,
+        );
     } catch (e) {
       if (generation === sessionGeneration)
         sessionError.value = e instanceof Error ? e.message : "身份校验失败";
@@ -623,18 +642,39 @@ function openExec(id = "") {
   execOpen.value = true;
 }
 async function onCreated(id: string) {
-  view.value = "tasks";
+  navigateTo({ view: "tasks", deviceId: null });
   await refresh();
   await selectTask(id);
 }
+function navigateTo(route: AppRoute, replace = false) {
+  view.value = route.view;
+  detailDeviceId.value = route.deviceId;
+  const hash = routeHash(route);
+  if (window.location.hash !== hash)
+    window.history[replace ? "replaceState" : "pushState"](
+      null,
+      "",
+      window.location.pathname + window.location.search + hash,
+    );
+}
+function restoreRoute() {
+  const requested = readAppRoute() ?? { view: "devices", deviceId: null };
+  const route: AppRoute =
+    user.value && !navigation.value.some((item) => item.id === requested.view)
+      ? { view: navigation.value[0]?.id ?? "devices", deviceId: null }
+      : requested;
+  navigateTo(route, true);
+}
+function openDevice(id: string) {
+  navigateTo({ view: "devices", deviceId: id });
+}
 function switchView(id: View) {
   if (!navigation.value.some((item) => item.id === id)) return;
-  view.value = id;
-  detailDeviceId.value = null;
+  const unchanged = view.value === id && !detailDeviceId.value;
+  navigateTo({ view: id, deviceId: null });
   if (id !== "access") authorizationDevice.value = undefined;
-  search.value = "";
   error.value = "";
-  void refresh();
+  if (unchanged) void refresh();
 }
 function selectDeviceAccess(kind: "ssh" | "agent") {
   addDeviceOpen.value = false;
@@ -716,6 +756,8 @@ function deviceName(id: string) {
   return devices.value.find((d) => d.id === id)?.name ?? id;
 }
 onBeforeUnmount(() => {
+  window.removeEventListener("popstate", restoreRoute);
+  window.removeEventListener("hashchange", restoreRoute);
   clearSession("", true);
   api.onUnauthorized = undefined;
 });
@@ -887,7 +929,13 @@ onBeforeUnmount(() => {
         <div class="topbar-right">
           <HealthBadge
             :value="currentReady ? true : null"
-            :good="currentList ? '列表已更新' : '会话有效'"
+            :good="
+              detailDeviceId
+                ? '设备已更新'
+                : currentList
+                  ? '列表已更新'
+                  : '会话有效'
+            "
           /><span class="muted small">{{
             lastUpdated ? `更新于 ${formatTime(lastUpdated)}` : "尚未获取数据"
           }}</span
@@ -942,7 +990,8 @@ onBeforeUnmount(() => {
           身份校验刷新失败：{{ sessionError }}。当前数据可能已过期，请重试刷新。
         </div>
         <div v-if="listError" class="notice danger" role="alert">
-          当前列表刷新失败：{{ listError
+          {{ detailDeviceId ? "设备详情读取失败" : "当前列表刷新失败" }}：{{
+            listError
           }}<span v-if="lastUpdated">。保留上次成功读取的数据</span>。
           <span v-if="view === 'devices'">当前设备状态未知。</span>
         </div>
@@ -1042,14 +1091,14 @@ onBeforeUnmount(() => {
           v-if="view === 'devices' && detailDeviceId && !detailDevice"
           class="panel detail-unavailable"
         >
-          <button class="button secondary" @click="detailDeviceId = null">
+          <button class="button secondary" @click="switchView('devices')">
             ← 返回设备列表
           </button>
           <p>
             {{
               detailResource.loading.value
                 ? "正在读取设备详情…"
-                : "设备详情暂不可用，请刷新重试。"
+                : "无法显示设备详情，可返回设备列表或刷新重试。"
             }}
           </p>
         </section>
@@ -1058,9 +1107,47 @@ onBeforeUnmount(() => {
           :key="detailDevice.id"
           :device="detailDevice"
           :user="user"
-          @close="detailDeviceId = null"
+          @close="switchView('devices')"
           @changed="refresh"
-        />
+        >
+          <template #actions>
+            <DeviceActions
+              :device="detailDevice"
+              :user="user"
+              :ready="currentReady"
+              :agent-enabled="agentEnabled"
+              :revoking="revokeBusy === detailDevice.id"
+              :busy="{
+                terminal: !!terminalTarget,
+                root: !!terminalTarget,
+                connection: connectionOpen,
+                install: enrollOpen,
+                network: !!networkTarget,
+                health: !!healthTarget,
+                ssh: !!sshTarget,
+                exec: execOpen,
+                revoke: !!revokeBusy,
+              }"
+              @action="handleDeviceAction($event, detailDevice)"
+            />
+            <button
+              v-if="agentEnabled && detailDevice.connection_kind !== 'ssh'"
+              class="button secondary"
+              :disabled="!currentReady || !!healthTarget"
+              @click="handleDeviceAction('health', detailDevice)"
+            >
+              健康检查
+            </button>
+            <button
+              v-if="agentEnabled && detailDevice.connection_kind !== 'ssh'"
+              class="button secondary"
+              :disabled="!currentReady || !!networkTarget"
+              @click="handleDeviceAction('network', detailDevice)"
+            >
+              网络记录
+            </button>
+          </template>
+        </DeviceDetail>
         <div
           v-if="
             navigation.length &&
@@ -1258,7 +1345,7 @@ onBeforeUnmount(() => {
                               <button
                                 class="device-detail-link"
                                 :aria-label="`查看设备详情：${device.name}`"
-                                @click="detailDeviceId = device.id"
+                                @click="openDevice(device.id)"
                               >
                                 {{ device.name }}</button
                               ><small>{{
@@ -1415,7 +1502,7 @@ onBeforeUnmount(() => {
                                 ? `最近采集 ${formatTime(device.disk_usage.checked_at)}`
                                 : '查看设备详情后采集'
                             "
-                            @click="detailDeviceId = device.id"
+                            @click="openDevice(device.id)"
                           >
                             {{
                               device.disk_usage
@@ -1785,16 +1872,16 @@ onBeforeUnmount(() => {
               "
             />
           </div>
-          <ExecForm
-            v-if="execOpen"
-            :key="execDevice"
-            :devices="devices"
-            :user="user"
-            :initial-device="execDevice"
-            @close="execOpen = false"
-            @created="onCreated"
-          />
         </div>
+        <ExecForm
+          v-if="execOpen"
+          :key="execDevice"
+          :devices="detailDevice ? [detailDevice] : devices"
+          :user="user"
+          :initial-device="execDevice"
+          @close="execOpen = false"
+          @created="onCreated"
+        />
         <footer class="page-footer">
           <span>FARHELM <span class="footer-dot">·</span> 开发版本</span
           ><span>只审计经过平台的操作</span>
@@ -1893,7 +1980,7 @@ onBeforeUnmount(() => {
         @close="networkRouteTarget = null"
         @settings="
           networkRouteTarget = null;
-          view = 'settings';
+          switchView('settings');
         "
         @changed="refresh()"
       />
@@ -1920,6 +2007,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.detail-unavailable {
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+  padding: 24px;
+}
 .device-detail-link {
   border: 0;
   background: transparent;

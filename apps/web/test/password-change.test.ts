@@ -17,6 +17,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  window.history.replaceState(null, "", "/");
   wrapper?.unmount();
   wrapper = undefined;
   vi.restoreAllMocks();
