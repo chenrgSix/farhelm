@@ -197,7 +197,24 @@ onBeforeUnmount(() => close());
       @click="toggle"
       @keydown.down.prevent="!open && toggle()"
     >
-      更多 <span aria-hidden="true">⌄</span>
+      更多
+      <svg
+        class="action-chevron"
+        :class="{ expanded: open }"
+        width="12"
+        height="12"
+        viewBox="0 0 12 12"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="m2 4 4 4 4-4"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
     </button>
     <span v-if="!actions.length && device.revoked_at" class="muted small"
       >只读</span
@@ -239,6 +256,15 @@ onBeforeUnmount(() => close());
 .device-actions > [aria-haspopup="menu"] {
   grid-column: 2;
   grid-row: 1;
+  gap: 10px;
+  padding-inline: 12px;
+}
+.action-chevron {
+  flex: none;
+  color: #687888;
+}
+.action-chevron.expanded {
+  transform: rotate(180deg);
 }
 .device-action-menu {
   position: fixed;

@@ -72,6 +72,7 @@ function clear() {
     /></label>
     <DevicePicker
       label="历史设备"
+      appearance="field"
       :multiple="false"
       empty-label="全部可见设备"
       :seed="devices"

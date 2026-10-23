@@ -46,7 +46,7 @@ it("keeps secondary operations in a menu and restores focus after selecting", as
   expect(wrapper.findAll("button").map((b) => b.text())).toEqual([
     "连接终端",
     "以 root 连接",
-    "更多 ⌄",
+    "更多",
   ]);
   const menu = await open();
   expect(menu).not.toBeNull();

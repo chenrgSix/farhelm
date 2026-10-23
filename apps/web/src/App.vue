@@ -1526,7 +1526,7 @@ onBeforeUnmount(() => {
                               device.connection_kind === 'agent' &&
                               device.ssh_configured
                             "
-                            class="muted"
+                            class="muted device-connection-note"
                           >
                             {{
                               device.terminal_backend === "ssh"
@@ -2198,6 +2198,11 @@ onBeforeUnmount(() => {
     background: #fff;
     box-shadow: -6px 0 8px #fff;
   }
+}
+.device-connection-note {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.5;
 }
 .audit-table td {
   vertical-align: top;

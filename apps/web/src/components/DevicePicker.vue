@@ -14,6 +14,7 @@ const props = withDefaults(
     disabled?: boolean;
     max?: number;
     emptyLabel?: string;
+    appearance?: "inline" | "field";
   }>(),
   { multiple: true, purpose: "read", max: 1000, emptyLabel: "未选择" },
 );
@@ -181,25 +182,57 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="device-picker" role="group" :aria-label="label">
+  <div
+    class="device-picker"
+    :class="{ 'picker-field': appearance === 'field' }"
+    role="group"
+    :aria-label="label"
+  >
+    <span v-if="appearance === 'field'" class="picker-label">{{ label }}</span>
     <div class="picker-heading">
       <button
         type="button"
-        class="button secondary small"
+        class="button secondary small picker-trigger"
         :disabled="disabled"
+        :aria-label="`${open ? '收起' : '选择'}${label}`"
         :aria-expanded="open"
         @click="toggleOpen"
       >
-        {{ open ? "收起" : "选择" }}{{ label }}
+        <template v-if="appearance === 'field'">
+          <span class="picker-value">{{
+            multiple ? `已选 ${modelValue.length} 台` : selectedLabel
+          }}</span>
+          <svg
+            class="picker-chevron"
+            :class="{ expanded: open }"
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="m2 4 4 4 4-4"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </template>
+        <template v-else>{{ open ? "收起" : "选择" }}{{ label }}</template>
       </button>
-      <span v-if="multiple" role="status"
+      <span v-if="multiple && appearance !== 'field'" role="status"
         >已选 {{ modelValue.length }} 台<span v-if="open && hiddenCount"
           >（{{ hiddenCount }} 台不在当前页）</span
         ></span
       >
-      <span v-else class="picker-selected" role="status">{{
-        selectedLabel
-      }}</span>
+      <span
+        v-else-if="appearance !== 'field'"
+        class="picker-selected"
+        role="status"
+        >{{ selectedLabel }}</span
+      >
       <button
         v-if="modelValue.length"
         type="button"
@@ -359,6 +392,35 @@ onBeforeUnmount(() => {
 }
 .picker-heading {
   font-size: 12px;
+}
+.picker-label {
+  display: block;
+  color: #455465;
+  font-size: 12px;
+  font-weight: 550;
+}
+.picker-field .picker-heading {
+  margin-top: 7px;
+}
+.picker-field .picker-trigger {
+  width: 100%;
+  min-width: 0;
+  justify-content: space-between;
+  padding: 8px 12px 8px 10px;
+  border-radius: 6px;
+  color: #233449;
+  text-align: left;
+}
+.picker-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picker-chevron {
+  flex: none;
+  color: #687888;
+}
+.picker-chevron.expanded {
+  transform: rotate(180deg);
 }
 .picker-selected {
   overflow-wrap: anywhere;
