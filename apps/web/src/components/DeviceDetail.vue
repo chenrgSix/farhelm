@@ -394,6 +394,7 @@ dd {
   margin: 10px 0;
 }
 .schedule-controls select {
+  margin-top: 0;
   min-width: 0;
   flex: 1;
 }

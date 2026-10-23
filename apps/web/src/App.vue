@@ -980,8 +980,37 @@ onBeforeUnmount(() => {
         <strong>连接设备，直接操作</strong>
         <p>终端会话与命令任务均保留操作记录</p>
       </div>
-      <button class="text-button account-password" @click="passwordOpen = true">
-        修改密码
+      <button
+        class="text-button account-password"
+        aria-label="修改密码"
+        title="修改密码"
+        @click="passwordOpen = true"
+      >
+        <svg
+          class="account-password-icon"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <rect
+            x="5"
+            y="10"
+            width="14"
+            height="11"
+            rx="2"
+            stroke="currentColor"
+            stroke-width="1.7"
+          />
+          <path
+            d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span class="account-password-label">修改密码</span>
       </button>
       <div class="account">
         <span class="avatar">{{

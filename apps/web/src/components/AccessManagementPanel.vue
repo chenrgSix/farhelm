@@ -877,6 +877,8 @@ onBeforeUnmount(() => {
   margin: 20px 0;
 }
 .access-toolbar input {
+  margin-top: 0;
+  padding-block: 9px;
   max-width: 360px;
   flex: 1;
   min-width: 160px;
@@ -938,6 +940,15 @@ onBeforeUnmount(() => {
 .access-dialog label {
   display: grid;
   gap: 7px;
+  margin: 0;
+}
+.access-dialog label > input:not([type="checkbox"]):not([type="radio"]),
+.access-dialog label > select,
+.access-dialog label > textarea {
+  margin-top: 0;
+}
+.access-dialog .field-hint {
+  margin: 0;
 }
 .access-dialog .access-options {
   border: 1px solid var(--border, #dbe2e8);

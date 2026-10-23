@@ -101,6 +101,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", warnUnload));
       <fieldset :disabled="busy || !!attempt">
         <DevicePicker
           label="目标设备"
+          appearance="field"
           purpose="exec"
           :multiple="false"
           :seed="devices"

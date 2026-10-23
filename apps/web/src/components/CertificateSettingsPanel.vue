@@ -715,6 +715,7 @@ fieldset {
   min-width: 0;
 }
 label {
+  margin: 0;
   display: grid;
   gap: 8px;
   font-size: 13px;

@@ -50,10 +50,14 @@ const tabs = {
         原有精确账号授权继续生效。日常授权在用户或用户组中选择设备，在角色中设置是否允许
         sudo／root 终端。
       </p>
-      <button class="button secondary" @click="tab = 'rules'">访问授权</button>
-      <button class="button secondary" @click="tab = 'effective'">
-        权限核对
-      </button>
+      <div class="advanced-actions">
+        <button class="button secondary" @click="tab = 'rules'">
+          访问授权
+        </button>
+        <button class="button secondary" @click="tab = 'effective'">
+          权限核对
+        </button>
+      </div>
     </details>
     <p v-if="deviceId && tab === 'rules'" class="scope-notice">
       当前设备：{{
@@ -78,6 +82,15 @@ const tabs = {
   </div>
 </template>
 <style scoped>
+.access-control > details {
+  margin-bottom: 16px;
+}
+.advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
 .control-tabs {
   display: flex;
   flex-wrap: wrap;

@@ -268,7 +268,11 @@ onBeforeUnmount(() => {
         >
           刷新
         </button>
-        <button class="button" :disabled="!data || busy" @click="show()">
+        <button
+          class="button primary"
+          :disabled="!data || busy"
+          @click="show()"
+        >
           创建 Token
         </button>
       </div>
@@ -460,7 +464,7 @@ onBeforeUnmount(() => {
               @click="open = false"
             >
               取消</button
-            ><button class="button" :disabled="busy || uncertain">
+            ><button class="button primary" :disabled="busy || uncertain">
               {{ busy ? "保存中…" : editing ? "保存授权" : "创建" }}
             </button>
           </div>
@@ -486,7 +490,7 @@ onBeforeUnmount(() => {
         /></label>
         <p v-if="notice" role="status">{{ notice }}</p>
         <div class="token-actions">
-          <button class="button" @click="copy">复制 Token</button
+          <button class="button primary" @click="copy">复制 Token</button
           ><button
             class="button secondary"
             @click="
@@ -518,7 +522,11 @@ onBeforeUnmount(() => {
             @click="revoked = undefined"
           >
             取消</button
-          ><button class="button danger" :disabled="busy" @click="revoke">
+          ><button
+            class="button danger-outline"
+            :disabled="busy"
+            @click="revoke"
+          >
             {{ busy ? "撤销中…" : "确认撤销" }}
           </button>
         </div>
@@ -565,6 +573,9 @@ h2 {
 .integration-help p {
   margin-top: 0;
 }
+.token-search input {
+  margin-top: 0;
+}
 .token-search {
   display: grid;
   gap: 8px;
@@ -609,6 +620,19 @@ small {
 }
 .token-dialog form {
   gap: 20px;
+}
+.token-dialog label {
+  margin: 0;
+}
+.token-dialog label > input:not([type="checkbox"]):not([type="radio"]),
+.token-dialog label > select {
+  margin-top: 0;
+}
+.token-dialog .field-hint {
+  margin: 0;
+}
+.token-dialog .token-actions {
+  justify-content: flex-end;
 }
 .token-dialog fieldset {
   border: 1px solid var(--line, #dce4e8);

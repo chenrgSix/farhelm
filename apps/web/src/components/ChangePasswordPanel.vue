@@ -177,7 +177,7 @@ async function save() {
       <div class="password-actions">
         <button
           v-if="required"
-          class="button"
+          class="button secondary"
           type="button"
           :disabled="busy || logoutBusy"
           @click="emit('logout')"
@@ -186,7 +186,7 @@ async function save() {
         </button>
         <button
           v-else
-          class="button"
+          class="button secondary"
           type="button"
           :disabled="busy"
           @click="close"
@@ -240,9 +240,17 @@ fieldset {
 label {
   display: grid;
   gap: 6px;
+  margin: 0;
+}
+label input {
+  margin-top: 0;
+}
+.field-hint {
+  margin: 0;
 }
 .password-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
 }

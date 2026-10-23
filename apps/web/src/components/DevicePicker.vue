@@ -431,6 +431,10 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+.picker-filters input[type="search"],
+.picker-filters select {
+  margin-top: 0;
+}
 .picker-filters input[type="search"] {
   flex: 1;
   min-width: 160px;
