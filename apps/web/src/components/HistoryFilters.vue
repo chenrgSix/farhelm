@@ -135,8 +135,12 @@ function clear() {
 }
 .history-filters input,
 .history-filters select {
-  padding: 8px 10px;
+  padding-block: 8px;
+  padding-left: 10px;
   font-size: 12px;
+}
+.history-filters input {
+  padding-right: 10px;
 }
 .history-filter-actions {
   grid-column: 1/-1;

@@ -329,7 +329,8 @@ label {
 }
 select {
   margin: 0;
-  padding: 9px;
+  padding-block: 9px;
+  padding-left: 9px;
 }
 .ack {
   display: flex;

@@ -2279,7 +2279,8 @@ onBeforeUnmount(() => {
   width: auto;
   min-height: 32px;
   margin: 0;
-  padding: 4px 8px;
+  padding-block: 4px;
+  padding-left: 8px;
 }
 .history-pagination {
   display: flex;

@@ -527,8 +527,9 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .terminal-actions select {
-  width: 65px;
-  padding: 4px;
+  width: 80px;
+  padding-block: 4px;
+  padding-left: 8px;
   color: #111923;
 }
 @media (max-width: 700px) {
