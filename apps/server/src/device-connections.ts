@@ -426,7 +426,6 @@ export function registerDeviceConnections(
       cols: number,
       rows: number,
       receive: (type: string, body: Record<string, any>) => void,
-      account?: { username: string; privateKey: string; passphrase?: string },
       commandToken?: string,
     ) {
       const revision = saved(id)?.revision,
@@ -445,16 +444,7 @@ export function registerDeviceConnections(
         }
         const candidate = selected.targets[index]!;
         active = targets.open(
-          // A separately authorized account must never inherit the default
-          // account's password or authentication method.
-          account
-            ? {
-                host: candidate.config.host,
-                port: candidate.config.port,
-                fingerprint: candidate.config.fingerprint,
-                ...account,
-              }
-            : candidate.config,
+          candidate.config,
           cols,
           rows,
           (type, body) => {

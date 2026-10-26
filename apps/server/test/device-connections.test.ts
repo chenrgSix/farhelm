@@ -34,8 +34,8 @@ const hostKey = keypair().privateKey,
 const hostParsed = ssh2.utils.parseKey(hostKey) as ssh2.ParsedKey;
 const loginParsed = ssh2.utils.parseKey(loginKey) as ssh2.ParsedKey;
 const hostFingerprint = fingerprint(hostParsed.getPublicSSH());
-test("a managed direct SSH account uses its own username and key with the device's pinned endpoint", async () => {
-  const f = await fixture(15000, "root");
+test("retired direct SSH account requests never contact the target; the default connection still works", async () => {
+  const f = await fixture();
   try {
     const account = await f.api("POST", `/devices/${f.id}/accounts`, {
       v: 1,
@@ -47,11 +47,24 @@ test("a managed direct SSH account uses its own username and key with the device
     });
     assert.equal(account.status, 200, JSON.stringify(account.body));
     assert.equal(JSON.stringify(account.body).includes("PRIVATE KEY"), false);
-    const terminal = await f.web(f.admin, f.id, account.body.account.id);
-    assert.deepEqual(await terminal.wait("terminal.ready"), {
-      backend: "ssh",
-      username: "root",
+    const before = f.authentications();
+    const rejected = await f.api("POST", "/terminal-sessions", {
+      v: 1,
+      device_id: f.id,
+      account_id: account.body.account.id,
+      cols: 80,
+      rows: 24,
     });
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.error, "ACCOUNT_CONNECTION_REMOVED");
+    assert.equal(f.authentications(), before);
+    assert.equal(
+      f.store.db.prepare("SELECT COUNT(*) AS n FROM terminal_sessions").get()!
+        .n,
+      0,
+    );
+    const terminal = await f.web(f.admin, f.id);
+    assert.deepEqual(await terminal.wait("terminal.ready"), { backend: "ssh" });
     await until(() => terminal.output().includes("TARGET_SSH_READY"));
     terminal.send("terminal.input", {
       data: Buffer.from("output\r").toString("base64"),
@@ -64,7 +77,10 @@ test("a managed direct SSH account uses its own username and key with the device
     const events = f.store.db
       .prepare("SELECT data FROM terminal_recordings WHERE session_id=?")
       .all(terminal.id);
-    assert.ok(JSON.stringify(events).includes(account.body.account.id));
+    assert.equal(
+      JSON.stringify(events).includes(account.body.account.id),
+      false,
+    );
     assert.equal(JSON.stringify(events).includes("PRIVATE KEY"), false);
   } finally {
     await f.close();
@@ -1435,7 +1451,7 @@ test("password SSH devices authenticate through web and gateway, keep secrets pr
       "SSH_AUTH_FAILED",
     );
     assert.deepEqual(new Set(f.authMethods), new Set(["password"]));
-    // A separate key-based account must not inherit the default password method.
+    // Retired keys cannot bypass a failed default password connection.
     const account = await f.api("POST", `/devices/${id}/accounts`, {
       v: 1,
       name: "Own key",
@@ -1445,12 +1461,18 @@ test("password SSH devices authenticate through web and gateway, keep secrets pr
       private_key: loginKey,
     });
     assert.equal(account.status, 200);
-    const own = await f.web(f.admin, id, account.body.account.id);
-    await own.wait("terminal.ready");
-    await until(() => own.output().includes("TARGET_SSH_READY"));
-    assert.ok(f.authMethods.includes("publickey"));
-    await f.api("POST", `/terminal-sessions/${own.id}/close`, { v: 1 });
-    await own.wait("terminal.closed");
+    const attemptsBefore = f.authentications();
+    const removed = await f.api("POST", "/terminal-sessions", {
+      v: 1,
+      device_id: id,
+      account_id: account.body.account.id,
+      cols: 80,
+      rows: 24,
+    });
+    assert.equal(removed.status, 400);
+    assert.equal(removed.body.error, "ACCOUNT_CONNECTION_REMOVED");
+    assert.equal(f.authentications(), attemptsBefore);
+    assert.equal(f.authMethods.includes("publickey"), false);
     await f.api("PUT", path, {
       v: 1,
       revision: 3,

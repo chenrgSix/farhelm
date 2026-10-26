@@ -123,17 +123,9 @@ export function registerTargetAccounts(
             },
           ]
         : [];
-    return [
-      ...defaults,
-      ...list(user, deviceId).map((a) => ({ ...a, is_default: false })),
-    ];
-  }
-  function requireAccount(user: User, deviceId: string, accountId: string) {
-    d.requireScope(user, deviceId);
-    const r = row(accountId);
-    if (!r || r.device_id !== deviceId || !allowed(user, r))
-      fail(403, "TARGET_ACCOUNT_DENIED");
-    return publicAccount(r);
+    // Legacy accounts remain available for administration and historical audit,
+    // but cannot be selected for a new terminal connection.
+    return defaults;
   }
   function list(user: User, deviceId: string) {
     d.requireScope(user, deviceId);
@@ -404,17 +396,8 @@ export function registerTargetAccounts(
   return {
     list,
     loginAccounts,
-    requireAccount,
     requireDefault,
     defaultNeedsSudo,
     policy,
-    secret(id: string) {
-      const r = row(id);
-      if (!r) fail(404, "TARGET_ACCOUNT_NOT_FOUND");
-      const secret = credentials.open(id, r.secrets);
-      if (r.method === "sudo" && !secret.sudo_password)
-        secret.sudo_password = d.sudoPassword(r.device_id)!;
-      return secret;
-    },
   };
 }

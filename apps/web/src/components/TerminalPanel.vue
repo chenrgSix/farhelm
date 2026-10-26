@@ -26,13 +26,14 @@ const records = ref<
 const speed = ref(2);
 const playing = ref(false);
 const sudoErrors: Record<string, string> = {
-  TARGET_ACCOUNT_DENIED: "目标账号未授权或授权已变更，请重新选择。",
+  TARGET_ACCOUNT_DENIED: "默认账号未授权或授权已变更，请联系管理员。",
   SUDO_PERMISSION_REQUIRED: "当前账号没有使用 sudo／高级特权账号的权限。",
   SUDO_AGENT_REQUIRED:
     "sudo 切换需要在线 Agent；SSH 设备请使用其已配置的登录账号。",
   SUDO_NOT_SUPPORTED_UPDATE_AGENT: "此 Agent 尚不支持密码提权，请升级 Agent。",
+  ACCOUNT_CONNECTION_REMOVED: "旧账号连接已移除，请刷新页面后使用普通连接。",
   ROOT_CONNECTION_MODE_REMOVED:
-    "以 root 连接已移除，请使用普通连接后执行 sudo，或在高级入口选择已授权的账号。",
+    "以 root 连接已移除，请使用普通连接后执行 sudo。",
   SUDO_PASSWORD_REQUIRED:
     "请保存 sudo 密码；使用免密 sudo 时请升级至 Agent 0.2.9 或更新版本。",
   INVALID_SUDO_PASSWORD:

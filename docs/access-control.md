@@ -9,7 +9,7 @@
 3. 设备上点击「连接终端」，使用 Agent 运行账号或默认 SSH 账号。需要提权时执行 `sudo <命令>`；系统权限允许时也可用 `sudo -i` 进入 root Shell。
 4. Agent 普通账号须在 Linux 上已有 sudo 权限，并启用终端提权。需密码时在设备「接入配置 → 默认登录账号」保存 sudo 密码；自动代填要求 Agent 0.2.12+，密码通过会话私有认证通道交给系统 sudo，不作为终端输入发送。免密 sudo 无需保存密码，遵循 Linux sudoers；Agent 本身保持普通账号运行。
 
-纯 SSH／备用 SSH 及旧 Agent 不支持自动代填，仍沿用原登录账号和系统 sudo 认证方式。已有默认 root SSH 配置不改写，普通连接仍使用该账号；旧附加账号仅保留数据及显式 API 调用兼容，不再展示为网页或 SSH 连接入口。
+纯 SSH／备用 SSH 及旧 Agent 不支持自动代填，仍沿用原登录账号和系统 sudo 认证方式。已有默认 root SSH 配置不改写，普通连接仍使用该账号；旧附加账号仅保留数据和历史记录，不再用于任何连接入口。
 
 网页与平台 SSH 使用同一权限检查。SSH 设备选择后直接普通连接，指定设备登录也不再经过账号菜单。创建、附着、输入、输出及定时检查均复查授权；撤销相应权限会关闭会话，代填凭据变更或设备禁用提权也会关闭代填会话。原有默认 root SSH 权限按兼容规则保留。移除快捷入口不限制 Linux 已授予的 sudo 权限，也不改变系统免密 sudo 策略。
 
@@ -17,11 +17,11 @@
 
 网页高级账号管理、选择入口以及 SSH 第二级账号菜单均已移除。普通连接只使用默认身份，不会自动选择旧 root 或其他附加账号。旧账号、加密凭据、授权和历史记录保留；不将旧账号的授权合并到默认账号。
 
-「访问控制 → 高级授权」保留精确规则及权限核对；默认账号凭据从设备「接入配置」维护。旧账号配置 API 和显式 `account_id` 调用继续按原鉴权规则兼容，当前网页与 SSH 入口不发送或选择附加账号。
+「访问控制 → 高级授权」保留精确规则及权限核对；默认账号凭据从设备「接入配置」维护。旧账号配置 API 保留管理兼容；显式 `account_id` 连接已移除。权限核对保留旧规则来源，并标明「旧账号连接已移除」，不显示为可连接。
 
 已有账号、凭据、设备范围和精确授权均不迁移或重写。已有规则仍是权限边界，简化入口不会绕过被撤销的默认账号授权，也不会因有 sudo 权限就自动获得其他设备或未授权账号。新建精确规则继续只授予选定账号，角色只提供操作权限，设备组仍仅作分类标签。
 
-API `POST /api/v1/terminal-sessions` 默认连接普通终端；旧客户端的 `connection_mode: "normal"` 继续兼容，新客户端应省略。`connection_mode: "root"` 返回 HTTP 400 / `ROOT_CONNECTION_MODE_REMOVED`，不创建会话，也不会自动选择其他账号。已有脚本应改为普通连接后执行 sudo，或传入已授权高级账号的 `account_id`。`account_id` 不能与 `connection_mode` 同传；客户端不能传密码或原始 `elevated` 标志。
+API `POST /api/v1/terminal-sessions` 默认连接普通终端；旧客户端的 `connection_mode: "normal"` 继续兼容，新客户端应省略。`connection_mode: "root"` 返回 HTTP 400 / `ROOT_CONNECTION_MODE_REMOVED`，不创建会话，也不会自动选择其他账号。已有脚本应省略 `account_id`，普通连接后再执行 sudo。任何包含 `account_id` 的连接请求（包括默认账号 ID、空值或不存在的 ID）均返回 HTTP 400 / `ACCOUNT_CONNECTION_REMOVED`，不创建会话或回退到其他身份；客户端不能传密码或原始 `elevated` 标志。
 
 ## 默认登录账号
 
@@ -42,13 +42,13 @@ API `POST /api/v1/terminal-sessions` 默认连接普通终端；旧客户端的 
 - 已删除的兼容规则在重启后不会自动恢复。数据库迁移可重复执行，不产生重复授权；删除用户组、角色或登录账号会级联清除对应授权。
 - 旧 `/devices/:id/accounts` 接口继续兼容 `allowed_users`、`allowed_groups`、`allowed_roles`。凭据编辑省略这些字段时保留授权规则及其语义。旧客户端提交未变化的授权字段时也保留原规则；新增授权对象按旧设备范围规则处理。
 
-新接口：`GET /api/v1/devices/:id/login-accounts` 返回当前用户可用的统一账号列表；管理员通过 `GET/POST /api/v1/access-authorizations` 管理授权，通过 `DELETE /api/v1/access-authorizations/:id` 加版本号撤销规则，通过 `GET /api/v1/access-authorizations/effective/:userId` 核对生效结果。授权管理与权限核对接口仅允许管理员；任何接口都不返回凭据明文。
+新接口：`GET /api/v1/devices/:id/login-accounts` 仅返回当前用户获授权的默认账号，不列出旧附加账号；管理员通过 `GET/POST /api/v1/access-authorizations` 管理授权，通过 `DELETE /api/v1/access-authorizations/:id` 加版本号撤销规则，通过 `GET /api/v1/access-authorizations/effective/:userId` 核对生效结果。授权管理与权限核对接口仅允许管理员；任何接口都不返回凭据明文。
 
 ## 验证
 
-2026-10-26 移除高级连接入口后：本地服务端 205/205、前端 230/230 通过，前后端类型检查和构建通过。真实 Linux Agent、sudo 与 Chromium 回归覆盖普通连接、密码代填、免密 sudo、旧账号存在时 SSH 直接连接普通账号、默认账号无授权时拒绝连接，以及旧 API 的显式账号鉴权兼容。没有改动 Agent 源码；使用当前已验证的 Linux arm64 Agent 构建。
+2026-10-26 移除高级连接入口及显式账号 API 后：本地服务端 205/205、前端 230/230、协议契约 383/383 通过，前后端类型检查和构建通过。真实 Linux Agent、sudo 与 Chromium 回归覆盖普通连接、密码代填、免密 sudo、旧账号存在时 SSH 直接连接普通账号、默认账号无授权时拒绝连接，以及旧 API 的显式账号请求拒绝。没有改动 Agent 源码；使用当前已验证的 Linux arm64 Agent 构建。
 
-服务端测试覆盖默认账号隐式／显式选择、迁移保密与范围保持、规则删除后会话及票据失效、重启不恢复已删规则，以及只授权附加账号时不能访问默认账号。前端测试覆盖凭据编辑不提交授权、授权对象选择和生效来源展示。
+服务端测试覆盖普通连接与显式账号请求拒绝、迁移保密与范围保持、规则删除后会话及票据失效、重启不恢复已删规则，以及只授权附加账号时不能访问默认账号。前端测试覆盖凭据编辑不提交授权、授权对象选择和生效来源展示。
 
 `FLEET_TEST_BROWSER_CHANNEL=msedge npm run test:target-accounts` 在隔离 Linux 容器和浏览器中验证真实 sudo、网页与 SSH 统一规则、无旧设备范围的精确授权、默认账号的撤销和完整界面流程；不修改已有部署。这些本地结果不等同于 CI 或生产验收。
 

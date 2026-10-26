@@ -588,18 +588,34 @@ try {
       method: "sudo",
     })
   ).account;
-  const namedPasswordless = await open(passwordlessAccount.id);
-  await namedPasswordless.ready();
-  namedPasswordless.send("printf '__NAMED_NOPASSWD_UID__'; id -u\r");
-  await until(
-    () => namedPasswordless.text().includes("__NAMED_NOPASSWD_UID__0"),
-    "named passwordless root account",
-  );
-  namedPasswordless.send("exit\r");
-  await until(
-    () => namedPasswordless.messages.some((m) => m.type === "terminal.closed"),
-    "named passwordless closed",
-  );
+  async function rejectAccount(accountId, auth = admin) {
+    const before = server.store.db
+      .prepare("SELECT COUNT(*) AS n FROM terminal_sessions")
+      .get().n;
+    const response = await fetch(origin + "/api/v1/terminal-sessions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + auth,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        v: 1,
+        device_id: device.id,
+        account_id: accountId,
+        cols: 80,
+        rows: 24,
+      }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, "ACCOUNT_CONNECTION_REMOVED");
+    assert.equal(
+      server.store.db
+        .prepare("SELECT COUNT(*) AS n FROM terminal_sessions")
+        .get().n,
+      before,
+    );
+  }
+  await rejectAccount(passwordlessAccount.id);
   await api(
     "DELETE",
     `/devices/${device.id}/accounts/${passwordlessAccount.id}`,
@@ -673,65 +689,16 @@ try {
     })
   ).account;
   assertValid("target-account", account);
-  const session = await open(account.id);
-  await session.ready();
+  const legacyBefore = server.store.db
+    .prepare("SELECT * FROM target_accounts WHERE id=?")
+    .get(account.id);
+  await rejectAccount(account.id);
   assert.deepEqual(
-    session.messages.find((m) => m.type === "terminal.ready").body,
-    { backend: "agent", elevated: true, username: "root" },
+    server.store.db
+      .prepare("SELECT * FROM target_accounts WHERE id=?")
+      .get(account.id),
+    legacyBefore,
   );
-  session.send("printf '__UID__'; id -u; printf '__USER__'; whoami\r");
-  await until(
-    () =>
-      session.text().includes("__UID__0") &&
-      session.text().includes("__USER__root"),
-    "actual root identity",
-  );
-  session.send("exit\r");
-  await until(
-    () => session.messages.some((m) => m.type === "terminal.closed"),
-    "root shell exit",
-  );
-  assert.equal(
-    session.messages.find((m) => m.type === "terminal.closed").body.reason,
-    "SHELL_EXIT",
-  );
-  const recording = await api(
-    "GET",
-    `/terminal-sessions/${session.created.session_id}/recording?after=0`,
-  );
-  assert.equal(JSON.stringify(recording).includes(secret), false);
-  assert.equal(session.text().includes(secret), false);
-  const update = {
-    v: 1,
-    revision: account.revision,
-    name: account.name,
-    username: "root",
-    method: "sudo",
-    allowed_users: [],
-    sudo_password: "wrong-fixture-password",
-  };
-  const bad = (
-    await api("PUT", `/devices/${device.id}/accounts/${account.id}`, update)
-  ).account;
-  const rejected = await open(account.id);
-  await until(
-    () => rejected.messages.some((m) => m.type === "terminal.closed"),
-    "wrong password rejection",
-    20000,
-  );
-  assert.equal(
-    rejected.messages.some((m) => m.type === "terminal.ready"),
-    false,
-  );
-  assert.equal(
-    rejected.messages.find((m) => m.type === "terminal.closed").body.reason,
-    "SUDO_AUTH_FAILED",
-  );
-  await api("PUT", `/devices/${device.id}/accounts/${account.id}`, {
-    ...update,
-    revision: bad.revision,
-    sudo_password: secret,
-  });
   for (const principal of principals) {
     const auth = (
       await api(
@@ -748,18 +715,7 @@ try {
       auth,
     );
     assert.equal(visible.accounts.length, 1, principal.username);
-    const granted = await open(account.id, auth);
-    await granted.ready();
-    granted.send("printf '__GRANT_UID__'; id -u\r");
-    await until(
-      () => granted.text().includes("__GRANT_UID__0"),
-      principal.username + " web root shell",
-    );
-    granted.send("exit\r");
-    await until(
-      () => granted.messages.some((m) => m.type === "terminal.closed"),
-      "granted shell exit",
-    );
+    await rejectAccount(account.id, auth);
     await api("POST", "/logout", { v: 1 }, auth);
   }
   for (const principal of principals) {
@@ -841,7 +797,7 @@ try {
   );
   assert.deepEqual(
     unified.accounts.map((a) => a.id),
-    [account.id],
+    [],
   );
   const implicit = await fetch(origin + "/api/v1/terminal-sessions", {
     method: "POST",
@@ -856,18 +812,7 @@ try {
     403,
     "omitting account_id cannot access default account",
   );
-  const restrictedWeb = await open(account.id, restrictedAuth);
-  await restrictedWeb.ready();
-  restrictedWeb.send("printf '__RULE_UID__'; id -u\r");
-  await until(
-    () => restrictedWeb.text().includes("__RULE_UID__0"),
-    "new access rule real root shell",
-  );
-  restrictedWeb.send("exit\r");
-  await until(
-    () => restrictedWeb.messages.some((m) => m.type === "terminal.closed"),
-    "rule shell exit",
-  );
+  await rejectAccount(account.id, restrictedAuth);
   const restrictedSsh = new Client();
   clients.push(restrictedSsh);
   restrictedSsh.on("error", () => {});
@@ -926,7 +871,8 @@ try {
     )
   ).accounts.find((a) => a.is_default);
   assert.ok(defaultLogin);
-  const defaultSession = await open(defaultLogin.id, defaultAuth);
+  await rejectAccount(defaultLogin.id, defaultAuth);
+  const defaultSession = await open(undefined, defaultAuth);
   await defaultSession.ready();
   defaultSession.send("printf '__DEFAULT_UID__'; id -u\r");
   await until(
@@ -966,7 +912,6 @@ try {
     body: JSON.stringify({
       v: 1,
       device_id: device.id,
-      account_id: defaultLogin.id,
       cols: 80,
       rows: 24,
     }),
@@ -1024,18 +969,18 @@ try {
     subject_id: null,
   });
   await api("POST", "/logout", { v: 1 }, defaultAuth);
-  const revocable = await open(account.id);
+  const revocable = await open();
   await revocable.ready();
-  revocable.send("printf '__ROOT_PID__'; echo $$; sleep 300 & wait\r");
+  revocable.send("printf '__ORDINARY_PID__'; echo $$; sleep 300 & wait\r");
   await until(
-    () => /__ROOT_PID__(\d+)/.test(revocable.text()),
-    "root process identity",
+    () => /__ORDINARY_PID__(\d+)/.test(revocable.text()),
+    "ordinary process identity",
   );
-  const shellPid = revocable.text().match(/__ROOT_PID__(\d+)/)[1];
+  const shellPid = revocable.text().match(/__ORDINARY_PID__(\d+)/)[1];
   await api("POST", "/logout", { v: 1 });
   await until(
     () => revocable.messages.some((m) => m.type === "terminal.closed"),
-    "root session revocation",
+    "ordinary session revocation",
   );
   assert.equal(
     revocable.messages.find((m) => m.type === "terminal.closed").body.reason,
@@ -1050,7 +995,7 @@ try {
         "-c",
         `if test -d /proc/${shellPid}; then printf alive; fi`,
       ])) === "",
-    "privileged shell termination",
+    "ordinary shell termination",
   );
   admin = (
     await api(
@@ -1193,8 +1138,8 @@ try {
         account_id: account.id,
       }),
     });
-    assert.equal(denied.status, 409);
-    assert.equal((await denied.json()).error, "SUDO_DISABLED");
+    assert.equal(denied.status, 400);
+    assert.equal((await denied.json()).error, "ACCOUNT_CONNECTION_REMOVED");
     if (testSudoCommands) {
       const disabled = await open(undefined, admin);
       await disabled.ready();
@@ -1327,7 +1272,8 @@ try {
         selectedAccountDoesNotGrantDefault: true,
         noAdvancedAccountMenu: !!browser,
         wrongPasswordRejected: true,
-        rootSessionRevocation: true,
+        ordinarySessionRevocation: true,
+        explicitAccountApiRemoved: true,
         realBrowser: !!browser,
         passwordAbsentFromRecordingsAndAudit: true,
       },
@@ -1336,7 +1282,7 @@ try {
     ),
   );
   console.log(
-    "Target accounts E2E passed: ordinary web/SSH connections without account menus, sudo delegation and legacy API compatibility; wrong password rejected; recordings and audit contain no password.",
+    "Target accounts E2E passed: ordinary web/SSH connections without account menus, sudo delegation and retired account API rejection; wrong sudo password rejected; recordings and audit contain no password.",
   );
 } catch (error) {
   if (started)

@@ -35,7 +35,12 @@ export function registerAccessAuthorizations(
       devices,
       accounts: devices.flatMap((device) => {
         policy.ensureDefault(device.id);
-        return d.accounts.loginAccounts(admin, device.id);
+        return [
+          ...d.accounts.loginAccounts(admin, device.id),
+          ...d.accounts
+            .list(admin, device.id)
+            .map((account) => ({ ...account, is_default: false })),
+        ];
       }),
     };
   }
@@ -254,6 +259,7 @@ export function registerAccessAuthorizations(
               });
       if (!reasons.length) return [];
       const missing: string[] = [];
+      if (!account.is_default) missing.push("旧账号连接已移除");
       if (!policy.allowed(user, account.device_id, accountId))
         missing.push("原设备范围");
       if (!row.enabled) missing.push("用户已停用");

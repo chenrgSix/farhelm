@@ -550,6 +550,14 @@ test("API tokens: API document resolves references, Skill archive and actual Pyt
         .deprecated,
       true,
     );
+    assert.equal(
+      spec.body.components.schemas["terminal-create"].properties.account_id,
+      undefined,
+    );
+    assert.equal(
+      spec.body.components.schemas["terminal-create"].additionalProperties,
+      false,
+    );
     function refs(value: any) {
       if (!value || typeof value !== "object") return;
       if (value.$ref) {
@@ -1001,6 +1009,14 @@ test("API tokens: terminal tickets, recorded output, immediate revocation and ex
       permissions: ["terminal.connect", "recordings.read"],
     });
     const body = { v: 1, device_id: "one", cols: 80, rows: 24 };
+    const removed = await f.api(
+      "POST",
+      "/terminal-sessions",
+      { ...body, account_id: "legacy" },
+      grant.secret,
+    );
+    assert.equal(removed.status, 400);
+    assert.equal(removed.body.error, "ACCOUNT_CONNECTION_REMOVED");
     const created = await f.api(
       "POST",
       "/terminal-sessions",

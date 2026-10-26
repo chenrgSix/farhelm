@@ -825,204 +825,147 @@ test("logout revokes only the current token, its active terminal and pending tic
   }
 });
 
-test("target account ACL, sudo permission, private credential delivery and revocation share the terminal path", async () => {
+test("retired account requests never create sessions or disclose secrets, while legacy history remains readable", async () => {
   const f = await fixture();
   try {
-    const opsUser = f.store.seedUser({
-      username: "account-ops",
+    const user = f.store.seedUser({
+      username: "legacy-user",
       password: "terminal-test-password1",
       role: "ops",
       deviceScope: ["device"],
     });
-    const ops = await f.login("account-ops");
-    const password = "sudo-public-fixture-!中文$'";
+    const auth = await f.login(user.username);
+    const password = "legacy-private-fixture";
     const saved = await f.api(
       "POST",
       "/api/v1/devices/device/accounts",
       {
         v: 1,
-        name: "Root account",
+        name: "Legacy root",
         username: "root",
         method: "sudo",
-        allowed_users: [opsUser.id],
         sudo_password: password,
+        allowed_users: [user.id],
       },
       f.admin,
     );
-    assert.equal(saved.status, 200, JSON.stringify(saved));
+    assert.equal(saved.status, 200);
     const account = saved.body.account;
-    assert.equal(JSON.stringify(saved).includes(password), false);
-    assert.equal(
-      (await f.api("GET", "/api/v1/devices/device/accounts", undefined, ops))
-        .body.accounts.length,
-      0,
-      "ordinary terminal access grants no sudo access",
-    );
-    const create = (auth = f.admin) =>
-      f.api(
-        "POST",
-        "/api/v1/terminal-sessions",
-        {
-          v: 1,
-          device_id: "device",
-          account_id: account.id,
-          cols: 80,
-          rows: 24,
-        },
-        auth,
-      );
-    assert.equal((await create(ops)).status, 403);
-    const role = f.store.db
-      .prepare("SELECT permissions FROM access_roles WHERE id='ops'")
-      .get()!;
-    f.store.db
-      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
-      .run(
-        JSON.stringify([
-          ...JSON.parse(role.permissions as string),
-          "terminal.sudo",
-        ]),
-      );
-    assert.equal(
-      (await f.api("GET", "/api/v1/devices/device/accounts", undefined, ops))
-        .body.accounts.length,
-      1,
-    );
-    assert.equal(
-      (await create(ops)).body.error,
-      "SUDO_NOT_SUPPORTED_UPDATE_AGENT",
-    );
-    f.agent.send("agent.heartbeat", {
-      agent_version: "test-sudo",
-      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
-    });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const created = await create(ops);
-    assert.equal(created.status, 200, JSON.stringify(created));
-    assert.equal(JSON.stringify(created).includes(password), false);
-    const browser = await f.attach(created.body);
-    const request = await f.agent.wait("terminal.sudo.open");
-    assert.equal(request.sudo_password, password);
-    assert.equal(request.username, "root");
-    assert.equal(
-      f.agent.messages.some((m) => m.type === "terminal.input"),
-      false,
-      "password is never injected as terminal input",
-    );
-    f.agent.send("terminal.opened", { session_id: request.session_id });
-    assert.deepEqual(await browser.wait("terminal.ready"), {
-      backend: "agent",
-      elevated: true,
-      username: "root",
-    });
-    assert.equal(JSON.stringify(browser.messages).includes(password), false);
     const db = f.store.db;
+    new AccountAuthorizations(db).ensureDefault("device");
+    // Closed evidence from an older version must retain its original identity.
+    const at = Date.now() - 1000;
+    const metadata = {
+      account_id: account.id,
+      username: "root",
+      method: "sudo",
+      elevated: true,
+    };
+    db.prepare(
+      "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,ended_at,transport,last_seq) VALUES('legacy-session','device',?,'CLOSED',80,24,?,?,'web',1)",
+    ).run(user.id, at, at + 1);
+    db.prepare(
+      "INSERT INTO terminal_recordings(session_id,seq,at,kind,data) VALUES('legacy-session',1,?,'open',?)",
+    ).run(at, JSON.stringify(metadata));
+    db.prepare(
+      "INSERT INTO terminal_commands(session_id,device_id,actor_id,started_at,command,redacted,recording_seq) VALUES('legacy-session','device',?,?,'echo historical-marker',0,1)",
+    ).run(user.id, at);
+    const snapshot = () =>
+      JSON.stringify(
+        [
+          "target_accounts",
+          "account_authorizations",
+          "terminal_sessions",
+          "terminal_recordings",
+          "terminal_commands",
+        ].map((table) =>
+          db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+        ),
+      );
+    const before = snapshot();
+    for (const credential of [f.admin, auth]) {
+      for (const accountId of [
+        account.id,
+        defaultAccountId("device"),
+        "missing",
+        "",
+        null,
+        123,
+      ]) {
+        for (const mode of [undefined, "normal"]) {
+          const response = await f.api(
+            "POST",
+            "/api/v1/terminal-sessions",
+            {
+              v: 1,
+              device_id: "device",
+              cols: 80,
+              rows: 24,
+              account_id: accountId,
+              ...(mode ? { connection_mode: mode } : {}),
+            },
+            credential,
+          );
+          assert.equal(response.status, 400);
+          assert.equal(response.body.error, "ACCOUNT_CONNECTION_REMOVED");
+          assert.equal(JSON.stringify(response).includes(password), false);
+        }
+      }
+    }
+    assert.equal(snapshot(), before);
+    assert.ok(
+      !f.agent.messages.some((m) =>
+        ["terminal.open", "terminal.sudo.open"].includes(m.type),
+      ),
+    );
+    assert.deepEqual(
+      (
+        await f.api(
+          "GET",
+          "/api/v1/devices/device/login-accounts",
+          undefined,
+          f.admin,
+        )
+      ).body.accounts.map((a: any) => a.id),
+      [defaultAccountId("device")],
+    );
+    const recording = await f.api(
+      "GET",
+      "/api/v1/terminal-sessions/legacy-session/recording",
+      undefined,
+      auth,
+    );
+    assert.equal(recording.status, 200);
+    assert.deepEqual(recording.body.events[0].data, metadata);
+    assert.equal(
+      (
+        await f.api(
+          "POST",
+          "/api/v1/terminal-sessions/legacy-session/export",
+          { v: 1 },
+          auth,
+        )
+      ).status,
+      200,
+    );
+    const history = await f.api(
+      "GET",
+      `/api/v1/devices/device/terminal-commands?from=${at - 1}&to=${at + 100}&q=HISTORICAL`,
+      undefined,
+      auth,
+    );
+    assert.equal(history.status, 200, JSON.stringify(history));
+    assert.equal(history.body.commands[0].session_id, "legacy-session");
+    assert.equal(history.body.commands[0].recording_seq, 1);
+    assert.equal(snapshot(), before);
+    const ordinary = await f.open();
+    assert.ok(ordinary.id);
+    assert.ok(!f.agent.messages.some((m) => m.type === "terminal.sudo.open"));
     assert.equal(
       JSON.stringify(db.prepare("SELECT * FROM audit").all()).includes(
         password,
       ),
       false,
-    );
-    assert.equal(
-      JSON.stringify(
-        db.prepare("SELECT * FROM terminal_recordings").all(),
-      ).includes(password),
-      false,
-    );
-    assert.equal(
-      JSON.stringify(
-        db.prepare("SELECT * FROM target_accounts").all(),
-      ).includes(password),
-      false,
-    );
-    assert.equal(
-      (
-        await f.api(
-          "PUT",
-          `/api/v1/devices/device/accounts/${account.id}`,
-          { ...account, v: 1 },
-          f.admin,
-        )
-      ).status,
-      400,
-    );
-    const edit = {
-      v: 1,
-      revision: account.revision,
-      name: account.name,
-      username: "root",
-      method: "sudo",
-      allowed_users: [opsUser.id],
-    };
-    assert.equal(
-      (
-        await f.api(
-          "PUT",
-          `/api/v1/devices/device/accounts/${account.id}`,
-          edit,
-          f.admin,
-        )
-      ).body.error,
-      "CONNECTION_HAS_ACTIVE_SESSIONS",
-    );
-    f.store.db
-      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
-      .run(role.permissions);
-    assert.equal(
-      (await browser.wait("terminal.closed")).reason,
-      "AUTHORIZATION_EXPIRED",
-    );
-    const updated = await f.api(
-      "PUT",
-      `/api/v1/devices/device/accounts/${account.id}`,
-      edit,
-      f.admin,
-    );
-    assert.equal(updated.status, 200, JSON.stringify(updated));
-    assert.equal(
-      (
-        await f.api(
-          "PUT",
-          `/api/v1/devices/device/accounts/${account.id}`,
-          edit,
-          f.admin,
-        )
-      ).body.error,
-      "TARGET_ACCOUNT_CHANGED_RELOAD",
-    );
-    f.store.db
-      .prepare(
-        "INSERT INTO devices(id,public_key,name,created_at) VALUES('other','other-key','other',1)",
-      )
-      .run();
-    assert.equal(
-      (
-        await f.api(
-          "POST",
-          "/api/v1/terminal-sessions",
-          {
-            v: 1,
-            device_id: "other",
-            account_id: account.id,
-            cols: 80,
-            rows: 24,
-          },
-          f.admin,
-        )
-      ).status,
-      403,
-    );
-    assert.equal(
-      (
-        await f.api(
-          "POST",
-          "/api/v1/terminal-sessions",
-          { v: 1, device_id: "device", elevated: true, cols: 80, rows: 24 },
-          ops,
-        )
-      ).status,
-      400,
-      "there is no ACL bypass through a raw elevation flag",
     );
   } finally {
     await f.close();
@@ -1180,7 +1123,7 @@ test("target account grants combine users, groups and direct or inherited roles 
         assert.equal(listed.body.accounts.length, 1, u.username);
         assert.equal(
           created.body.error,
-          "SUDO_NOT_SUPPORTED_UPDATE_AGENT",
+          "ACCOUNT_CONNECTION_REMOVED",
           u.username,
         );
         assert.equal(
@@ -1194,7 +1137,7 @@ test("target account grants combine users, groups and direct or inherited roles 
           "non-admins cannot list platform roles",
         );
       } else {
-        assert.equal(created.status, 403, u.username);
+        assert.equal(created.status, 400, u.username);
         if (u !== noScope)
           assert.deepEqual(listed.body.accounts, [], u.username);
       }
@@ -1282,7 +1225,7 @@ test("target account grants combine users, groups and direct or inherited roles 
 });
 
 for (const kind of ["group", "inherited-role"] as const) {
-  test(`revoking a target account ${kind} grant closes its active terminal and invalidates pending tickets`, async () => {
+  test(`revoking a default account ${kind} grant closes its active terminal and invalidates pending tickets`, async () => {
     const f = await fixture();
     try {
       const user = f.store.seedUser({
@@ -1319,28 +1262,25 @@ for (const kind of ["group", "inherited-role"] as const) {
           f.admin,
         )
       ).body.group;
-      const account = (
-        await f.api(
-          "POST",
-          "/api/v1/devices/device/accounts",
-          {
-            v: 1,
-            name: "Revocable root",
-            username: "root",
-            method: "sudo",
-            allowed_users: [],
-            allowed_groups: kind === "group" ? [group.id] : [],
-            allowed_roles: kind === "inherited-role" ? [role.id] : [],
-            sudo_password: "fixture-password9",
-          },
-          f.admin,
+      new AccountAuthorizations(f.store.db).ensureDefault("device");
+      f.store.db
+        .prepare(
+          "DELETE FROM account_authorizations WHERE device_id='device' AND account_id IS NULL",
         )
-      ).body.account;
-      f.agent.send("agent.heartbeat", {
-        agent_version: "test-sudo",
-        capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
-      });
-      await new Promise((resolve) => setTimeout(resolve, 30));
+        .run();
+      const granted = await f.api(
+        "POST",
+        "/api/v1/access-authorizations",
+        {
+          v: 1,
+          device_id: "device",
+          account_ids: [defaultAccountId("device")],
+          subject_type: kind === "group" ? "group" : "role",
+          subject_id: kind === "group" ? group.id : role.id,
+        },
+        f.admin,
+      );
+      assert.equal(granted.status, 200);
       const auth = await f.login(user.username);
       const create = () =>
         f.api(
@@ -1349,7 +1289,6 @@ for (const kind of ["group", "inherited-role"] as const) {
           {
             v: 1,
             device_id: "device",
-            account_id: account.id,
             cols: 80,
             rows: 24,
           },
@@ -1358,7 +1297,7 @@ for (const kind of ["group", "inherited-role"] as const) {
       const active = await create();
       assert.equal(active.status, 200, JSON.stringify(active));
       const browser = await f.attach(active.body);
-      const opening = await f.agent.wait("terminal.sudo.open");
+      const opening = await f.agent.wait("terminal.open");
       f.agent.send("terminal.opened", { session_id: opening.session_id });
       await browser.wait("terminal.ready");
       const pending = await create();
@@ -1407,7 +1346,6 @@ for (const kind of ["group", "inherited-role"] as const) {
             {
               v: 1,
               device_id: "device",
-              account_id: account.id,
               cols: 80,
               rows: 24,
             },
@@ -1422,7 +1360,7 @@ for (const kind of ["group", "inherited-role"] as const) {
   });
 }
 
-test("unified default-account authorization is enforced for omitted and explicit account IDs and revokes active sessions", async () => {
+test("default authorization controls ordinary connections and revokes sessions; explicit IDs are retired", async () => {
   const f = await fixture();
   try {
     const u = f.store.seedUser({
@@ -1495,7 +1433,7 @@ test("unified default-account authorization is enforced for omitted and explicit
           auth,
         )
       ).status,
-      403,
+      400,
     );
     assert.deepEqual(
       (
@@ -1668,8 +1606,8 @@ test("new access rules grant only the selected login account, expose effective s
     );
     assert.deepEqual(
       listed.body.accounts.map((a: any) => a.id),
-      [account.id],
-      "new resource scope must not activate legacy default inheritance",
+      [],
+      "legacy grants cannot activate ordinary access or advertise retired accounts",
     );
     assert.equal((await f.create(auth)).status, 403);
     const effective = await f.api(
@@ -1680,7 +1618,8 @@ test("new access rules grant only the selected login account, expose effective s
     );
     assertValid("effective-authorization-response", effective.body);
     assert.equal(effective.body.accounts.length, 1);
-    assert.equal(effective.body.accounts[0].allowed, true);
+    assert.equal(effective.body.accounts[0].allowed, false);
+    assert.ok(effective.body.accounts[0].missing.includes("旧账号连接已移除"));
     assert.ok(effective.body.accounts[0].reasons.length);
     assert.equal(
       (
@@ -1758,14 +1697,7 @@ test("new access rules grant only the selected login account, expose effective s
         },
         auth,
       );
-    const active = await create();
-    assert.equal(active.status, 200, JSON.stringify(active));
-    const browser = await f.attach(active.body);
-    const opening = await f.agent.wait("terminal.sudo.open");
-    f.agent.send("terminal.opened", { session_id: opening.session_id });
-    await browser.wait("terminal.ready");
-    const pending = await create();
-    assert.equal(pending.status, 200);
+    assert.equal((await create()).body.error, "ACCOUNT_CONNECTION_REMOVED");
     assert.equal(
       (
         await f.api(
@@ -1777,13 +1709,8 @@ test("new access rules grant only the selected login account, expose effective s
       ).status,
       200,
     );
-    await browser.wait("terminal.closed");
-    assert.ok(
-      db
-        .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
-        .get(pending.body.session_id)!.ended_at,
-    );
-    assert.equal((await create()).status, 403);
+    assert.equal((await create()).body.error, "ACCOUNT_CONNECTION_REMOVED");
+    assert.equal((await f.create(auth)).status, 403);
     assert.deepEqual(
       f.store.user(db.prepare("SELECT * FROM users WHERE id=?").get(u.id))
         .device_scope,
@@ -1964,7 +1891,7 @@ test("new user, group and inherited-role rules supply resource scope without cha
             auth,
           )
         ).body.accounts;
-        assert.ok(listed.some((a: any) => a.id === account.id));
+        assert.deepEqual(listed, []);
         assert.equal(
           listed.some((a: any) => a.is_default),
           false,
@@ -1984,7 +1911,7 @@ test("new user, group and inherited-role rules supply resource scope without cha
               auth,
             )
           ).body.error,
-          "SUDO_NOT_SUPPORTED_UPDATE_AGENT",
+          "ACCOUNT_CONNECTION_REMOVED",
         );
       }
     }
@@ -2110,7 +2037,7 @@ test("removed root mode is rejected without opening a session; normal clients an
     assert.equal(
       (await create("normal", auth, { account_id: defaultAccountId("device") }))
         .body.error,
-      "CONFLICTING_CONNECTION_OPTIONS",
+      "ACCOUNT_CONNECTION_REMOVED",
     );
     assert.equal(
       f.store.db.prepare("SELECT count(*) AS n FROM terminal_sessions").get()!
@@ -2145,7 +2072,7 @@ test("removed root mode is rejected without opening a session; normal clients an
   }
 });
 
-test("managed sudo accounts may omit passwords but require passwordless Agent support at connection time", async () => {
+test("legacy passwordless accounts stay stored but cannot open terminals regardless of Agent capabilities", async () => {
   const f = await fixture();
   try {
     const saved = await f.api(
@@ -2174,7 +2101,7 @@ test("managed sudo accounts may omit passwords but require passwordless Agent su
       capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
     });
     await new Promise((r) => setTimeout(r, 30));
-    assert.equal((await create()).body.error, "SUDO_PASSWORD_REQUIRED");
+    assert.equal((await create()).body.error, "ACCOUNT_CONNECTION_REMOVED");
     f.agent.send("agent.heartbeat", {
       agent_version: "nopasswd",
       capabilities: [
@@ -2184,18 +2111,13 @@ test("managed sudo accounts may omit passwords but require passwordless Agent su
       ],
     });
     await new Promise((r) => setTimeout(r, 30));
-    const created = await create();
-    assert.equal(created.status, 200, JSON.stringify(created));
-    const browser = await f.attach(created.body);
-    const request = await f.agent.wait("terminal.sudo.open");
-    assert.equal(request.sudo_password, "");
-    assert.equal(request.username, "root");
-    f.agent.send("terminal.opened", { session_id: request.session_id });
-    assert.deepEqual(await browser.wait("terminal.ready"), {
-      backend: "agent",
-      elevated: true,
-      username: "root",
-    });
+    assert.equal((await create()).body.error, "ACCOUNT_CONNECTION_REMOVED");
+    assert.equal(
+      f.store.db.prepare("SELECT COUNT(*) AS n FROM terminal_sessions").get()!
+        .n,
+      0,
+    );
+    assert.ok(!f.agent.messages.some((m) => m.type === "terminal.sudo.open"));
   } finally {
     await f.close();
   }
@@ -2459,7 +2381,10 @@ test("web terminal privilege settings require admin, report real state, gate sud
         },
         f.admin,
       );
-    assert.equal((await openManaged()).body.error, "SUDO_DISABLED");
+    assert.equal(
+      (await openManaged()).body.error,
+      "ACCOUNT_CONNECTION_REMOVED",
+    );
     const originalAudit = f.store.audit.bind(f.store);
     f.store.audit = (...args: Parameters<Store["audit"]>) => {
       if (args[0] === "terminal.privilege_requested")
@@ -2502,7 +2427,7 @@ test("web terminal privilege settings require admin, report real state, gate sud
       reason: null,
     });
     await observed({ enabled: true, status: "applied" });
-    const opening = await openManaged();
+    const opening = await f.create();
     assert.equal(opening.status, 200);
     assert.equal(
       (await save(1, false)).body.error,
@@ -2518,8 +2443,8 @@ test("web terminal privilege settings require admin, report real state, gate sud
     await f.agent.wait("agent.terminal.config");
     assert.equal(
       (await openManaged()).body.error,
-      "SUDO_DISABLED",
-      "a pending disable already blocks new privileged terminals",
+      "ACCOUNT_CONNECTION_REMOVED",
+      "retired accounts remain blocked regardless of the privilege switch",
     );
     f.agent.send("agent.terminal.status", {
       revision: 1,

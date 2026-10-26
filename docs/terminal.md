@@ -63,21 +63,21 @@ API：`GET /api/v1/devices/:id/terminal-commands?from=<毫秒>&to=<毫秒>&q=<�
 
 本次本地结果：服务端 8/8、前端 30/30、协议 131/131、Rust 25/25（23 个单元/实际进程测试和 2 个契约测试）通过；Rust clippy、格式检查和前后端构建通过。原有真实 Rust Exec 端到端 22/22 通过，新增终端端到端及 Chromium 操作、回放/导出通过。`.test-output/terminal-e2e.json`、`terminal-browser.json`、`terminal-sudo-rust.log` 和终端截图保留本地证据，不随 Git 提交私有运行状态。
 
-网页与 SSH 入口统一使用普通连接；旧目标账号仅保留数据和显式 API 兼容，历史录制仍可回放。详见[账号兼容说明](device-connections.md#目标账号与登录切换方式)。
+网页与 SSH 入口统一使用普通连接；显式 `account_id` API 连接也已移除；旧目标账号数据及历史录制仍保留。详见[账号兼容说明](device-connections.md#目标账号与登录切换方式)。
 
-## 2026-10-26 普通连接与兼容账号回归
+## 2026-10-26 普通连接与旧 API 移除回归
 
-移除 root 快捷连接后，本地使用 Node.js 24.21.0、当前源码构建的 Linux arm64 Agent 0.2.13、隔离 Docker 容器和 Playwright Chromium 验证：
+移除 root 快捷连接和显式账号 API 后，本地使用 Node.js 24.21.0、当前源码构建的 Linux arm64 Agent 0.2.13、隔离 Docker 容器和 Playwright Chromium 验证：
 
-- 服务端 192/192、前端 227/227、协议契约 382/382 通过；前后端类型检查、构建及全项目 Prettier 检查通过。
-- 旧 `connection_mode: "root"` 返回明确错误且不创建会话；旧 `normal` 请求仍可用。默认 root SSH 及已授权高级账号继续兼容，撤销授权后关闭会话。
+- 服务端 205/205、前端 230/230、协议契约 383/383 通过；前后端类型检查、构建及全项目 Prettier 检查通过。
+- 旧 `connection_mode: "root"` 返回明确错误且不创建会话；旧 `normal` 请求仍可用。显式 `account_id`（含默认 ID）返回 `ACCOUNT_CONNECTION_REMOVED`；普通连接的默认 root SSH 配置保持兼容，撤销默认授权后关闭会话。旧账号身份的录制、索引和导出继续可读。
 - 真实普通终端保持非 root 身份，网页和平台 SSH 均可自动代填 sudo 密码；系统免密 sudo 无需保存密码。验证重复 sudo、错误密码、未授权用户不接收密码、撤权断连和设备提权开关。
-- Chromium 验证普通连接、自动代填提示及命令执行，通过高级入口连接已有账号；桌面与手机截图保存在 `.test-output/`。录制和审计中不包含测试密码。
+- Chromium 验证普通连接、自动代填提示及命令执行，确认无高级账号菜单；截图保存在 `.test-output/`。录制和审计中不包含测试密码。
 
 在前后端构建完成、Linux Agent 二进制就绪后，本次端到端命令为：
 
 ```bash
-FLEET_AGENT_BIN="$PWD/.dev/remove-root-verification/farhelm-agent" \
+FLEET_AGENT_BIN="$PWD/.dev/linux-target/debug/farhelm-agent" \
 FLEET_TEST_SUDO_COMMANDS=1 FLEET_TEST_TERMINAL_SETTINGS=1 \
 FLEET_TEST_BROWSER_CHANNEL=chromium node tests/e2e/target-accounts.mjs
 ```
