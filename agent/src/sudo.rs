@@ -334,7 +334,11 @@ fn askpass(path: &Path) -> Result<()> {
 }
 fn shell() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    ensure!(args.len() == 4, "invalid sudo shell request");
+    ensure!(args.len() == 5, "invalid sudo shell request");
+    ensure!(
+        uuid::Uuid::parse_str(&args[4]).is_ok(),
+        "invalid terminal ID"
+    );
     let (uid, home) = user(&args[3])?;
     ensure!(
         unsafe { libc::geteuid() } == uid,
@@ -364,6 +368,11 @@ fn shell() -> Result<()> {
         )
         .env("TERM", "xterm-256color")
         .env("LANG", "C.UTF-8")
+        .env("FARHELM_COMMAND_TOKEN", &args[4])
+        .env(
+            "PROMPT_COMMAND",
+            include_str!("../../lib/terminal-command-hooks.bash"),
+        )
         .env(
             "PS1",
             if uid == 0 {

@@ -9,6 +9,7 @@ import {
 } from "./permissions.js";
 import type { Store } from "./store.js";
 import { historyPage } from "./history.js";
+import { CommandStream, commandHistory } from "./terminal-commands.js";
 import type { User } from "./types.js";
 import type { TargetTerminal } from "./ssh-target.js";
 import type {
@@ -33,6 +34,10 @@ export interface TerminalPeer {
   terminate(): void;
 }
 interface Session {
+  commands: CommandStream;
+  commandCapture?: boolean;
+  commandId?: number;
+  commandCount?: number;
   id: string;
   deviceId: string;
   actorId: string;
@@ -73,6 +78,7 @@ interface Dependencies {
       rows: number,
       receive: (type: string, body: Record<string, any>) => void,
       account?: { username: string; privateKey: string; passphrase?: string },
+      commandToken?: string,
     ): TargetTerminal;
   };
   agent(id: string):
@@ -127,6 +133,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         reason: "SERVER_RESTART",
         audit_complete: false,
       });
+      db.prepare(
+        "UPDATE terminal_commands SET ended_at=? WHERE session_id=? AND ended_at IS NULL",
+      ).run(Date.now(), row.id);
     }
   });
   function record(id: string, kind: string, data: unknown) {
@@ -215,6 +224,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     let persisted = false;
     try {
       store.transaction(() => {
+        db.prepare(
+          "UPDATE terminal_commands SET ended_at=? WHERE session_id=? AND ended_at IS NULL",
+        ).run(Date.now(), s.id);
         record(s.id, "close", { reason, audit_complete: complete });
         db.prepare(
           "UPDATE terminal_sessions SET status=?,ended_at=?,reason=?,audit_complete=? WHERE id=?",
@@ -395,6 +407,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       });
     });
     const session: Session = {
+      commands: new CommandStream(id),
       id,
       deviceId,
       actorId: user.id,
@@ -449,6 +462,19 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       ticket,
       expires_at: session.expires,
     };
+  });
+  app.get("/api/v1/devices/:id/terminal-commands", async (req) => {
+    const user = d.userAuth(req);
+    if (!hasPermission(user, "recordings.read")) fail(403, "PERMISSION_DENIED");
+    const id = str((req.params as any).id, 1, 128);
+    d.requireScope(user, id);
+    if (!db.prepare("SELECT id FROM devices WHERE id=?").get(id))
+      fail(404, "DEVICE_NOT_FOUND");
+    return commandHistory(db, user, id, req.query);
+  });
+  app.get("/api/v1/terminal-sessions/:id", async (req) => {
+    const { row } = lookup(req, "recordings.read");
+    return { v: 1, session: row };
   });
   app.get("/api/v1/terminal-sessions", async (req) => {
     const user = d.userAuth(req);
@@ -554,6 +580,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
                 passphrase: secret.passphrase,
               }
             : undefined,
+          s.id,
         );
       } catch {
         safeEnd(s, "SSH_CONNECT_FAILED");
@@ -711,6 +738,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         if (!s.ready) fail(409, "TERMINAL_NOT_OPEN");
         const seq = integer(b.seq, 1, Number.MAX_SAFE_INTEGER),
           chunk = bytes(b.data);
+        const events = s.commands.push(chunk);
+        const visible: Buffer[] = [];
         d.availableStorage();
         store.transaction(() => {
           const row = db
@@ -721,14 +750,66 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           if (seq !== row.output_seq + 1) fail(409, "TERMINAL_OUTPUT_GAP");
           if (row.output_bytes + chunk.length > MAX_BYTES)
             fail(413, "TERMINAL_RECORDING_LIMIT");
-          record(s.id, "output", { data: b.data });
+          for (const event of events) {
+            if (event.kind === "output") {
+              for (
+                let offset = 0;
+                offset < event.data.length;
+                offset += MAX_CHUNK
+              ) {
+                const part = event.data.subarray(offset, offset + MAX_CHUNK);
+                record(s.id, "output", { data: part.toString("base64") });
+                visible.push(part);
+              }
+            } else if (event.kind === "ready") {
+              s.commandCapture = true;
+              db.prepare(
+                "INSERT OR IGNORE INTO terminal_command_capture(session_id,shell) VALUES(?,?)",
+              ).run(s.id, event.shell);
+            } else if (event.kind === "command" && s.commandCapture) {
+              if ((s.commandCount ?? 0) >= 5000)
+                fail(413, "TERMINAL_COMMAND_LIMIT");
+              if (s.commandId)
+                db.prepare(
+                  "UPDATE terminal_commands SET ended_at=? WHERE id=? AND ended_at IS NULL",
+                ).run(Date.now(), s.commandId);
+              const anchor = (
+                db
+                  .prepare("SELECT last_seq FROM terminal_sessions WHERE id=?")
+                  .get(s.id) as any
+              ).last_seq;
+              const inserted = db
+                .prepare(
+                  "INSERT INTO terminal_commands(session_id,device_id,actor_id,started_at,command,redacted,recording_seq) VALUES(?,?,?,?,?,?,?)",
+                )
+                .run(
+                  s.id,
+                  s.deviceId,
+                  s.actorId,
+                  Date.now(),
+                  event.command,
+                  Number(event.redacted),
+                  anchor,
+                );
+              s.commandId = Number(inserted.lastInsertRowid);
+              s.commandCount = (s.commandCount ?? 0) + 1;
+            } else if (event.kind === "end" && s.commandId) {
+              db.prepare(
+                "UPDATE terminal_commands SET ended_at=?,exit_code=? WHERE id=? AND ended_at IS NULL",
+              ).run(Date.now(), event.code, s.commandId);
+              s.commandId = undefined;
+            }
+          }
           db.prepare(
             "UPDATE terminal_sessions SET output_seq=?,output_bytes=output_bytes+? WHERE id=?",
           ).run(seq, chunk.length, s.id);
         });
         // SQLite FULL commit precedes both display and Agent ACK.
-        if (!sendClient(s, "terminal.output", { data: b.data }))
-          return end(s, s.peer ? "SSH_BACKPRESSURE" : "BROWSER_BACKPRESSURE");
+        for (const part of visible)
+          if (
+            !sendClient(s, "terminal.output", { data: part.toString("base64") })
+          )
+            return end(s, s.peer ? "SSH_BACKPRESSURE" : "BROWSER_BACKPRESSURE");
         if (
           s.backend === "agent" &&
           !d.agent(deviceId)?.send("terminal.ack", { session_id: s.id, seq })

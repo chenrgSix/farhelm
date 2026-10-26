@@ -11,6 +11,7 @@ const props = defineProps<{
   deviceId: string;
   deviceName: string;
   recording?: TerminalSession;
+  recordingStartSeq?: number;
   elevated?: boolean;
   accountId?: string;
   username?: string;
@@ -104,10 +105,10 @@ async function playback() {
   let previous = records.value[0]?.at ?? 0;
   for (const event of records.value) {
     if (run !== playGeneration || disposed) return;
-    const delay = Math.min(
-      2000,
-      Math.max(0, event.at - previous) / speed.value,
-    );
+    const delay =
+      event.seq <= (props.recordingStartSeq ?? 0)
+        ? 0
+        : Math.min(2000, Math.max(0, event.at - previous) / speed.value);
     previous = event.at;
     if (delay)
       await new Promise<void>((resolve) => {
@@ -325,7 +326,9 @@ onMounted(async () => {
     await connect();
     return;
   }
-  state.value = "会话记录";
+  state.value = props.recordingStartSeq
+    ? "会话记录 · 已定位到命令"
+    : "会话记录";
   try {
     let after = 0;
     while (!disposed) {
@@ -334,8 +337,20 @@ onMounted(async () => {
         next: number;
       }>(`/terminal-sessions/${props.recording.id}/recording?after=${after}`);
       if (disposed) return;
-      records.value.push(...response.events);
-      if (!response.events.length || response.next === after) break;
+      records.value.push(
+        ...response.events.filter(
+          (event) =>
+            props.recording!.last_seq === undefined ||
+            event.seq <= props.recording!.last_seq,
+        ),
+      );
+      if (
+        !response.events.length ||
+        response.next === after ||
+        (props.recording.last_seq !== undefined &&
+          response.next >= props.recording.last_seq)
+      )
+        break;
       after = response.next;
     }
     if (!disposed) await playback();

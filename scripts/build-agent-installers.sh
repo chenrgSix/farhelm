@@ -14,7 +14,9 @@ for platform in "$@"; do
     esac
     docker build --platform "linux/$platform" -f "$ROOT/deploy/agent/Dockerfile.build" -t "farhelm-agent-build:$platform" "$ROOT/deploy/agent"
     docker run --rm --platform "linux/$platform" \
-      --mount "type=bind,source=$ROOT/agent,target=/src,readonly" \
+      --mount "type=bind,source=$ROOT/agent,target=/workspace/agent,readonly" \
+      --mount "type=bind,source=$ROOT/lib,target=/workspace/lib,readonly" \
+      --workdir /workspace/agent \
       --mount "type=bind,source=$OUT,target=/out" \
       --mount "type=volume,source=farhelm-install-cargo-$platform,target=/usr/local/cargo/registry" \
       --mount "type=volume,source=farhelm-install-target-$platform,target=/target" \

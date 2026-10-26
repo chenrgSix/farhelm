@@ -4,6 +4,7 @@ import type { Device, User } from "../api/types";
 import { canExecute, hasPermission } from "../model";
 
 type Action =
+  | "command-history"
   | "advanced-terminal"
   | "accounts"
   | "connection"
@@ -72,6 +73,11 @@ const actions = computed(() => {
       kind: "revoke",
       label: props.revoking ? "撤销中…" : "撤销访问权限",
       visible: admin,
+    },
+    {
+      kind: "command-history",
+      label: "终端命令历史",
+      visible: hasPermission(props.user, "recordings.read", props.device.id),
     },
   ];
   return options.filter((option) => option.visible);

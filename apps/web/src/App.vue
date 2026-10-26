@@ -76,6 +76,9 @@ import AccessControlPanel from "./components/AccessControlPanel.vue";
 const DeviceDetail = defineAsyncComponent(
   () => import("./components/DeviceDetail.vue"),
 );
+const DeviceCommandHistory = defineAsyncComponent(
+  () => import("./components/DeviceCommandHistory.vue"),
+);
 const initialRoute = readAppRoute();
 const detailDeviceId = ref<string | null>(initialRoute?.deviceId ?? null);
 const detailResource = useDeviceResource(detailDeviceId);
@@ -231,6 +234,7 @@ const terminalTarget = ref<{
   id: string;
   name: string;
   recording?: TerminalSession;
+  recordingStartSeq?: number;
   elevated?: boolean;
   accountId?: string;
   username?: string;
@@ -247,6 +251,7 @@ const addDeviceOpen = ref(false);
 const error = ref("");
 const search = ref("");
 const selectedTask = ref<Task | null>(null);
+const commandHistoryJump = ref({ id: "", seq: 0 });
 const loadingTask = ref(false);
 const execOpen = ref(false);
 const execDevice = ref("");
@@ -795,6 +800,13 @@ async function revoke(device: Device) {
 }
 function handleDeviceAction(kind: string, device: Device) {
   switch (kind) {
+    case "command-history":
+      commandHistoryJump.value = {
+        id: device.id,
+        seq: commandHistoryJump.value.seq + 1,
+      };
+      openDevice(device.id);
+      break;
     case "terminal":
       terminalTarget.value = {
         id: device.id,
@@ -1265,6 +1277,31 @@ onBeforeUnmount(() => {
             </button>
           </template>
         </DeviceDetail>
+        <DeviceCommandHistory
+          v-if="
+            view === 'devices' &&
+            detailDevice &&
+            hasPermission(user, 'recordings.read')
+          "
+          :key="detailDevice.id + authorizationKey"
+          :device-id="detailDevice.id"
+          :device-name="detailDevice.name"
+          :jump-key="
+            commandHistoryJump.id === detailDevice.id
+              ? commandHistoryJump.seq
+              : 0
+          "
+          @replay="
+            (session, seq) => {
+              terminalTarget = {
+                id: detailDevice!.id,
+                name: detailDevice!.name,
+                recording: session,
+                recordingStartSeq: seq,
+              };
+            }
+          "
+        />
         <div
           v-if="
             navigation.length &&
@@ -2103,10 +2140,15 @@ onBeforeUnmount(() => {
       />
       <TerminalPanel
         v-if="terminalTarget"
-        :key="terminalTarget.recording?.id ?? terminalTarget.id"
+        :key="
+          (terminalTarget.recording?.id ?? terminalTarget.id) +
+          ':' +
+          (terminalTarget.recordingStartSeq ?? 0)
+        "
         :device-id="terminalTarget.id"
         :device-name="terminalTarget.name"
         :recording="terminalTarget.recording"
+        :recording-start-seq="terminalTarget.recordingStartSeq"
         :elevated="terminalTarget.elevated"
         :account-id="terminalTarget.accountId"
         :username="terminalTarget.username"

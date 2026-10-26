@@ -1908,5 +1908,10 @@
     "path": "valid/device-options.json",
     "schema": "device-options-response.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/terminal-commands-response.json",
+    "schema": "terminal-commands-response.schema.json",
+    "valid": true
   }
 ]

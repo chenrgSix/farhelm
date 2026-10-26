@@ -23,37 +23,7 @@ const tls = join(temp, "tls");
 execFileSync("bash", [join(root, "deploy/dev/generate-tls.sh"), tls], {
   stdio: "ignore",
 });
-// Docker clients reach the host by this DNS name; trust remains explicit.
-writeFileSync(
-  join(tls, "extensions.cnf"),
-  readFileSync(join(tls, "extensions.cnf"), "utf8").replace(
-    "DNS:localhost",
-    "DNS:localhost,DNS:host.docker.internal",
-  ),
-);
-execFileSync(
-  "openssl",
-  [
-    "x509",
-    "-req",
-    "-in",
-    join(tls, "server.csr"),
-    "-CA",
-    join(tls, "ca.crt"),
-    "-CAkey",
-    join(tls, "ca.key"),
-    "-CAserial",
-    join(tls, "ca.srl"),
-    "-out",
-    join(tls, "server.crt"),
-    "-days",
-    "1",
-    "-sha256",
-    "-extfile",
-    join(tls, "extensions.cnf"),
-  ],
-  { stdio: "ignore" },
-);
+// The shared development TLS generator already includes host.docker.internal.
 const ca = readFileSync(join(tls, "ca.crt"));
 const server = await buildServer({
   dataDir: join(temp, "server"),
@@ -309,6 +279,39 @@ try {
     "durable recordings preserve output/timing/resize; hidden password input is absent; normal exit vs interruption is explicit",
   );
   await checkSsh({ server, deviceId: device.id, temp, until, steps });
+  const commands = await api(
+    "GET",
+    `/api/v1/devices/${device.id}/terminal-commands?from=${Date.now() - 3600000}&to=${Date.now() + 1000}&limit=100`,
+    undefined,
+    admin,
+  );
+  assertValid("terminal-commands-response", commands);
+  assert.ok(
+    commands.commands.some(
+      (c) => c.transport === "web" && c.command.includes("SIZE_END"),
+    ),
+  );
+  assert.ok(
+    commands.commands.some(
+      (c) => c.transport === "ssh" && c.command.includes("SSH_RENEWED"),
+    ),
+  );
+  assert.ok(commands.commands.some((c) => c.exit_code !== null));
+  assert.ok(
+    !JSON.stringify(commands).includes("secret-that-must-not-be-recorded"),
+  );
+  assert.ok(!JSON.stringify(commands).includes("not-in-ssh-recording"));
+  for (const command of commands.commands)
+    assert.ok(
+      server.store.db
+        .prepare(
+          "SELECT 1 FROM terminal_recordings WHERE session_id=? AND seq=?",
+        )
+        .get(command.session_id, command.recording_seq),
+    );
+  steps.push(
+    "actual Agent commands indexed for web and OpenSSH sessions with user/time filters, exit codes and recording anchors; hidden passwords absent",
+  );
   assertValid(
     "audit-response",
     await api("GET", "/api/v1/audit", undefined, admin),

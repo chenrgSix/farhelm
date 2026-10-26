@@ -40,6 +40,8 @@ Commands receive only PATH=/usr/bin:/bin, LANG=C.UTF-8 and LC_ALL=C.UTF-8, and n
 
 ## Execution and reliability
 
+Newly built Agents also report accepted Bash terminal command lines using the shared `../lib/terminal-command-hooks.bash` resource (embedded at build time). Build from the full repository; the installer build mounts `lib` alongside `agent`. The platform strips control metadata before display/recording and indexes sanitized commands with session replay anchors. Hidden password/REPL input is never collected. Update the platform first, rebuild/update the Agent, and open a new session; older recordings are not backfilled. This is cooperative shell reporting, not tamper-proof process auditing. See [bounded command history](../docs/terminal.md#单设备逐条命令历史).
+
 - A locked state directory permits one Agent instance. One scheduler permits one task at a time and continues independently of the WSS connection
 - Immutable task hashing, permanent task IDs and transactionally sequenced accepted/started/finished outbox events prevent automatic repeat execution; ACKs match event ID, task ID and sequence
 - RUNNING is committed before spawn. Any RUNNING record seen on restart becomes UNKNOWN and is never automatically rerun, including the ambiguous pre-spawn window

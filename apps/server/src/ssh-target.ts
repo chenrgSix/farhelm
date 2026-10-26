@@ -1,5 +1,6 @@
 import { createHash, createPrivateKey } from "node:crypto";
 import { DISK_COMMAND } from "./disk-usage.js";
+import { terminalShell } from "./terminal-shell.js";
 import ssh2, { type ClientChannel, type ConnectConfig } from "ssh2";
 
 export type SshTargetConfig = {
@@ -246,6 +247,7 @@ export class SshTargets {
     cols: number,
     rows: number,
     receive: (type: string, body: Record<string, any>) => void,
+    commandToken?: string,
   ): TargetTerminal {
     const client = this.client();
     let channel: ClientChannel | undefined;
@@ -278,7 +280,7 @@ export class SshTargets {
     client.on("close", () => finish("SSH_TARGET_DISCONNECTED"));
     client.on("ready", () => {
       if (stopped) return;
-      client.shell({ term: "xterm-256color", cols, rows }, (err, stream) => {
+      const opened = (err: Error | undefined, stream: ClientChannel) => {
         if (stopped) {
           stream?.destroy();
           return;
@@ -307,7 +309,14 @@ export class SshTargets {
         stream.on("data", output);
         stream.stderr.on("data", output);
         receive("terminal.opened", {});
-      });
+      };
+      if (commandToken)
+        client.exec(
+          terminalShell(commandToken),
+          { pty: { term: "xterm-256color", cols, rows } },
+          opened,
+        );
+      else client.shell({ term: "xterm-256color", cols, rows }, opened);
     });
     // Delay connect so the shared session owns its close handle before callbacks run.
     queueMicrotask(() => {

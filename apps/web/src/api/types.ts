@@ -254,6 +254,7 @@ export interface CommandResponse {
   status: TaskStatus;
 }
 export interface TerminalSession {
+  last_seq?: number;
   actor_username?: string | null;
   device_name?: string | null;
   backend?: "agent" | "ssh";

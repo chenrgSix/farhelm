@@ -146,6 +146,75 @@ async function fixture() {
     close,
   };
 }
+
+test("terminal command recorder shares durable output transaction, strips metadata and never saves password input", async () => {
+  const f = await fixture();
+  try {
+    const { browser, id } = await f.open();
+    const mark = (value: string) => `\x1b]777;farhelm;${id};${value}\x07`;
+    const content = Buffer.from(
+      mark("R;bash") +
+        "prompt> read -s hidden\r\n" +
+        mark("C;" + Buffer.from("read -s hidden").toString("base64")),
+    );
+    let seq = 0;
+    for (const part of [content.subarray(0, 13), content.subarray(13)]) {
+      f.agent.send("terminal.output", {
+        session_id: id,
+        seq: ++seq,
+        data: part.toString("base64"),
+      });
+      await f.agent.wait("terminal.ack");
+    }
+    browser.send("terminal.input", {
+      data: Buffer.from("private-hidden-value\r").toString("base64"),
+    });
+    await f.agent.wait("terminal.input");
+    const finish =
+      mark("E;0") +
+      mark(
+        "C;" +
+          Buffer.from("curl --password private-argument-value").toString(
+            "base64",
+          ),
+      ) +
+      mark("E;1");
+    f.agent.send("terminal.output", {
+      session_id: id,
+      seq: ++seq,
+      data: Buffer.from(finish).toString("base64"),
+    });
+    await f.agent.wait("terminal.ack");
+    const rows = f.store.db
+      .prepare("SELECT * FROM terminal_commands WHERE session_id=? ORDER BY id")
+      .all(id) as any[];
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].command, "read -s hidden");
+    assert.equal(rows[0].exit_code, 0);
+    assert.equal(rows[1].redacted, 1);
+    assert.equal(rows[1].exit_code, 1);
+    const recordings = f.store.db
+      .prepare("SELECT * FROM terminal_recordings WHERE session_id=?")
+      .all(id) as any[];
+    const decoded = recordings
+      .filter((r) => r.kind === "output")
+      .map((r) => Buffer.from(JSON.parse(r.data).data, "base64").toString())
+      .join("");
+    assert.equal(decoded, "prompt> read -s hidden\r\n");
+    assert.ok(!JSON.stringify(rows).includes("private-"));
+    assert.ok(recordings.some((r) => r.seq === rows[0].recording_seq));
+    const response = await f.api(
+      "GET",
+      `/api/v1/devices/device/terminal-commands?from=${Date.now() - 60000}&to=${Date.now() + 1000}`,
+      undefined,
+      f.admin,
+    );
+    assert.equal(response.status, 200);
+    assertValid("terminal-commands-response", response.body);
+  } finally {
+    await f.close();
+  }
+});
 test("terminal gateway: role/scope checks, origin, single-use ticket and user-session expiry", async () => {
   const f = await fixture();
   try {

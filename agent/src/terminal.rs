@@ -269,6 +269,7 @@ impl Drop for Pty {
     }
 }
 fn spawn(
+    session_id: &str,
     cols: u16,
     rows: u16,
     allow_privilege_escalation: bool,
@@ -343,7 +344,8 @@ fn spawn(
             .arg(std::env::current_exe()?)
             .arg("--sudo-shell")
             .arg(&sudo.path)
-            .arg(&sudo.username);
+            .arg(&sudo.username)
+            .arg(session_id);
     } else if shell == "/bin/bash" {
         command.args(["--noprofile", "--norc"]);
     }
@@ -367,6 +369,11 @@ fn spawn(
         .env("TERM", "xterm-256color")
         .env("LANG", "C.UTF-8")
         .env("LC_ALL", "C.UTF-8")
+        .env("FARHELM_COMMAND_TOKEN", session_id)
+        .env(
+            "PROMPT_COMMAND",
+            include_str!("../../lib/terminal-command-hooks.bash"),
+        )
         .stdin(Stdio::from(slave.try_clone()?))
         .stdout(Stdio::from(slave.try_clone()?))
         .stderr(Stdio::from(slave))
@@ -460,6 +467,7 @@ async fn run(
         )
     };
     let mut pty = match spawn(
+        &open.session_id,
         open.cols,
         open.rows,
         allow_privilege_escalation,

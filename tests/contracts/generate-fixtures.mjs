@@ -882,5 +882,27 @@ fixture("deployment-agent-http", "deployment-settings", {
   web_enabled: true,
   web_protocol: "http",
 });
+fixture("terminal-commands-response", "terminal-commands-response", {
+  v: 1,
+  commands: [
+    {
+      id: 1,
+      session_id: "11111111-2222-4333-8444-555555555555",
+      device_id: "device-1",
+      actor_id: "user-1",
+      started_at: 1000,
+      ended_at: 1100,
+      command: "docker ps",
+      redacted: 0,
+      exit_code: 0,
+      recording_seq: 2,
+      actor_username: "ops",
+      transport: "ssh",
+      backend: "agent",
+      session_status: "CLOSED",
+    },
+  ],
+  page: { has_more: false, next_cursor: null },
+});
 save("manifest.json", manifest);
 console.log(`Wrote ${manifest.length} fixtures`);

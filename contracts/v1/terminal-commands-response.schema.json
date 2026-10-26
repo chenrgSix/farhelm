@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/terminal-commands-response.schema.json",
+  "title": "Single device terminal commands in a mandatory bounded time range",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "commands", "page"],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "commands": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "session_id",
+          "device_id",
+          "actor_id",
+          "started_at",
+          "ended_at",
+          "command",
+          "redacted",
+          "exit_code",
+          "recording_seq",
+          "actor_username",
+          "transport",
+          "backend",
+          "session_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "session_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "device_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "actor_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "started_at": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ended_at": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "redacted": {
+            "enum": [0, 1]
+          },
+          "exit_code": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 255
+          },
+          "recording_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "actor_username": {
+            "type": "string"
+          },
+          "transport": {
+            "enum": ["web", "ssh"]
+          },
+          "backend": {
+            "enum": ["agent", "ssh"]
+          },
+          "session_status": {
+            "enum": ["OPENING", "OPEN", "CLOSED", "INTERRUPTED"]
+          }
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["has_more", "next_cursor"],
+      "properties": {
+        "has_more": {
+          "type": "boolean"
+        },
+        "next_cursor": {
+          "type": ["string", "null"],
+          "maxLength": 1024
+        }
+      }
+    }
+  }
+}

@@ -388,6 +388,12 @@ export class Store {
         "utf8",
       ),
     );
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/039_terminal_commands.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     migrateAccountAuthorizations(this.db);
     this.db
       .prepare(

@@ -144,6 +144,117 @@ async function fixture() {
   };
 }
 
+test("single-device commands require <=7 days, enforce ownership/scope, literal fuzzy search and stable bounded pagination", async () => {
+  const f = await fixture();
+  try {
+    const admin = (
+      f.db.prepare("SELECT id FROM users WHERE username='admin'").get() as any
+    ).id;
+    for (let i = 0; i < 121; i++)
+      f.db
+        .prepare(
+          "INSERT INTO terminal_commands(session_id,device_id,actor_id,started_at,command,recording_seq) VALUES('session-0000','visible',?,?,?,1)",
+        )
+        .run(
+          admin,
+          100000 + Math.floor(i / 3),
+          i === 0 ? "docker ps 100%_literal" : "systemctl STATUS app",
+        );
+    const path = "/devices/visible/terminal-commands";
+    for (const query of [
+      "",
+      "?from=0",
+      "?to=604800000",
+      "?from=0&to=604800001",
+      "?from=10&to=10",
+      "?from=20&to=10",
+      "?from=NaN&to=10",
+      "?from=0&to=604800000&limit=101",
+    ])
+      assert.equal((await f.get(path + query)).status, 400, query);
+    const base = path + "?from=0&to=604800000";
+    let result = await f.get(base, f.readerToken);
+    assert.equal(result.status, 200);
+    assertValid("terminal-commands-response", result.body);
+    assert.equal(result.body.commands.length, 50);
+    const cursor = result.body.page.next_cursor;
+    const ids: number[] = [];
+    while (true) {
+      ids.push(...result.body.commands.map((r: any) => r.id));
+      if (!result.body.page.has_more) break;
+      result = await f.get(
+        base + "&cursor=" + result.body.page.next_cursor,
+        f.readerToken,
+      );
+      assert.equal(result.status, 200);
+    }
+    assert.equal(ids.length, 121);
+    assert.equal(new Set(ids).size, 121);
+    assert.equal(
+      (await f.get(base + "&q=" + encodeURIComponent("100%_"))).body.commands
+        .length,
+      1,
+    );
+    assert.equal(
+      (await f.get(base + "&q=SyStEmCtL&limit=100")).body.commands.length,
+      100,
+    );
+    assert.equal((await f.get(base + "&actor=admi")).body.commands.length, 50);
+    assert.equal((await f.get(base + "&actor=reader")).body.commands.length, 0);
+    assert.equal(
+      (await f.get(base + "&q=changed&cursor=" + cursor, f.readerToken)).status,
+      400,
+    );
+    assert.equal((await f.get(base, f.emptyToken)).status, 403);
+    assert.equal(
+      (
+        await f.get(
+          "/devices/outside/terminal-commands?from=0&to=604800000",
+          f.readerToken,
+        )
+      ).status,
+      403,
+    );
+    const own = f.store.seedUser({
+      username: "own-commands",
+      password: "history-test-password1",
+      role: "ops",
+      deviceScope: ["visible"],
+    });
+    const ownToken = await f.login("own-commands");
+    assert.equal((await f.get(base, ownToken)).body.commands.length, 0);
+    f.db
+      .prepare(
+        "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at) VALUES('own-session','visible',?,'OPEN',80,24,100000)",
+      )
+      .run(own.id);
+    f.db
+      .prepare(
+        "INSERT INTO terminal_commands(session_id,device_id,actor_id,started_at,command,recording_seq) VALUES('own-session','visible',?,100000,'pwd',1)",
+      )
+      .run(own.id);
+    assert.equal((await f.get(base, ownToken)).body.commands.length, 1);
+    assert.equal(
+      (await f.get("/terminal-sessions/session-0000", ownToken)).status,
+      403,
+    );
+    assert.equal(
+      (await f.get("/terminal-sessions/own-session", ownToken)).status,
+      200,
+    );
+    assert.equal(
+      (await f.get("/terminal-sessions/session-0000", f.readerToken)).status,
+      200,
+    );
+    assert.equal(
+      (await f.get(path + "?from=200000&to=200001")).body.commands.length,
+      0,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("task cursors traverse beyond 500 records with stable ties and concurrent inserts", async () => {
   const f = await fixture();
   try {

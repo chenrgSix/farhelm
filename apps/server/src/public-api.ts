@@ -15,6 +15,20 @@ interface Operation {
 export const publicOperations: Operation[] = [
   {
     method: "GET",
+    path: "/devices/:id/terminal-commands",
+    summary: "查询单设备终端命令（起止时间必填，最多 7 天）",
+    permission: "recordings.read",
+    response: "terminal-commands-response",
+  },
+  {
+    method: "GET",
+    path: "/terminal-sessions/:id",
+    summary: "读取授权终端会话及回放位置",
+    permission: "recordings.read",
+    response: "terminal-session-response",
+  },
+  {
+    method: "GET",
     path: "/me",
     summary: "查看当前身份和令牌有效权限",
     response: "me-response",
@@ -285,6 +299,10 @@ export function openApiDocument() {
       },
     },
   };
+  schemas["terminal-session-response"] = {
+    type: "object",
+    properties: { v: { const: 1 }, session: terminalSession },
+  };
   schemas["terminal-recording"] = {
     type: "object",
     properties: {
@@ -321,6 +339,37 @@ export function openApiDocument() {
           ? { type: "string", enum: ["stdout", "stderr"] }
           : { type: "string" },
     }));
+    if (op.path === "/devices/:id/terminal-commands") {
+      for (const name of ["from", "to"])
+        parameters.push({
+          name,
+          in: "query",
+          required: true,
+          schema: { type: "integer", minimum: 0 },
+          description:
+            "Unix 毫秒；from < to，范围不得超过 604800000 毫秒（7 天）。",
+        });
+      for (const name of ["q", "actor", "cursor"])
+        parameters.push({
+          name,
+          in: "query",
+          schema: {
+            type: "string",
+            maxLength: name === "q" ? 256 : name === "actor" ? 128 : 1024,
+          },
+          description:
+            name === "q"
+              ? "命令字面包含匹配，英文不区分大小写；% 和 _ 作为普通字符。"
+              : name === "actor"
+                ? "用户账号包含匹配或完整用户 ID。"
+                : "上一页返回的游标，绑定设备、用户和查询条件。",
+        });
+      parameters.push({
+        name: "limit",
+        in: "query",
+        schema: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+      });
+    }
     if (
       ["/devices", "/device-options"].includes(op.path) &&
       op.method === "GET"

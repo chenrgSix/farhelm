@@ -124,7 +124,7 @@ async function fixture(
         sizes.push(info);
         accept?.();
       });
-      session.on("shell", (accept) => {
+      const shell = (accept: () => ServerChannel) => {
         const stream = accept();
         shells.push(stream);
         stream.on("error", () => {});
@@ -138,6 +138,11 @@ async function fixture(
             stream.write("TARGET_OUTPUT 中文\r\n");
         });
         stream.write("TARGET_SSH_READY\r\n");
+      };
+      session.on("shell", shell);
+      session.on("exec", (accept, _reject, info) => {
+        assert.ok(info.command.includes("FARHELM_COMMAND_TOKEN"));
+        shell(accept);
       });
     });
   });

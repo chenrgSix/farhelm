@@ -506,6 +506,27 @@ try {
   steps.push(
     "System OpenSSH -> platform device menu -> real Linux sshd, recorded with normal exit",
   );
+  const commandHistory = await api(
+    `/devices/${sshSession.device_id}/terminal-commands?from=${Date.now() - 3600000}&to=${Date.now() + 1000}&limit=100`,
+  );
+  assertValid("terminal-commands-response", commandHistory);
+  assert.ok(
+    commandHistory.commands.some(
+      (c) => c.transport === "web" && c.backend === "ssh",
+    ),
+  );
+  assert.ok(
+    commandHistory.commands.some(
+      (c) => c.transport === "ssh" && c.backend === "ssh",
+    ),
+  );
+  assert.ok(
+    !JSON.stringify(commandHistory).includes("E2E_DO_NOT_RECORD_THIS_SECRET"),
+  );
+  assert.ok(!JSON.stringify(commandHistory).includes(targetPassword));
+  steps.push(
+    "real SSH target command history covers web and gateway connections, with hidden password exclusion and recording links",
+  );
   if (!installMode)
     assert.equal(
       server.store.db.prepare("SELECT COUNT(*) n FROM device_tokens").get().n,
