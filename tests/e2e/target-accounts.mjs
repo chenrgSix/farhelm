@@ -791,13 +791,16 @@ try {
     channel.on("data", (b) => (text += b.toString()));
     await until(() => text.includes("输入设备编号"), "SSH device menu");
     channel.write("1\r");
-    await until(() => text.includes("输入账号编号"), "SSH account menu");
-    assert.equal(text.includes("以 root 连接"), false);
-    assert.ok(text.includes(`高级账号 · ${account.name} · root`));
-    channel.write("2\r");
-    await until(() => text.includes("root@"), "SSH sudo shell");
+    await until(
+      () => text.includes("fleet@"),
+      "SSH ordinary shell with legacy accounts present",
+    );
+    assert.doesNotMatch(text, /输入账号编号|高级账号|以 root 连接/);
     channel.write("printf '__SSH_UID__'; id -u\r");
-    await until(() => text.includes("__SSH_UID__0"), "SSH real root identity");
+    await until(
+      () => /__SSH_UID__[1-9][0-9]*/.test(text),
+      "SSH remains the ordinary Linux user",
+    );
     assert.equal(text.includes(secret), false);
     channel.write("exit\r");
     await once(channel, "close");
@@ -891,18 +894,12 @@ try {
   );
   let restrictedText = "";
   restrictedChannel.on("data", (b) => (restrictedText += b.toString()));
-  await until(
-    () => restrictedText.includes("root@"),
-    "SSH automatically selects the sole authorized account",
-  );
-  restrictedChannel.write("printf '__RULE_SSH_UID__'; id -u\r");
-  await until(
-    () => restrictedText.includes("__RULE_SSH_UID__0"),
-    "SSH new rule actual root identity",
-  );
-  const restrictedClosed = once(restrictedChannel, "close");
+  let restrictedError = "";
+  restrictedChannel.stderr.on("data", (b) => (restrictedError += b.toString()));
+  await once(restrictedChannel, "close");
+  assert.match(restrictedError, /unavailable/);
+  assert.doesNotMatch(restrictedText, /输入账号编号|root@|高级账号/);
   await api("DELETE", `/access-authorizations/${grant}`, { v: 1, revision: 1 });
-  await restrictedClosed;
   restrictedSsh.end();
   await api("POST", "/logout", { v: 1 }, restrictedAuth);
   // Existing default access remains until its visible compatibility rule is explicitly removed.
@@ -1132,163 +1129,42 @@ try {
       );
     }
     await row.getByRole("button", { name: /^更多操作/ }).click();
-    await page
-      .getByRole("menuitem", { name: "高级账号（兼容）", exact: true })
-      .click();
-    const management = page.getByRole("dialog", { name: /登录账号管理/ });
-    await management
-      .getByRole("button", { name: "新增登录账号", exact: true })
-      .click();
-    await management
-      .getByLabel("账号名称", { exact: true })
-      .fill("浏览器 root");
-    await management
-      .getByLabel("源账号的 sudo 密码", { exact: true })
-      .fill(secret);
-    await management
-      .getByRole("button", { name: "保存登录账号", exact: true })
-      .click();
-    await management.getByRole("status").waitFor();
     assert.equal(
-      await management.locator("form").count(),
-      0,
-      "secret form is closed and cleared after save",
-    );
-    const configured = (
-      await api("GET", `/devices/${device.id}/accounts`)
-    ).accounts.find((a) => a.name === "浏览器 root");
-    assert.deepEqual(configured.allowed_groups, []);
-    await management
-      .getByRole("button", { name: "管理访问授权", exact: true })
-      .click();
-    await page
-      .getByRole("heading", { name: "访问控制", exact: true })
-      .waitFor();
-    for (const [kind, id] of [
-      ["group", targetGroup.id],
-      ["role", targetRole.id],
-    ]) {
       await page
-        .getByRole("button", { name: "新增访问授权", exact: true })
-        .click();
-      const form = page.locator("form.authorization-form");
-      await form.getByLabel("授权对象类型", { exact: true }).selectOption(kind);
-      await form.getByLabel("授权对象", { exact: true }).selectOption(id);
-      await form.getByRole("checkbox", { name: /浏览器 root/ }).check();
-      await form
-        .getByRole("button", { name: "保存访问授权", exact: true })
-        .click();
-      await form.waitFor({ state: "detached" });
-    }
-    const granted = (
-      await api("GET", `/devices/${device.id}/accounts`)
-    ).accounts.find((a) => a.id === configured.id);
-    assert.deepEqual(granted.allowed_groups, [targetGroup.id]);
-    assert.deepEqual(granted.allowed_roles, [targetRole.id]);
-    await page.screenshot({
-      path: join(root, ".test-output/target-accounts-desktop.png"),
-      fullPage: true,
-    });
-    await page.setViewportSize({ width: 390, height: 844 });
-    assert.ok(
-      await page.locator("section.authorizations-panel").evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        return r.left >= 0 && r.right <= innerWidth;
-      }),
-    );
-    await page.screenshot({
-      path: join(root, ".test-output/target-accounts-mobile.png"),
-      fullPage: true,
-    });
-    await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByRole("button", { name: "权限核对", exact: true }).click();
-    await page
-      .getByLabel("核对用户", { exact: true })
-      .selectOption(principals[1].id);
-    await page
-      .locator("section.authorizations-panel")
-      .getByText("浏览器 root", { exact: true })
-      .waitFor();
-    await page.screenshot({
-      path: join(root, ".test-output/access-effective-desktop.png"),
-      fullPage: true,
-    });
-    await page.getByRole("button", { name: "设备总览", exact: true }).click();
-    await row.getByRole("button", { name: /^更多操作/ }).click();
-    await page
-      .getByRole("menuitem", { name: "高级账号（兼容）", exact: true })
-      .click();
-    const refreshedManagement = page.getByRole("dialog", {
-      name: /登录账号管理/,
-    });
-    await refreshedManagement
-      .locator(".account-row")
-      .filter({ hasText: "浏览器 root" })
-      .getByRole("button", { name: "编辑", exact: true })
-      .click();
-    assert.equal(
-      await refreshedManagement
-        .getByLabel("源账号的 sudo 密码", { exact: true })
-        .inputValue(),
-      "",
-    );
-    assert.equal(
-      await refreshedManagement.getByRole("checkbox").count(),
+        .getByRole("menuitem", { name: /高级账号|选择已有账号/ })
+        .count(),
       0,
-      "credential form contains no access-grant controls",
-    );
-    await refreshedManagement
-      .getByRole("button", { name: "关闭账号窗口", exact: true })
-      .click();
-    const createdPromise = page.waitForResponse(
-      (r) =>
-        r.url().endsWith("/api/v1/terminal-sessions") &&
-        r.request().method() === "POST",
     );
     assert.equal(
-      await row
+      await page
         .getByRole("button", { name: "以 root 连接", exact: true })
         .count(),
       0,
     );
-    await row.getByRole("button", { name: /^更多操作/ }).click();
-    await page
-      .getByRole("menuitem", { name: "选择已有账号（高级）", exact: true })
-      .click();
-    await page
-      .getByRole("dialog", { name: /选择登录账号/ })
-      .locator(".account-row")
-      .filter({ hasText: "浏览器 root" })
-      .getByRole("button", { name: "连接", exact: true })
-      .click();
-    const created = await (await createdPromise).json();
+    await page.screenshot({
+      path: join(root, ".test-output/ordinary-connection-menu.png"),
+      fullPage: true,
+    });
+    await page.keyboard.press("Escape");
+    const request = page.waitForRequest(
+      (r) =>
+        r.url().endsWith("/api/v1/terminal-sessions") && r.method() === "POST",
+    );
+    await row.getByRole("button", { name: "连接终端", exact: true }).click();
+    assert.equal((await request).postDataJSON().account_id, undefined);
     const terminal = page.getByRole("dialog", { name: /^终端：/ });
-    await terminal.getByText("已连接 · root", { exact: true }).waitFor();
+    await terminal.getByText("已连接", { exact: true }).waitFor();
     await terminal.locator("textarea.xterm-helper-textarea").focus();
-    await page.keyboard.type("printf '__BROWSER_UID__'; id -u");
+    await page.keyboard.type("printf '__BROWSER_ORDINARY__'; id -u");
     await page.keyboard.press("Enter");
-    await until(
-      () =>
-        server.store.db
-          .prepare(
-            "SELECT data FROM terminal_recordings WHERE session_id=? AND kind='output'",
-          )
-          .all(created.session_id)
-          .map((r) => Buffer.from(JSON.parse(r.data).data, "base64").toString())
-          .join("")
-          .includes("__BROWSER_UID__0"),
-      "real browser root command",
+    await page.waitForFunction(() =>
+      /__BROWSER_ORDINARY__[1-9][0-9]*/.test(
+        document.querySelector(".xterm-rows")?.textContent ?? "",
+      ),
     );
     await terminal
       .getByRole("button", { name: "关闭终端", exact: true })
       .click();
-    await until(
-      () =>
-        server.store.db
-          .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
-          .get(created.session_id).ended_at,
-      "browser terminal close",
-    );
     assert.deepEqual(errors, []);
   }
   if (testPrivilegeSettings) {
@@ -1442,14 +1318,14 @@ try {
         missingPasswordPreservesOrdinaryConnection: true,
         usePty: true,
         webProtocol: true,
-        sshDeviceAndAccountMenu: true,
+        sshDeviceSelectionConnectsOrdinary: true,
         groupAndRoleAuthorization: true,
         inheritedRoleAuthorization: true,
         unifiedDefaultAccount: true,
         defaultRevocationWebAndSsh: true,
         newRuleWithoutLegacyDeviceScope: true,
         selectedAccountDoesNotGrantDefault: true,
-        effectiveAuthorizationView: !!browser,
+        noAdvancedAccountMenu: !!browser,
         wrongPasswordRejected: true,
         rootSessionRevocation: true,
         realBrowser: !!browser,
@@ -1460,7 +1336,7 @@ try {
     ),
   );
   console.log(
-    "Target accounts E2E passed: actual root shell via browser protocol and SSH menus; wrong password rejected; recordings and audit contain no password.",
+    "Target accounts E2E passed: ordinary web/SSH connections without account menus, sudo delegation and legacy API compatibility; wrong password rejected; recordings and audit contain no password.",
   );
 } catch (error) {
   if (started)

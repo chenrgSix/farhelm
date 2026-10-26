@@ -84,9 +84,6 @@ const detailDeviceId = ref<string | null>(initialRoute?.deviceId ?? null);
 const detailResource = useDeviceResource(detailDeviceId);
 const detailDevice = detailResource.device;
 
-const TargetAccountsPanel = defineAsyncComponent(
-  () => import("./components/TargetAccountsPanel.vue"),
-);
 const TerminalPanel = defineAsyncComponent(
   () => import("./components/TerminalPanel.vue"),
 );
@@ -229,15 +226,11 @@ const tasksReady = computed(
 );
 const authorizationDevice = ref<string>();
 const connectionTab = ref<"endpoint" | "account">("endpoint");
-const accountTarget = ref<{ device: Device; manage: boolean } | null>(null);
 const terminalTarget = ref<{
   id: string;
   name: string;
   recording?: TerminalSession;
   recordingStartSeq?: number;
-  elevated?: boolean;
-  accountId?: string;
-  username?: string;
 } | null>(null);
 const deviceGroupFilter = ref("");
 const selectedDeviceIds = ref<string[]>([]);
@@ -437,7 +430,6 @@ function clearSession(message = "", preserveSaved = false) {
   deviceGroupFilter.value = "";
   selectedTask.value = null;
   terminalTarget.value = null;
-  accountTarget.value = null;
   authorizationDevice.value = undefined;
   connectionTab.value = "endpoint";
   healthTarget.value = null;
@@ -812,12 +804,6 @@ function handleDeviceAction(kind: string, device: Device) {
         id: device.id,
         name: device.name,
       };
-      break;
-    case "advanced-terminal":
-      accountTarget.value = { device, manage: false };
-      break;
-    case "accounts":
-      accountTarget.value = { device, manage: true };
       break;
     case "connection":
       connectionTab.value = "endpoint";
@@ -2108,36 +2094,6 @@ onBeforeUnmount(() => {
           ><span>只审计经过平台的操作</span>
         </footer>
       </main>
-      <TargetAccountsPanel
-        v-if="accountTarget"
-        :device-id="accountTarget.device.id"
-        :device-name="accountTarget.device.name"
-        :manage="accountTarget.manage"
-        @close="accountTarget = null"
-        @connection="
-          connectionTarget = accountTarget!.device;
-          connectionTab = 'account';
-          connectionOpen = true;
-          accountTarget = null;
-        "
-        @authorize="
-          authorizationDevice = accountTarget!.device.id;
-          accountTarget = null;
-          switchView('access');
-        "
-        @selected="
-          (account) => {
-            terminalTarget = {
-              id: accountTarget!.device.id,
-              name: accountTarget!.device.name,
-              accountId: account?.id,
-              username: account?.username,
-              elevated: account?.method === 'sudo',
-            };
-            accountTarget = null;
-          }
-        "
-      />
       <TerminalPanel
         v-if="terminalTarget"
         :key="
@@ -2149,9 +2105,6 @@ onBeforeUnmount(() => {
         :device-name="terminalTarget.name"
         :recording="terminalTarget.recording"
         :recording-start-seq="terminalTarget.recordingStartSeq"
-        :elevated="terminalTarget.elevated"
-        :account-id="terminalTarget.accountId"
-        :username="terminalTarget.username"
         @close="
           terminalTarget = null;
           refresh();

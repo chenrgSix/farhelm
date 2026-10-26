@@ -1092,9 +1092,6 @@ export async function buildServer(config: ServerConfig) {
             };
           },
           currentUser: sshUser,
-          accounts(login, deviceId) {
-            return terminals.connectionOptions(sshUser(login), deviceId);
-          },
           devices(login, page) {
             rate.check("ssh-menu:" + login.sessionHash, 120);
             const user = sshUser(login);

@@ -24,7 +24,6 @@ interface Dependencies {
   ): SshLogin | Promise<SshLogin>;
   currentUser(login: SshLogin): User;
   devices(login: SshLogin, page: number): SshDevicePage;
-  accounts?(login: SshLogin, deviceId: string): { id: string; name: string }[];
   release(sessionHash: string): void;
   terminals: ReturnType<typeof registerTerminals>;
 }
@@ -293,7 +292,7 @@ export function createSshGateway(
           },
         };
         const authenticated = login;
-        function connect(deviceId: string, accountId?: string) {
+        function connect(deviceId: string) {
           if (!size) throw new Error("PTY required");
           const { cols, rows } = size;
           channel!.pause();
@@ -308,60 +307,14 @@ export function createSshGateway(
                 cols,
                 rows,
                 peer,
-                accountId === "_normal" ? undefined : accountId,
               ),
           );
           menu = undefined;
           if (!closed) deadline(socket, 3600000);
         }
-        function chooseAccount(deviceId: string) {
-          const list = () =>
-            d.accounts?.(authenticated, deviceId) ?? [
-              { id: "_default", name: "默认登录账号" },
-            ];
-          if (!list().length) throw new ApiError(403, "TARGET_ACCOUNT_DENIED");
-          if (list().length === 1)
-            return connect(
-              deviceId,
-              list()[0]!.id === "_default" ? undefined : list()[0]!.id,
-            );
-          deadline(socket, 300000);
-          menu = createDeviceMenu(channel!, {
-            kind: "account",
-            list(page) {
-              const accounts = list();
-              return {
-                devices: accounts
-                  .slice(page * 25, (page + 1) * 25)
-                  .map((a) => ({ ...a, status: "online" as const })),
-                hasMore: accounts.length > (page + 1) * 25,
-              };
-            },
-            select(accountId) {
-              try {
-                connect(
-                  deviceId,
-                  accountId === "_default" ? undefined : accountId,
-                );
-                return undefined;
-              } catch (error) {
-                channel!.resume();
-                if (error instanceof ApiError)
-                  return `目标账号暂不可用（${error.code}），请检查授权、Agent 版本和账号配置。`;
-                throw error;
-              }
-            },
-            close(code) {
-              channel!.exit(code);
-              peer.close();
-            },
-          });
-          menu.start();
-          channel!.resume();
-        }
         if (authenticated.deviceId) {
           try {
-            chooseAccount(authenticated.deviceId);
+            connect(authenticated.deviceId);
           } catch {
             channel.stderr.end(
               "Farhelm terminal unavailable; check device status and permissions in the console.\r\n",
@@ -375,7 +328,7 @@ export function createSshGateway(
             list: (page) => d.devices(authenticated, page),
             select(deviceId) {
               try {
-                chooseAccount(deviceId);
+                connect(deviceId);
                 return undefined;
               } catch (error) {
                 const messages: Record<string, string> = {
@@ -384,6 +337,10 @@ export function createSshGateway(
                     "该设备暂不支持终端，请更新 Agent。",
                   TERMINAL_SESSION_LIMIT: "终端会话数量已达上限，请稍后重试。",
                   DEVICE_SCOPE_DENIED: "该设备的访问权限已变更，请重新选择。",
+                  TARGET_ACCOUNT_DENIED:
+                    "未获授权使用该设备的默认账号，请联系管理员授权。",
+                  SUDO_PERMISSION_REQUIRED:
+                    "该设备的默认账号需要 sudo 权限，请联系管理员授权。",
                   TERMINAL_NOT_AUTHORIZED:
                     "该设备已撤销或访问权限已变更，请重新选择。",
                 };

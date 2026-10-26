@@ -12,9 +12,6 @@ const props = defineProps<{
   deviceName: string;
   recording?: TerminalSession;
   recordingStartSeq?: number;
-  elevated?: boolean;
-  accountId?: string;
-  username?: string;
 }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const host = ref<HTMLDivElement>();
@@ -177,7 +174,6 @@ async function connect() {
           device_id: props.deviceId,
           cols: Math.max(20, Math.min(500, terminal.cols)),
           rows: Math.max(5, Math.min(200, terminal.rows)),
-          ...(props.accountId ? { account_id: props.accountId } : {}),
         },
       },
     );
@@ -208,18 +204,11 @@ async function connect() {
       try {
         const message = JSON.parse(event.data);
         if (message.type === "terminal.ready") {
-          if (
-            (props.elevated && message.body.elevated !== true) ||
-            (props.username && message.body.username !== props.username)
-          )
-            throw new Error("提权身份尚未确认，已断开终端。");
+          if (message.body.elevated === true)
+            throw new Error("普通连接返回了非预期的提权会话，已断开终端。");
           connected.value = true;
           sudoAuto.value = message.body.sudo_auto === true;
-          state.value = props.username
-            ? `已连接 · ${props.username}`
-            : props.elevated
-              ? "已连接 · root"
-              : "已连接";
+          state.value = "已连接";
           backend.value = ["agent", "ssh"].includes(message.body.backend)
             ? message.body.backend
             : undefined;

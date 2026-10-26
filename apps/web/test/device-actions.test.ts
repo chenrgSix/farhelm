@@ -49,6 +49,7 @@ it("keeps secondary operations in a menu and restores focus after selecting", as
   ]);
   const menu = await open();
   expect(menu).not.toBeNull();
+  expect(menu.textContent).not.toMatch(/高级账号|选择已有账号/);
   expect(document.activeElement?.textContent).toBe("接入配置");
   const exec = [...menu.querySelectorAll<HTMLButtonElement>("button")].find(
     (b) => b.textContent === "命令任务",
@@ -73,11 +74,11 @@ it("supports arrows and Escape while skipping disabled actions", async () => {
   document.activeElement!.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   );
-  expect(document.activeElement?.textContent).toBe("高级账号（兼容）");
+  expect(document.activeElement?.textContent).toBe("健康检查");
   menu.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   );
-  expect(document.activeElement?.textContent).toBe("选择已有账号（高级）");
+  expect(document.activeElement?.textContent).toBe("SSH 连接");
   menu.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
   );

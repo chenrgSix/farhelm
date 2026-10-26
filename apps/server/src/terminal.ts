@@ -826,20 +826,6 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   }
   return {
     backend,
-    connectionOptions(user: User, deviceId: string) {
-      const accounts = d.accounts?.loginAccounts(user, deviceId) ?? [];
-      const hasDefault = accounts.some((a) => a.is_default);
-      const choices = hasDefault ? [{ id: "_normal", name: "连接终端" }] : [];
-      return [
-        ...choices,
-        ...accounts
-          .filter((a) => !a.is_default)
-          .map((a) => ({
-            id: a.id,
-            name: `高级账号 · ${a.name} · ${a.username}`,
-          })),
-      ];
-    },
     openSsh(
       user: User,
       userSession: string,
@@ -847,7 +833,6 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       cols: number,
       rows: number,
       peer: TerminalPeer,
-      accountId?: string,
     ) {
       const { session: s } = create(
         user,
@@ -856,7 +841,6 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         cols,
         rows,
         "ssh",
-        accountId,
       );
       s.ticketHash = null;
       s.peer = peer;

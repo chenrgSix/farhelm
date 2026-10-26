@@ -63,7 +63,7 @@ API：`GET /api/v1/devices/:id/terminal-commands?from=<毫秒>&to=<毫秒>&q=<�
 
 本次本地结果：服务端 8/8、前端 30/30、协议 131/131、Rust 25/25（23 个单元/实际进程测试和 2 个契约测试）通过；Rust clippy、格式检查和前后端构建通过。原有真实 Rust Exec 端到端 22/22 通过，新增终端端到端及 Chromium 操作、回放/导出通过。`.test-output/terminal-e2e.json`、`terminal-browser.json`、`terminal-sudo-rust.log` 和终端截图保留本地证据，不随 Git 提交私有运行状态。
 
-目标账号可选择直接 SSH 登录或由 Agent 使用托管密码经 sudo 切换；网页与 SSH 入口统一校验授权并录制。需要 Agent 0.2.8+，详见[目标账号与登录方式](device-connections.md#目标账号与登录切换方式)。
+网页与 SSH 入口统一使用普通连接；旧目标账号仅保留数据和显式 API 兼容，历史录制仍可回放。详见[账号兼容说明](device-connections.md#目标账号与登录切换方式)。
 
 ## 2026-10-26 普通连接与兼容账号回归
 

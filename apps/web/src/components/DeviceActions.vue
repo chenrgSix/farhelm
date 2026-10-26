@@ -5,8 +5,6 @@ import { canExecute, hasPermission } from "../model";
 
 type Action =
   | "command-history"
-  | "advanced-terminal"
-  | "accounts"
   | "connection"
   | "install"
   | "network"
@@ -39,21 +37,9 @@ const actions = computed(() => {
   const options: { kind: Action; label: string; visible: boolean }[] = [
     { kind: "connection", label: "接入配置", visible: admin },
     {
-      kind: "accounts",
-      label: "高级账号（兼容）",
-      visible: admin,
-    },
-    {
       kind: "install",
       label: "安装 Agent",
       visible: props.agentEnabled !== false && admin && !agent,
-    },
-    {
-      kind: "advanced-terminal",
-      label: "选择已有账号（高级）",
-      visible:
-        active &&
-        hasPermission(props.user, "terminal.connect", props.device.id),
     },
     { kind: "network", label: "网络记录", visible: agent },
     { kind: "health", label: "健康检查", visible: agent },
