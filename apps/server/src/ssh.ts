@@ -308,14 +308,7 @@ export function createSshGateway(
                 cols,
                 rows,
                 peer,
-                accountId === "_normal" || accountId === "_root"
-                  ? undefined
-                  : accountId,
-                accountId === "_root"
-                  ? "root"
-                  : accountId === "_normal"
-                    ? "normal"
-                    : undefined,
+                accountId === "_normal" ? undefined : accountId,
               ),
           );
           menu = undefined;

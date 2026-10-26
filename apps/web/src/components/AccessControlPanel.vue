@@ -48,7 +48,7 @@ const tabs = {
       <summary>高级授权（兼容现有账号规则）</summary>
       <p class="field-hint">
         原有精确账号授权继续生效。日常授权在用户或用户组中选择设备，在角色中设置是否允许
-        sudo／root 终端。
+        使用 sudo。
       </p>
       <div class="advanced-actions">
         <button class="button secondary" @click="tab = 'rules'">

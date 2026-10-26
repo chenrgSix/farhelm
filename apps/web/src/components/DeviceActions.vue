@@ -4,7 +4,6 @@ import type { Device, User } from "../api/types";
 import { canExecute, hasPermission } from "../model";
 
 type Action =
-  | "root"
   | "advanced-terminal"
   | "accounts"
   | "connection"
@@ -168,23 +167,6 @@ onBeforeUnmount(() => close());
       @click="emit('action', 'terminal')"
     >
       连接终端
-    </button>
-    <button
-      v-if="
-        !device.revoked_at &&
-        hasPermission(user, 'terminal.connect', device.id) &&
-        hasPermission(user, 'terminal.sudo', device.id)
-      "
-      class="button secondary small"
-      :disabled="
-        !ready ||
-        !(device.terminal_available ?? device.control_online) ||
-        busy.root
-      "
-      style="grid-column: 1 / -1; grid-row: 2"
-      @click="emit('action', 'root')"
-    >
-      以 root 连接
     </button>
     <button
       v-if="actions.length"

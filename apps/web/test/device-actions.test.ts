@@ -45,7 +45,6 @@ it("keeps secondary operations in a menu and restores focus after selecting", as
   setup();
   expect(wrapper.findAll("button").map((b) => b.text())).toEqual([
     "连接终端",
-    "以 root 连接",
     "更多",
   ]);
   const menu = await open();
@@ -105,7 +104,7 @@ it("preserves permission and stale-data restrictions", async () => {
   );
 });
 
-it("shows root only with sudo permission and emits a separate root action", async () => {
+it("keeps one ordinary connection action with or without sudo permission", async () => {
   setup({ user: { ...user, role: "ops", permissions: ["terminal.connect"] } });
   expect(wrapper.text()).not.toContain("以 root 连接");
   await wrapper.setProps({
@@ -115,9 +114,10 @@ it("shows root only with sudo permission and emits a separate root action", asyn
       permissions: ["terminal.connect", "terminal.sudo"],
     },
   });
+  expect(wrapper.text()).not.toContain("以 root 连接");
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "以 root 连接")!
+    .find((b) => b.text() === "连接终端")!
     .trigger("click");
-  expect(wrapper.emitted("action")).toEqual([["root"]]);
+  expect(wrapper.emitted("action")).toEqual([["terminal"]]);
 });

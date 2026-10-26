@@ -194,12 +194,7 @@ async function fixture(
   const path = `/devices/${id}/connection`;
   const browsers: WebSocket[] = [],
     clients: ssh2.Client[] = [];
-  async function web(
-    auth = admin,
-    targetId = id,
-    accountId?: string,
-    connectionMode?: "normal" | "root",
-  ) {
+  async function web(auth = admin, targetId = id, accountId?: string) {
     const created = await api(
       "POST",
       "/terminal-sessions",
@@ -209,7 +204,6 @@ async function fixture(
         cols: 100,
         rows: 32,
         ...(accountId ? { account_id: accountId } : {}),
-        ...(connectionMode ? { connection_mode: connectionMode } : {}),
       },
       auth,
     );
@@ -1239,7 +1233,7 @@ test("global network policy uses each machine IP, retains SSH fallback and recor
   }
 });
 
-test("simple root mode uses the default root SSH key and rechecks privilege permission on an active direct connection", async () => {
+test("existing default root SSH access survives ordinary web and gateway connections without a root shortcut", async () => {
   const f = await fixture(15000, "root");
   try {
     const config = await f.api("PUT", f.path, {
@@ -1247,40 +1241,36 @@ test("simple root mode uses the default root SSH key and rechecks privilege perm
       revision: 1,
       ssh: { ...f.ssh, username: "root" },
     });
-    assert.equal(config.status, 200, JSON.stringify(config));
+    assert.equal(config.status, 200);
     const user = f.store.seedUser({
-      username: "root-ssh-ops",
+      username: "legacy-root-ssh",
       password: "connection-test-password1",
       role: "ops",
       deviceScope: [f.id],
     });
     const auth = await f.login(user.username);
-    const rejected = await f.api(
-      "POST",
-      "/terminal-sessions",
-      { v: 1, device_id: f.id, cols: 80, rows: 24, connection_mode: "root" },
-      auth,
-    );
-    assert.equal(rejected.body.error, "SUDO_PERMISSION_REQUIRED");
-    const permissions = f.store.db
-      .prepare("SELECT permissions FROM access_roles WHERE id='ops'")
-      .get()!.permissions as string;
-    f.store.db
-      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
-      .run(JSON.stringify([...JSON.parse(permissions), "terminal.sudo"]));
-    const terminal = await f.web(auth, f.id, undefined, "root");
-    assert.deepEqual(await terminal.wait("terminal.ready"), {
-      backend: "ssh",
-      username: "root",
+    const rejected = await f.api("POST", "/terminal-sessions", {
+      v: 1,
+      device_id: f.id,
+      cols: 80,
+      rows: 24,
+      connection_mode: "root",
     });
+    assert.equal(rejected.body.error, "ROOT_CONNECTION_MODE_REMOVED");
+    const terminal = await f.web(auth);
+    assert.deepEqual(await terminal.wait("terminal.ready"), { backend: "ssh" });
     await until(() => terminal.output().includes("TARGET_SSH_READY"));
+    const gateway = await f.gateway(`${user.username}:${f.id}`);
+    await until(() => gateway.output().includes("TARGET_SSH_READY"));
+    assert.equal(gateway.output().includes("输入账号编号"), false);
+    assert.equal(gateway.output().includes("以 root 连接"), false);
     assert.equal(
       f.store.db.prepare("SELECT count(*) AS n FROM target_accounts").get()!.n,
       0,
     );
     f.store.db
-      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
-      .run(permissions);
+      .prepare("UPDATE users SET device_scope='[]' WHERE id=?")
+      .run(user.id);
     assert.equal(
       (await terminal.wait("terminal.closed")).reason,
       "AUTHORIZATION_EXPIRED",

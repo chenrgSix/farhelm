@@ -540,6 +540,16 @@ test("API tokens: API document resolves references, Skill archive and actual Pyt
     const spec = await f.api("GET", "/openapi.json", undefined, grant.secret);
     assert.equal(spec.status, 200, JSON.stringify(spec.body));
     assert.equal(spec.body.openapi, "3.1.0");
+    assert.deepEqual(
+      spec.body.components.schemas["terminal-create"].properties.connection_mode
+        .enum,
+      ["normal"],
+    );
+    assert.equal(
+      spec.body.components.schemas["terminal-create"].properties.connection_mode
+        .deprecated,
+      true,
+    );
     function refs(value: any) {
       if (!value || typeof value !== "object") return;
       if (value.$ref) {

@@ -250,7 +250,12 @@ export function openApiDocument() {
       v: { const: 1 },
       device_id: id,
       account_id: id,
-      connection_mode: { enum: ["normal", "root"] },
+      connection_mode: {
+        enum: ["normal"],
+        deprecated: true,
+        description:
+          "兼容旧客户端的普通连接；新请求请省略。root 模式已移除，返回 ROOT_CONNECTION_MODE_REMOVED。已有高级账号仍可显式传 account_id。",
+      },
       cols: { type: "integer", minimum: 20, maximum: 500 },
       rows: { type: "integer", minimum: 5, maximum: 200 },
     },

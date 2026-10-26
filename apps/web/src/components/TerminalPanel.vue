@@ -12,7 +12,6 @@ const props = defineProps<{
   deviceName: string;
   recording?: TerminalSession;
   elevated?: boolean;
-  connectionMode?: "normal" | "root";
   accountId?: string;
   username?: string;
 }>();
@@ -30,12 +29,12 @@ const speed = ref(2);
 const playing = ref(false);
 const sudoErrors: Record<string, string> = {
   TARGET_ACCOUNT_DENIED: "目标账号未授权或授权已变更，请重新选择。",
-  SUDO_PERMISSION_REQUIRED: "当前账号没有使用 sudo 打开 root 终端的权限。",
+  SUDO_PERMISSION_REQUIRED: "当前账号没有使用 sudo／高级特权账号的权限。",
   SUDO_AGENT_REQUIRED:
-    "root 提权需要在线 Agent；SSH 设备请使用其已配置的登录账号。",
+    "sudo 切换需要在线 Agent；SSH 设备请使用其已配置的登录账号。",
   SUDO_NOT_SUPPORTED_UPDATE_AGENT: "此 Agent 尚不支持密码提权，请升级 Agent。",
-  ROOT_CONNECTION_NOT_CONFIGURED:
-    "此设备未配置 root SSH 账号，请配置 root 连接账号或使用支持 sudo 的 Agent。",
+  ROOT_CONNECTION_MODE_REMOVED:
+    "以 root 连接已移除，请使用普通连接后执行 sudo，或在高级入口选择已授权的账号。",
   SUDO_PASSWORD_REQUIRED:
     "请保存 sudo 密码；使用免密 sudo 时请升级至 Agent 0.2.9 或更新版本。",
   INVALID_SUDO_PASSWORD:
@@ -177,11 +176,7 @@ async function connect() {
           device_id: props.deviceId,
           cols: Math.max(20, Math.min(500, terminal.cols)),
           rows: Math.max(5, Math.min(200, terminal.rows)),
-          ...(props.accountId
-            ? { account_id: props.accountId }
-            : props.connectionMode
-              ? { connection_mode: props.connectionMode }
-              : {}),
+          ...(props.accountId ? { account_id: props.accountId } : {}),
         },
       },
     );

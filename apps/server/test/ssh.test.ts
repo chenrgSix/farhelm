@@ -906,13 +906,9 @@ test("SSH direct-device login selects the same authorized target account before 
     let text = "";
     channel.on("data", (chunk) => (text += chunk.toString()));
     await until(() => text.includes("输入账号编号"), "target account menu");
-    assert.ok(text.includes("以 root 连接"));
-    assert.equal(
-      text.includes("高级账号"),
-      false,
-      "the root shortcut replaces its duplicate account entry",
-    );
-    assert.equal(text.includes(saved.json().account.id), false);
+    assert.equal(text.includes("以 root 连接"), false);
+    assert.ok(text.includes("高级账号 · Root via sudo · root"));
+    assert.ok(text.includes(saved.json().account.id));
     channel.write("2\r");
     const request = await f.wait("terminal.sudo.open").catch((error) => {
       throw new Error(
@@ -936,7 +932,7 @@ test("SSH direct-device login selects the same authorized target account before 
   }
 });
 
-test("SSH merges only the root shortcut's account and retains other authorized identities with or without default access", async () => {
+test("SSH retains every authorized advanced account without a root shortcut or implicit default grant", async () => {
   const f = await fixture();
   try {
     const login = (
@@ -1009,10 +1005,16 @@ test("SSH merges only the root shortcut's account and retains other authorized i
       );
       let text = "";
       channel.on("data", (data) => (text += data.toString()));
-      await until(() => text.includes("输入账号编号"), "merged account menu");
+      await until(
+        () => text.includes("输入账号编号"),
+        "compatible account menu",
+      );
       assert.equal(text.includes("连接终端"), hasDefault);
-      assert.equal((text.match(/以 root 连接/g) ?? []).length, 1);
-      assert.equal(text.includes(accounts[0].id), false);
+      assert.equal(text.includes("以 root 连接"), false);
+      assert.ok(
+        text.includes(accounts[0].id),
+        "the former shortcut account remains selectable",
+      );
       assert.ok(
         text.includes(accounts[1].id),
         "another root configuration remains selectable",

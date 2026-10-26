@@ -183,7 +183,7 @@ async function save() {
         ? "配置已保存，可测试连接或关闭面板进入终端。"
         : sshEnabled.value
           ? "备用 SSH 已保存，连接时优先使用 Agent，不可用时尝试 SSH。"
-          : "配置已保存。获授权用户可使用此密码打开 root 终端，密码不会返回浏览器。";
+          : "配置已保存。获授权用户在普通 Agent 终端执行 sudo 时可自动代填密码，密码不会返回浏览器。";
     emit("changed");
   } catch (e) {
     if (!disposed) report(e);
@@ -279,8 +279,8 @@ async function testConnection() {
         </nav>
         <p v-if="tab === 'account' && kind === 'agent'" class="field-hint">
           默认身份是 Agent 的运行账号，平台不改变该进程身份。备用 SSH
-          使用下方保存的账号；以 root 连接时由平台代用 sudo 密码，免密 sudo
-          可留空。
+          使用下方保存的账号。普通 Agent 终端执行 sudo 时可自动代填密码， 免密
+          sudo 可留空；备用 SSH 不支持自动代填。
         </p>
         <AgentTerminalPrivilege
           v-if="
@@ -490,10 +490,10 @@ async function testConnection() {
                   />清除已保存的 sudo 密码</label
                 >
                 <p class="field-hint">
-                  仅管理员可设置或替换，保存后不可查看。具有 sudo／root
-                  终端权限的用户通过平台代用密码完成 sudo
-                  切换，前端不接收密码明文。Agent 运行账号须已有 sudo
-                  权限，并启用终端提权。免密 sudo 不需要保存密码。
+                  仅管理员可设置或替换，保存后不可查看。具有「允许使用 sudo」
+                  权限的用户在普通 Agent 终端执行 sudo 时自动代填密码，
+                  前端不接收密码明文。自动代填需要 Agent 0.2.12+，运行账号
+                  须已有 sudo 权限，并启用终端提权。免密 sudo 不需要保存密码。
                 </p>
               </div>
             </fieldset>

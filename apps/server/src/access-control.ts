@@ -30,8 +30,8 @@ export const permissionCatalog = [
   },
   {
     id: "terminal.sudo",
-    label: "允许使用 sudo／root 终端",
-    description: "允许在已授权设备打开 root 终端，使用托管凭据或免密 sudo",
+    label: "允许使用 sudo",
+    description: "允许在已授权设备代填 sudo 密码，并使用已授权的高级特权账号",
   },
   {
     id: "tasks.read",

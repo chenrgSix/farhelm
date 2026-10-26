@@ -83,16 +83,14 @@ async function api(method, path, payload, auth = admin) {
   return data;
 }
 let device;
-async function open(accountId, auth = admin, connectionMode) {
+async function open(accountId, auth = admin) {
   const created = await api(
     "POST",
     "/terminal-sessions",
     {
       v: 1,
       device_id: device.id,
-      ...(connectionMode
-        ? { connection_mode: connectionMode }
-        : { account_id: accountId }),
+      ...(accountId ? { account_id: accountId } : {}),
       cols: 80,
       rows: 24,
     },
@@ -285,7 +283,7 @@ try {
     }, "web-enabled setting survives Agent restart and env-disabled default");
   }
   // The everyday flow requires no target account or account authorization.
-  const ordinary = await open(undefined, admin, "normal");
+  const ordinary = await open(undefined, admin);
   await ordinary.ready();
   ordinary.send("printf '__NORMAL_UID__'; id -u\r");
   await until(
@@ -297,14 +295,38 @@ try {
     () => ordinary.messages.some((m) => m.type === "terminal.closed"),
     "normal closed",
   );
-  const noPassword = await open(undefined, admin, "root");
+  const removed = await fetch(origin + "/api/v1/terminal-sessions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + admin,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      v: 1,
+      device_id: device.id,
+      cols: 80,
+      rows: 24,
+      connection_mode: "root",
+    }),
+  });
+  assert.equal(removed.status, 400);
+  assert.equal((await removed.json()).error, "ROOT_CONNECTION_MODE_REMOVED");
+  // No stored password: ordinary connections still work and sudo follows Linux policy.
+  const noPassword = await open();
+  await noPassword.ready();
+  assert.equal(
+    noPassword.messages.find((m) => m.type === "terminal.ready").body.sudo_auto,
+    undefined,
+  );
+  noPassword.send('sudo -n -k true; printf "__NO_PASSWORD_EXIT__%s\\n" "$?"\r');
+  await until(
+    () => noPassword.text().includes("__NO_PASSWORD_EXIT__1"),
+    "sudo requires a password",
+  );
+  noPassword.send("exit\r");
   await until(
     () => noPassword.messages.some((m) => m.type === "terminal.closed"),
-    "password-required sudo fails noninteractively",
-  );
-  assert.equal(
-    noPassword.messages.find((m) => m.type === "terminal.closed").body.reason,
-    "SUDO_AUTH_FAILED",
+    "no-password ordinary session closed",
   );
   const configPath = `/devices/${device.id}/connection`;
   let config = await api("PUT", configPath, {
@@ -313,7 +335,7 @@ try {
     sudo_password: secret,
   });
   if (testSudoCommands) {
-    const normal = await open(undefined, admin, "normal");
+    const normal = await open(undefined, admin);
     await normal.ready();
     assert.equal(
       normal.messages.find((m) => m.type === "terminal.ready").body.sudo_auto,
@@ -364,6 +386,52 @@ try {
       () => normal.messages.some((m) => m.type === "terminal.closed"),
       "ordinary delegated shell closed",
     );
+    // With only the default account, the platform SSH gateway connects directly
+    // as the ordinary user and delegates sudo through the same Agent channel.
+    const ssh = new Client();
+    clients.push(ssh);
+    ssh.on("error", () => {});
+    const sshReady = once(ssh, "ready");
+    ssh.connect({
+      host: "127.0.0.1",
+      port: server.ssh.info().port,
+      username: `admin:${device.id}`,
+      password: "accounts-e2e-login1",
+      hostVerifier: (raw) =>
+        "SHA256:" +
+          require("node:crypto")
+            .createHash("sha256")
+            .update(raw)
+            .digest("base64")
+            .replace(/=+$/, "") ===
+        server.ssh.info().fingerprint,
+    });
+    await sshReady;
+    const channel = await new Promise((resolve, reject) =>
+      ssh.shell({ term: "xterm", cols: 80, rows: 24 }, (error, stream) =>
+        error ? reject(error) : resolve(stream),
+      ),
+    );
+    let sshText = "";
+    channel.on("data", (chunk) => (sshText += chunk.toString()));
+    await until(
+      () => sshText.includes("fleet@"),
+      "SSH ordinary connection without account menu",
+    );
+    assert.equal(sshText.includes("输入账号编号"), false);
+    assert.equal(sshText.includes("以 root 连接"), false);
+    channel.write(
+      "printf '__SSH_NORMAL_UID__'; id -u; printf '__SSH_AUTO_UID__'; sudo -k id -u\r",
+    );
+    await until(
+      () => sshText.includes("__SSH_AUTO_UID__0"),
+      "SSH ordinary sudo delegation",
+    );
+    assert.ok(sshText.includes("__SSH_NORMAL_UID__" + uid));
+    assert.equal(sshText.includes(secret), false);
+    channel.write("exit\r");
+    await once(channel, "close");
+    ssh.end();
     // No sudo role: no wrapper or credential, despite the same device/account.
     const ordinary = server.store.seedUser({
       username: "no-sudo-delegation",
@@ -379,7 +447,7 @@ try {
         "",
       )
     ).access_token;
-    const noGrant = await open(undefined, ordinaryAuth, "normal");
+    const noGrant = await open(undefined, ordinaryAuth);
     await noGrant.ready();
     assert.equal(
       noGrant.messages.find((m) => m.type === "terminal.ready").body.sudo_auto,
@@ -428,7 +496,7 @@ try {
         "",
       )
     ).access_token;
-    const inherited = await open(undefined, grantedAuth, "normal");
+    const inherited = await open(undefined, grantedAuth);
     await inherited.ready();
     assert.equal(
       inherited.messages.find((m) => m.type === "terminal.ready").body
@@ -453,7 +521,7 @@ try {
       revision: config.revision,
       sudo_password: "wrong-normal-fixture-password",
     });
-    const wrong = await open(undefined, admin, "normal");
+    const wrong = await open(undefined, admin);
     await wrong.ready();
     wrong.send("sudo -k true; printf '__WRONG_AUTO_EXIT__%s\\n' \"$?\"\r");
     await until(
@@ -473,18 +541,6 @@ try {
       sudo_password: secret,
     });
   }
-  const simple = await open(undefined, admin, "root");
-  await simple.ready();
-  simple.send("printf '__SIMPLE_UID__'; id -u\r");
-  await until(
-    () => simple.text().includes("__SIMPLE_UID__0"),
-    "simple managed password sudo",
-  );
-  simple.send("exit\r");
-  await until(
-    () => simple.messages.some((m) => m.type === "terminal.closed"),
-    "simple closed",
-  );
   await docker([
     "exec",
     "--user",
@@ -499,13 +555,21 @@ try {
     revision: config.revision,
     sudo_password: null,
   });
-  const passwordless = await open(undefined, admin, "root");
+  const passwordless = await open();
   await passwordless.ready();
-  passwordless.send("printf '__NOPASSWD_UID__'; id -u\r");
+  assert.equal(
+    passwordless.messages.find((m) => m.type === "terminal.ready").body
+      .sudo_auto,
+    undefined,
+  );
+  passwordless.send(
+    "printf '__ORDINARY_NOPASSWD_UID__'; id -u; printf '__NOPASSWD_UID__'; sudo -n -k id -u\r",
+  );
   await until(
     () => passwordless.text().includes("__NOPASSWD_UID__0"),
-    "simple passwordless sudo",
+    "ordinary terminal passwordless sudo",
   );
+  assert.match(passwordless.text(), /__ORDINARY_NOPASSWD_UID__[1-9][0-9]*/);
   passwordless.send("exit\r");
   await until(
     () => passwordless.messages.some((m) => m.type === "terminal.closed"),
@@ -728,12 +792,8 @@ try {
     await until(() => text.includes("输入设备编号"), "SSH device menu");
     channel.write("1\r");
     await until(() => text.includes("输入账号编号"), "SSH account menu");
-    assert.ok(text.includes("以 root 连接"));
-    assert.equal(
-      text.includes(`高级账号 · ${account.name} · root`),
-      false,
-      "the automatic root account is displayed only once",
-    );
+    assert.equal(text.includes("以 root 连接"), false);
+    assert.ok(text.includes(`高级账号 · ${account.name} · root`));
     channel.write("2\r");
     await until(() => text.includes("root@"), "SSH sudo shell");
     channel.write("printf '__SSH_UID__'; id -u\r");
@@ -1185,8 +1245,21 @@ try {
         r.url().endsWith("/api/v1/terminal-sessions") &&
         r.request().method() === "POST",
     );
-    await row
-      .getByRole("button", { name: "以 root 连接", exact: true })
+    assert.equal(
+      await row
+        .getByRole("button", { name: "以 root 连接", exact: true })
+        .count(),
+      0,
+    );
+    await row.getByRole("button", { name: /^更多操作/ }).click();
+    await page
+      .getByRole("menuitem", { name: "选择已有账号（高级）", exact: true })
+      .click();
+    await page
+      .getByRole("dialog", { name: /选择登录账号/ })
+      .locator(".account-row")
+      .filter({ hasText: "浏览器 root" })
+      .getByRole("button", { name: "连接", exact: true })
       .click();
     const created = await (await createdPromise).json();
     const terminal = page.getByRole("dialog", { name: /^终端：/ });
@@ -1241,13 +1314,13 @@ try {
         device_id: device.id,
         cols: 80,
         rows: 24,
-        connection_mode: "root",
+        account_id: account.id,
       }),
     });
     assert.equal(denied.status, 409);
     assert.equal((await denied.json()).error, "SUDO_DISABLED");
     if (testSudoCommands) {
-      const disabled = await open(undefined, admin, "normal");
+      const disabled = await open(undefined, admin);
       await disabled.ready();
       assert.equal(
         disabled.messages.find((m) => m.type === "terminal.ready").body
@@ -1364,9 +1437,9 @@ try {
         realSudo: true,
         webTerminalPrivilege: testPrivilegeSettings,
         normalTerminalSudo: testSudoCommands,
-        simpleNormalAndRoot: true,
+        ordinaryConnectionAndRemovedRootMode: true,
         passwordlessSudo: true,
-        passwordRequiredFailsWithoutPrompt: true,
+        missingPasswordPreservesOrdinaryConnection: true,
         usePty: true,
         webProtocol: true,
         sshDeviceAndAccountMenu: true,

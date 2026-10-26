@@ -1995,17 +1995,17 @@ test("explicit default root grants require privilege permission while existing d
   }
 });
 
-test("simple root mode preserves default authorization, requires sudo permission and supports passwordless agents", async () => {
+test("removed root mode is rejected without opening a session; normal clients and default authorization remain compatible", async () => {
   const f = await fixture();
   try {
-    const user = f.store.seedUser({
-      username: "simple-root",
+    f.store.seedUser({
+      username: "ordinary-ops",
       password: "terminal-test-password1",
       role: "ops",
       deviceScope: ["device"],
     });
-    const auth = await f.login("simple-root");
-    const create = (mode: unknown = "root", extra = {}) =>
+    const auth = await f.login("ordinary-ops");
+    const create = (mode: unknown, user = auth, extra = {}) =>
       f.api(
         "POST",
         "/api/v1/terminal-sessions",
@@ -2017,59 +2017,47 @@ test("simple root mode preserves default authorization, requires sudo permission
           connection_mode: mode,
           ...extra,
         },
-        auth,
+        user,
       );
-    assert.equal((await create()).body.error, "SUDO_PERMISSION_REQUIRED");
-    assert.equal((await create("shell")).status, 400);
-    assert.equal(
-      (await create("normal", { account_id: defaultAccountId("device") }))
-        .status,
-      400,
+    // Reject the removed mode even for administrators and when a root account exists.
+    const saved = await f.api(
+      "POST",
+      "/api/v1/devices/device/accounts",
+      {
+        v: 1,
+        name: "Existing root",
+        username: "root",
+        method: "sudo",
+      },
+      f.admin,
     );
-    const permissions = f.store.db
-      .prepare("SELECT permissions FROM access_roles WHERE id='ops'")
-      .get()!.permissions as string;
-    f.store.db
-      .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
-      .run(JSON.stringify([...JSON.parse(permissions), "terminal.sudo"]));
-    f.agent.send("agent.heartbeat", {
-      agent_version: "password-only",
-      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
-    });
-    await new Promise((r) => setTimeout(r, 30));
-    assert.equal((await create()).body.error, "SUDO_PASSWORD_REQUIRED");
-    f.agent.send("agent.heartbeat", {
-      agent_version: "nopasswd",
-      capabilities: [
-        "terminal.pty.v1",
-        "terminal.sudo.v1",
-        "terminal.sudo.nopasswd.v1",
-      ],
-    });
-    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(saved.status, 200);
+    for (const user of [auth, f.admin]) {
+      const rejected = await create("root", user);
+      assert.equal(rejected.status, 400);
+      assert.equal(rejected.body.error, "ROOT_CONNECTION_MODE_REMOVED");
+    }
+    assert.equal((await create("shell")).body.error, "INVALID_CONNECTION_MODE");
+    assert.equal(
+      (await create("normal", auth, { account_id: defaultAccountId("device") }))
+        .body.error,
+      "CONFLICTING_CONNECTION_OPTIONS",
+    );
+    assert.equal(
+      f.store.db.prepare("SELECT count(*) AS n FROM terminal_sessions").get()!
+        .n,
+      0,
+    );
     const normal = await create("normal");
     assert.equal(normal.status, 200);
-    await f.attach(normal.body);
-    assert.equal(
-      (await f.agent.wait("terminal.open")).session_id,
-      normal.body.session_id,
-    );
-    const created = await create();
-    assert.equal(created.status, 200, JSON.stringify(created));
-    const browser = await f.attach(created.body);
-    const request = await f.agent.wait("terminal.sudo.open");
-    assert.equal(request.sudo_password, "");
-    assert.equal(request.username, "root");
-    assertValid("terminal-envelope", {
-      v: 1,
-      type: "terminal.sudo.open",
-      body: request,
-    });
+    const browser = await f.attach(normal.body);
+    const request = await f.agent.wait("terminal.open");
+    assert.equal(request.session_id, normal.body.session_id);
+    assert.equal(request.sudo_password, undefined);
+    assert.equal(request.sudo_auto_password, undefined);
     f.agent.send("terminal.opened", { session_id: request.session_id });
     assert.deepEqual(await browser.wait("terminal.ready"), {
       backend: "agent",
-      elevated: true,
-      username: "root",
     });
     const rules = new AccountAuthorizations(f.store.db);
     rules.ensureDefault("device");
@@ -2078,19 +2066,10 @@ test("simple root mode preserves default authorization, requires sudo permission
         "DELETE FROM account_authorizations WHERE device_id='device' AND account_id IS NULL",
       )
       .run();
-    assert.equal(
-      (await create()).status,
-      403,
-      "root mode cannot bypass a revoked default grant",
-    );
+    assert.equal((await create("normal")).status, 403);
     assert.equal(
       (await browser.wait("terminal.closed")).reason,
       "AUTHORIZATION_EXPIRED",
-    );
-    assert.equal(
-      f.store.db.prepare("SELECT count(*) AS n FROM target_accounts").get()!.n,
-      0,
-      "no extra root account is required",
     );
   } finally {
     await f.close();
@@ -2386,20 +2365,32 @@ test("web terminal privilege settings require admin, report real state, gate sud
       reason: null,
     });
     await observed({ enabled: false, status: "applied", revision: 0 });
-    const root = () =>
+    const account = await f.api(
+      "POST",
+      "/api/v1/devices/device/accounts",
+      {
+        v: 1,
+        name: "Existing sudo account",
+        username: "root",
+        method: "sudo",
+      },
+      f.admin,
+    );
+    assert.equal(account.status, 200);
+    const openManaged = () =>
       f.api(
         "POST",
         "/api/v1/terminal-sessions",
         {
           v: 1,
           device_id: "device",
-          connection_mode: "root",
+          account_id: account.body.account.id,
           cols: 80,
           rows: 24,
         },
         f.admin,
       );
-    assert.equal((await root()).body.error, "SUDO_DISABLED");
+    assert.equal((await openManaged()).body.error, "SUDO_DISABLED");
     const originalAudit = f.store.audit.bind(f.store);
     f.store.audit = (...args: Parameters<Store["audit"]>) => {
       if (args[0] === "terminal.privilege_requested")
@@ -2442,7 +2433,7 @@ test("web terminal privilege settings require admin, report real state, gate sud
       reason: null,
     });
     await observed({ enabled: true, status: "applied" });
-    const opening = await root();
+    const opening = await openManaged();
     assert.equal(opening.status, 200);
     assert.equal(
       (await save(1, false)).body.error,
@@ -2457,7 +2448,7 @@ test("web terminal privilege settings require admin, report real state, gate sud
     assert.equal((await save(1, false)).body.status, "pending");
     await f.agent.wait("agent.terminal.config");
     assert.equal(
-      (await root()).body.error,
+      (await openManaged()).body.error,
       "SUDO_DISABLED",
       "a pending disable already blocks new privileged terminals",
     );

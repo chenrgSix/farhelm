@@ -754,7 +754,7 @@ onBeforeUnmount(() => {
               >
                 <p class="field-hint">
                   选择可访问的设备；角色决定是否可以连接终端及使用
-                  sudo／root。已有精确账号规则继续生效，可在高级授权中维护。
+                  sudo。已有精确账号规则继续生效，可在高级授权中维护。
                 </p>
                 <fieldset class="access-options">
                   <legend>允许访问的设备</legend>
