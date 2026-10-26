@@ -8,10 +8,10 @@
 
 支持使用 systemd 的现代 glibc Linux，x86_64 / ARM64，建议 Debian 12+ / Ubuntu 22.04+。安装器自动准备必要命令、下载并校验 Node.js 24.21.0，使用普通 `farhelm` 用户构建前后端，配置 systemd 并执行健康检查。需要下载 GitHub 源码、Node.js 和 npm 依赖；不修改系统默认 Node，不需要预先安装 npm 或 Rust。
 
-当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.13，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
+当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.14，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
 
 ```bash
-( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.13/install.sh -o "$installer" && bash "$installer" --ref v0.2.13 --host 10.10.0.10 --web-http )
+( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.14/install.sh -o "$installer" && bash "$installer" --ref v0.2.14 --host 10.10.0.10 --web-http )
 ```
 
 不加 `--web-http` 时网页默认 HTTPS。私有仓库部署仍可先执行 `gh auth login`，通过 GitHub CLI 下载对应版本安装脚本。脚本在提权前读取当前用户的 gh 凭据，通过临时 0600 文件传给安装过程；不把访问令牌放进命令参数、服务配置或日志。也支持 `GH_TOKEN` / `GITHUB_TOKEN` / `--token-file`。私有仓库不支持匿名 curl 安装；不会为部署而修改仓库可见性。
@@ -60,7 +60,7 @@ sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 
 ```bash
 # 也可下载 Release 源码包后进入解压目录
-git clone --branch v0.2.13 https://github.com/chenrgSix/farhelm.git
+git clone --branch v0.2.14 https://github.com/chenrgSix/farhelm.git
 cd farhelm/deploy
 cp compose.env.example .env
 ```
@@ -157,6 +157,10 @@ FLEET_WEB_PROTOCOL=http
 2026-10-17 在 ARM64 Linux 容器实际验证：原生 systemd 安装和重启自启、Compose HTTPS / HTTP 首次启动和重建、网页静态资源及登录、真实 sshd 的网页终端与 SSH 网关录制、CA / SSH 主机密钥 / 管理员 / 设备 / 历史录制保留，以及发布版 Agent 的 HTTPS 信任和 PTY 录制。x86_64 安装路径已实现，未进行本次 x86_64 系统级验收；公网 CA 正式签发仍需在实际域名或公网 IP 环境验证。
 
 ## 已有部署迁移
+
+v0.2.14 先升级平台，再上传对应架构的 Agent 二进制和同名 JSON 清单。网页、Farhelm SSH 和 API 只允许普通连接，旧 root 快捷连接、附加账号连接及配置 API 已移除；授权界面仅管理普通连接。旧账号、凭据、规则、命令历史及录制原样保留，不合并为普通连接授权，历史查询和回放继续沿用原权限。
+
+本版 Agent 增加 Bash 命令采集；升级后新建会话才能建立命令历史，旧会话不回填。SSH 目标的 Bash／Zsh 无需安装 Agent 即可采集。查询时间必填、单次最多 7 天，支持用户与命令模糊搜索和定位回放。未保存 sudo 密码时不会自动代填；代填仍需用户权限、设备提权开关和支持能力，系统免密 sudo 不需保存密码。EasyTier 可配置 CLI、RPC 和容器，采集只报告有证据的出口，不改网络配置或自动提权。升级前结束活跃终端，停服备份完整数据目录，保留数据库、证书、SSH 主机密钥和凭据加密密钥；一键安装器不能直接作为已有部署的升级命令。
 
 v0.2.13 保留原有登录账号、加密凭据、用户／用户组／角色授权、设备范围和录制。升级服务端前结束终端并停服备份完整数据目录，保留 CA、SSH 主机密钥和加密密钥。先升级平台，再上传本次对应架构的 Agent 二进制与 JSON 清单，从「Agent 升级」更新设备。旧 Agent 的普通连接继续兼容；Agent 0.2.11 上线后，可在「设备 → 更多 → 接入配置 → 默认登录账号 → 终端提权」修改开关，配置重连、重启后保留。修改前需结束该设备的 Agent 终端。旧安装的开关默认沿用原配置，不自动启用提权。普通终端自动代填 sudo 密码需要平台与 Agent 均为 0.2.12，并沿用设备开关、默认登录账号授权和 `terminal.sudo` 权限；保存密码后重新连接普通终端即可。升级包不会自动授予 Linux sudo 权限，也不会改写 sudoers。原生安装脚本不覆盖已有部署，不能直接当作升级命令。
 
