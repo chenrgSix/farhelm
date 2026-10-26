@@ -54,7 +54,8 @@
     "test:server:native": "bash tests/deployment/native.sh",
     "test:split-listeners": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/separate-listeners.mjs",
     "test:target-accounts": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/target-accounts.mjs",
-    "test:pagination": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/device-pagination.mjs"
+    "test:pagination": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/device-pagination.mjs",
+    "test:easytier:docker": "npm --prefix apps/server run build && node tests/e2e/easytier-docker.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

@@ -26,7 +26,7 @@ SSH 每次新建连接均优先尝试内网，只在网络连接失败或超时�
 
 ## EasyTier 的实际路径
 
-平台不安装、启动、停止或改写 EasyTier。请先独立组网：Agent 到平台的状态由 Agent 采集；SSH 到设备的状态由平台主机采集。采集使用本机 `easytier-cli --rpc-portal 127.0.0.1:15888 --output json route` 和系统出口路由，并核对出口网卡确实持有该 EasyTier 实例的虚拟地址。Linux 需要 `ip`（iproute2）；平台在 macOS 上读取 `route` 和网卡信息。仅执行固定只读命令，有超时和输出大小限制，不运行前端传入的 Shell。
+平台不安装、启动、停止或改写 EasyTier。请先独立组网：Agent 到平台的状态由 Agent 采集；SSH 到设备的状态由平台主机采集。采集使用可配置的 `easytier-cli` 和 RPC 地址，或在指定 Docker 容器中执行该 CLI，并核对 Farhelm 实际出口网卡确实持有该 EasyTier 实例的虚拟地址。Linux 需要 `ip`（iproute2）；平台在 macOS 上读取 `route` 和网卡信息。仅执行固定只读命令，有超时和输出大小限制，不运行前端传入的 Shell。
 
 - **P2P 直连 / 中继**：目标虚拟 IP 精确匹配且实际出口网卡吻合；不会仅凭安装了 EasyTier、网卡名称、私有 IP 或 ping 成功下结论。
 - **未检测到 EasyTier 路径 / 路径未知**：CLI 不可用、RPC 不可达、多实例/子网代理或路由信息不足时如实显示；直连优先与延迟优先路径冲突时也保留未知。
@@ -34,8 +34,64 @@ SSH 每次新建连接均优先尝试内网，只在网络连接失败或超时�
 
 仅内网模式限制 Farhelm 的业务目标地址，不禁止 EasyTier 底层利用互联网、共享节点或中继。需要完全隔绝公网时，必须具备实际内网/专网链路，并在 EasyTier 和网络边界实施相应策略。公网备用路径如果依赖同一 VPN 的默认路由，也不能被视为独立灾备链路。
 
+## 本机与 Docker 采集配置
+
+需更新到包含本功能的服务端／Agent 构建；已发布的 v0.2.13 尚不识别这三个环境变量。
+
+在**执行采集的进程**中设置以下部署环境变量：Agent 的采集配置放在设备端 Agent 环境中，SSH 路径的采集配置放在平台服务环境中。两端独立生效，平台不会把本机路径或容器名下发到其他设备；修改后重启相应进程。
+
+| 环境变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `FLEET_EASYTIER_CLI` | `easytier-cli` | 可执行文件名或绝对路径，支持路径中的空格；不能填写 `sudo …`、Shell 命令或相对路径 |
+| `FLEET_EASYTIER_RPC` | `127.0.0.1:15888` | `主机:端口`，IPv6 使用 `[::1]:15888`，不接受 URL、凭据或命令选项 |
+| `FLEET_EASYTIER_CONTAINER` | 空 | 留空执行本机 CLI；填写明确的容器名或 ID 后，只在该容器中采集，不自动搜索或回退到其他实例 |
+
+例如，本机 CLI 连接已对采集进程开放的 RPC：
+
+```bash
+FLEET_EASYTIER_CLI=/opt/easytier/easytier-cli
+FLEET_EASYTIER_RPC=127.0.0.1:15889
+FLEET_EASYTIER_CONTAINER=
+```
+
+EasyTier 单独运行于 Docker，且与 Linux 采集进程共享网络命名空间时：
+
+```bash
+FLEET_EASYTIER_CLI=/usr/local/bin/easytier-cli
+FLEET_EASYTIER_RPC=127.0.0.1:15888
+FLEET_EASYTIER_CONTAINER=easytier
+```
+
+容器模式中的 CLI 路径与 RPC 地址从 EasyTier 容器内部解释。采集进程需要可执行的 `docker`，以及管理员已经提供的 Docker daemon 访问权限；容器需提供可供采集进程数值 UID/GID 执行的 CLI、`cat`、`readlink` 和 `timeout`（支持 `-s KILL`）。采集始终显式传 `docker exec --user <当前有效 UID>:<当前有效 GID>`，没有 sudo、root 回退、`--privileged`、自动加组或 socket 权限修改。CLI 输出最多 1 MiB，容器内 CLI 超时 2 秒，Docker 客户端单次调用最多 4 秒；只停止本次诊断进程。EasyTier 容器建议启用 init，以及时回收超时后已结束的子进程；平台不会自动修改容器启动配置。
+
+**网络证据仍取自 Farhelm 所在的位置。** Docker 模式先比对容器与采集进程的内核启动标识、网络命名空间，再在采集进程自身环境查询目标 IP 的系统出口，并比对 EasyTier 本机虚拟 IP。因此支持 Linux 宿主机采集 + EasyTier `network_mode: host`，以及 Farhelm 与 EasyTier 显式共享网络命名空间的部署。依据见 [Docker host 网络说明](https://docs.docker.com/engine/network/drivers/host/)和 [Docker exec 用户选项](https://docs.docker.com/reference/cli/docker/container/exec/)。
+
+独立 bridge、子网代理、远程 Docker daemon、Docker Desktop 跨虚拟机等无法匹配网络空间的组合保留「路径未知」，即使容器内 CLI 显示 P2P，也不会用于证明 Farhelm 的路径。不自动修改网络模式、路由、RPC 监听或端口映射。管理员可选择本机 CLI 访问已开放 RPC，但仍需通过本机实际出口校验，RPC 可达本身不证明走了该 VPN。
+
+平台 Compose 已透传这三个变量。默认服务镜像未包含 Docker/EasyTier CLI 与 iproute2，也不会自动挂载 Docker socket；需要容器采集时，由部署者按实际网络和权限准备工具及访问方式，原 Compose 默认网络不变。原有安装不设置变量时继续使用本机 CLI 和默认 RPC，无需数据或协议迁移。
+
+采集配置错误、RPC 不可达、Docker 无权限、容器未运行、缺少容器工具、命名空间或出口不匹配均保留未知；本机 CLI／Docker 可执行文件不存在显示未检测到。诊断失败不会中断正常连接或改变 VPN／公网选路策略。
+
 ## 验证
 
 服务端回归覆盖全局继承、新设备自动生效、设备地址与平台入口隔离、旧配置迁移、管理员写权限和设备范围、版本与认证连接绑定、SSH 内网优先/备用、禁止回退、身份拒绝、网页/SSH 入口及录制。Rust 测试覆盖持久化更新和重启、固定私网地址、EasyTier 路径证据。前端测试覆盖系统设置模式切换、设备仅提交本机 IP、SSH-only 无 HTTPS 字段、清除公网字段、只读用户和旧 Agent 提示。
 
 `node tests/e2e/network-routes.mjs` 使用三个一次性 Linux 容器及独立 Docker 网络验证真实 EasyTier P2P / 中继、Agent 回退、持续终端的恢复等待、仅内网重启与 SSH 两种入口。需准备 Linux Agent、测试镜像与浏览器；不接触已有部署。在 ARM64 开发机上可执行 `bash tests/e2e/network-routes/build-image.sh` 构建测试镜像（需先有 `farhelm-agent-dev:local`）。通过 `FLEET_ROUTE_AGENT_BIN` 指定 Linux Agent 二进制；默认读取 `.dev/route-target/debug/farhelm-agent`。结果位于 `.test-output/network-routes-e2e.json`。真实跨地域 NAT、运营商限流及公网计费不由本地容器验收替代。
+
+### Docker 采集回归
+
+`tests/e2e/easytier-docker.mjs` 在一次性 Docker 网络中运行真实 EasyTier 2.6.4 和单独的采集容器，分别调用服务端 TypeScript 采集器与 Agent Rust 生产采集函数。覆盖自定义 CLI／RPC、共享网络空间、P2P／中继、错误出口、独立 bridge、不同容器、RPC 失败、Docker socket 无权限，以及容器内诊断超时。采集 UID 为 501；测试容器启用 init 以回收已结束的诊断进程，不改动现有容器或宿主机网络。
+
+ARM64 开发环境准备方式：
+
+```bash
+bash tests/e2e/network-routes/build-image.sh
+docker build -t farhelm-easytier-docker-test:local tests/e2e/easytier-docker
+# 在 Linux 中使用当前源码编译 agent/examples/easytier-observe.rs，或使用项目的 Linux 构建容器：
+# cargo build --manifest-path agent/Cargo.toml --locked --release --example easytier-observe
+FLEET_EASYTIER_PROBE_BIN=/absolute/path/to/linux/easytier-observe npm run test:easytier:docker
+```
+
+脚本要求本地 Unix Docker socket，结果写入 `.test-output/easytier-docker.json`。这是采集器与真实 Docker/EasyTier 的集成验证，不替代完整业务链路、跨地域 NAT 或生产环境验收。
+
+2026-10-26 本地验证：服务端 198/198、协议契约 382/382、Linux arm64 Rust 57/57（55 个单元测试及 2 个契约测试，串行）通过；服务端类型检查／构建、Rust release 构建、Clippy `--all-targets -- -D warnings`、Prettier、Rust fmt 和 Compose 配置检查通过。上述真实 Docker 采集集成测试通过。首次 Rust 并行运行中，未改动的单实例锁测试失败；该用例单独运行与全量串行复验均通过，未修改锁实现。本次未修改前端，也未重跑完整业务故障矩阵，不代表 CI 或生产验收。

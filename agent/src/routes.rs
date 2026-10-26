@@ -1,10 +1,10 @@
 //! Explicit network policy is durable and never silently falls back in private-only mode.
-use crate::{address::origin, config::Config, journal::Journal, network};
+pub use crate::easytier::observe as easytier;
+use crate::{address::origin, config::Config, journal::Journal};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{net::IpAddr, process::Stdio, time::Duration};
-use tokio::{io::AsyncReadExt, process::Command};
+use std::net::IpAddr;
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentEndpoints {
@@ -112,37 +112,19 @@ impl Settings {
         }
     }
 }
-pub async fn command_json(program: &str, args: &[&str]) -> Result<Value> {
-    let mut child = Command::new(program)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()?;
-    let value = tokio::time::timeout(Duration::from_millis(1500), async {
-        let mut bytes = Vec::new();
-        child
-            .stdout
-            .take()
-            .unwrap()
-            .take(1_048_577)
-            .read_to_end(&mut bytes)
-            .await?;
-        ensure!(bytes.len() <= 1_048_576, "diagnostic output too large");
-        ensure!(child.wait().await?.success(), "diagnostic unavailable");
-        Ok::<_, anyhow::Error>(serde_json::from_slice(&bytes)?)
-    })
-    .await??;
-    Ok(value)
-}
 pub fn parse_easytier(routes: &Value, target: &str, addresses: &[String]) -> Value {
     let unknown = json!({"state":"unknown","latency_ms":null});
     let Some(rows) = routes.as_array() else {
         return unknown;
     };
-    let Some(local) = rows.iter().find(|r| r["path_len"].as_i64() == Some(0)) else {
+    let local: Vec<_> = rows
+        .iter()
+        .filter(|r| r["path_len"].as_i64() == Some(0))
+        .collect();
+    if local.len() != 1 {
         return unknown;
-    };
+    }
+    let local = local[0];
     let Some(ip) = local["ipv4"].as_str() else {
         return unknown;
     };
@@ -180,47 +162,6 @@ pub fn parse_easytier(routes: &Value, target: &str, addresses: &[String]) -> Val
         None
     };
     json!({"state":if hops==1{"p2p"}else{"relay"},"latency_ms":latency})
-}
-pub async fn easytier(target: &str) -> Value {
-    let unknown = json!({"state":"unknown","latency_ms":null});
-    if target.parse::<IpAddr>().is_err() {
-        return unknown;
-    }
-    let routes = match command_json(
-        "easytier-cli",
-        &[
-            "--rpc-portal",
-            "127.0.0.1:15888",
-            "--output",
-            "json",
-            "route",
-        ],
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            return json!({"state":if e.downcast_ref::<std::io::Error>().map(|e|e.kind()==std::io::ErrorKind::NotFound).unwrap_or(false){"not_detected"}else{"unknown"},"latency_ms":null})
-        }
-    };
-    let Ok(os) = command_json("ip", &["-j", "route", "get", target]).await else {
-        return unknown;
-    };
-    let Some(dev) = os[0]["dev"].as_str() else {
-        return unknown;
-    };
-    let Ok(addresses) = network::addresses() else {
-        return unknown;
-    };
-    parse_easytier(
-        &routes,
-        target,
-        &addresses
-            .into_iter()
-            .filter(|a| a.interface == dev && a.up)
-            .map(|a| a.address)
-            .collect::<Vec<_>>(),
-    )
 }
 #[cfg(test)]
 mod tests {

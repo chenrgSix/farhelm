@@ -2,6 +2,8 @@
 
 ## 未发布
 
+- EasyTier 路径采集支持配置 CLI 路径、RPC 地址及 Docker 容器，服务端和 Agent 分别配置。Docker 诊断保持运行账号 UID/GID，检查内核、网络命名空间与实际出口，超时停止本次诊断；不自动提权或改动 Docker／VPN 部署。证据不足的 bridge、远程 daemon 等场景仍显示未知。
+
 - 统一日常终端入口为「连接终端」，移除网页及平台 SSH 的「以 root 连接」快捷方式。普通 Agent 终端保留 sudo 密码自动代填与系统免密 sudo；角色权限显示为「允许使用 sudo」，权限 ID 和已有授权不变。
 - 已有默认 root SSH、附加 root SSH、sudo 切换账号及凭据继续兼容；高级账号可显式选择，SSH 菜单完整展示原先被 root 快捷入口合并的账号。
 - API 不再接受 `connection_mode: "root"`，返回 `ROOT_CONNECTION_MODE_REMOVED`，不自动改用其他身份；旧客户端的 `normal` 继续兼容。纯 SSH／备用 SSH 的 sudo 仍按目标系统认证，不提供密码自动代填。
