@@ -11,6 +11,10 @@ import type { ClientChannel } from "ssh2";
 import { WebSocket } from "ws";
 import { buildServer } from "../src/server.js";
 import { hash, token } from "../src/util.js";
+import {
+  seedLegacyAccount,
+  seedLegacyGrant,
+} from "./legacy-account-fixture.js";
 import { AccountAuthorizations } from "../src/account-authorizations.js";
 const root = mkdtempSync(join(tmpdir(), "fleet-ssh-test-"));
 execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
@@ -879,21 +883,13 @@ test("SSH device selection and direct login always use the ordinary account desp
         payload: { username: "admin", password: "ssh-test-password1" },
       })
     ).json().access_token;
-    for (const username of ["root", "deploy"]) {
-      const saved = await f.app.inject({
-        method: "POST",
-        url: "/api/v1/devices/device/accounts",
-        headers: { authorization: "Bearer " + login },
-        payload: {
-          v: 1,
-          name: username,
-          username,
-          method: "sudo",
-          sudo_password: "legacy-fixture-only",
-        },
+    for (const username of ["root", "deploy"])
+      seedLegacyAccount(f.store, "device", {
+        name: username,
+        username,
+        method: "sudo",
+        sudo_password: "legacy-fixture-only",
       });
-      assert.equal(saved.statusCode, 200, saved.body);
-    }
     new AccountAuthorizations(f.store.db).ensureDefault("device");
     const legacy = f.store.db
       .prepare("SELECT * FROM target_accounts ORDER BY id")
@@ -965,38 +961,19 @@ test("SSH never substitutes a legacy account or grants ordinary access when only
         payload: { username: "admin", password: "ssh-test-password1" },
       })
     ).json().access_token;
-    const saved = await f.app.inject({
-      method: "POST",
-      url: "/api/v1/devices/device/accounts",
-      headers: { authorization: "Bearer " + login },
-      payload: {
-        v: 1,
-        name: "Old root",
-        username: "root",
-        method: "sudo",
-        sudo_password: "legacy-fixture-only",
-      },
+    const account = seedLegacyAccount(f.store, "device", {
+      name: "Old root",
+      username: "root",
+      method: "sudo",
+      sudo_password: "legacy-fixture-only",
     });
-    assert.equal(saved.statusCode, 200);
     const restricted = f.store.seedUser({
       username: "legacy-only",
       password: "ssh-test-password1",
       role: "ops",
       deviceScope: [],
     });
-    const grant = await f.app.inject({
-      method: "POST",
-      url: "/api/v1/access-authorizations",
-      headers: { authorization: "Bearer " + login },
-      payload: {
-        v: 1,
-        device_id: "device",
-        account_ids: [saved.json().account.id],
-        subject_type: "user",
-        subject_id: restricted.id,
-      },
-    });
-    assert.equal(grant.statusCode, 200, grant.body);
+    seedLegacyGrant(f.store, "device", account.id, restricted.id);
     const menu = await f.menu("legacy-only");
     menu.channel.write("1\r");
     await menu.waitText("未获授权使用该设备的默认账号");

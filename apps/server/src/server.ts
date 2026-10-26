@@ -49,7 +49,7 @@ import {
   type Permission,
 } from "./permissions.js";
 import { registerTerminals, terminalBackend } from "./terminal.js";
-import { registerTargetAccounts } from "./target-accounts.js";
+import { registerConnectionAuthorizations } from "./connection-authorizations.js";
 import { registerAccessAuthorizations } from "./access-authorizations-api.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
@@ -830,17 +830,15 @@ export async function buildServer(config: ServerConfig) {
       };
     },
   });
-  const targetAccounts = registerTargetAccounts(app, {
+  const connectionAuthorizations = registerConnectionAuthorizations(app, {
     store,
     admin,
     reader: (req) => permitted(req, "terminal.connect"),
     requireScope,
     requireDevice,
-    hasSsh: deviceConnections.hasSsh,
-    sudoPassword: deviceConnections.sudoPassword,
   });
   const terminals = registerTerminals(app, {
-    accounts: targetAccounts,
+    authorization: connectionAuthorizations,
     credentialUser: (tokenHash) => {
       const row = db
         .prepare(
@@ -937,7 +935,7 @@ export async function buildServer(config: ServerConfig) {
   registerAccessAuthorizations(app, {
     store,
     admin,
-    accounts: targetAccounts,
+    authorization: connectionAuthorizations,
     changed: () => terminals.tick(),
     availableStorage,
   });

@@ -11,7 +11,7 @@ import { historyPage } from "./history.js";
 import { CommandStream, commandHistory } from "./terminal-commands.js";
 import type { User } from "./types.js";
 import type { TargetTerminal } from "./ssh-target.js";
-import type { registerTargetAccounts } from "./target-accounts.js";
+import type { registerConnectionAuthorizations } from "./connection-authorizations.js";
 import {
   fail,
   hash,
@@ -50,7 +50,7 @@ interface Session {
   target?: TargetTerminal;
 }
 interface Dependencies {
-  accounts?: ReturnType<typeof registerTargetAccounts>;
+  authorization?: ReturnType<typeof registerConnectionAuthorizations>;
   store: Store;
   operator(req: FastifyRequest): User;
   userAuth(req: FastifyRequest): User;
@@ -162,7 +162,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     )
       return false;
     try {
-      d.accounts?.requireDefault(user, s.deviceId);
+      d.authorization?.requireDefault(user, s.deviceId);
     } catch {
       return false;
     }
@@ -281,7 +281,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       fail(403, "EXEC_ROLE_REQUIRED");
     d.requireScope(user, deviceId);
     rate.check("terminal-create:" + user.id, 20);
-    d.accounts?.requireDefault(user, deviceId);
+    d.authorization?.requireDefault(user, deviceId);
     if (!authorized({ deviceId, actorId: user.id, userSession }))
       fail(403, "TERMINAL_NOT_AUTHORIZED");
     const selectedBackend = backend(deviceId);

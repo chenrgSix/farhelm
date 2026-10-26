@@ -19,35 +19,14 @@
       "maxLength": 256
     },
     "method": {
-      "enum": ["default", "ssh", "sudo"]
+      "const": "default"
     },
     "revision": {
       "type": "integer",
       "minimum": 0
     },
     "is_default": {
-      "type": "boolean"
-    },
-    "allowed_users": {
-      "type": "array",
-      "maxItems": 1000,
-      "items": {
-        "$ref": "common.schema.json#/$defs/id"
-      }
-    },
-    "allowed_groups": {
-      "type": "array",
-      "maxItems": 100,
-      "items": {
-        "$ref": "common.schema.json#/$defs/id"
-      }
-    },
-    "allowed_roles": {
-      "type": "array",
-      "maxItems": 100,
-      "items": {
-        "$ref": "common.schema.json#/$defs/id"
-      }
+      "const": true
     }
   },
   "required": [

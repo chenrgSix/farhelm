@@ -340,7 +340,7 @@ onBeforeUnmount(() => {
       <div>
         <h2>{{ props.section ? labels[props.section] : "用户与角色" }}</h2>
         <p class="muted">
-          用户组组织人员，角色分配操作权限。设备与登录账号的新增授权统一在「访问授权」中配置。
+          用户组组织人员，角色分配操作权限。普通连接的新增授权在「普通连接授权」中配置。
         </p>
       </div>
       <button
@@ -754,7 +754,7 @@ onBeforeUnmount(() => {
               >
                 <p class="field-hint">
                   选择可访问的设备；角色决定是否可以连接终端及使用
-                  sudo。已有精确账号规则继续生效，可在高级授权中维护。
+                  sudo。精确的普通连接规则可在「普通连接授权」中维护。
                 </p>
                 <fieldset class="access-options">
                   <legend>允许访问的设备</legend>

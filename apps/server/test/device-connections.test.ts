@@ -15,6 +15,7 @@ import ssh2, {
 import { WebSocket } from "ws";
 import { buildServer } from "../src/server.js";
 import { fingerprint } from "../src/ssh-target.js";
+import { seedLegacyAccount } from "./legacy-account-fixture.js";
 import { Credentials } from "../src/credentials.js";
 import { hash, token } from "../src/util.js";
 
@@ -37,21 +38,17 @@ const hostFingerprint = fingerprint(hostParsed.getPublicSSH());
 test("retired direct SSH account requests never contact the target; the default connection still works", async () => {
   const f = await fixture();
   try {
-    const account = await f.api("POST", `/devices/${f.id}/accounts`, {
-      v: 1,
+    const account = seedLegacyAccount(f.store, f.id, {
       name: "Direct root",
       username: "root",
       method: "ssh",
-      allowed_users: [],
       private_key: loginKey,
     });
-    assert.equal(account.status, 200, JSON.stringify(account.body));
-    assert.equal(JSON.stringify(account.body).includes("PRIVATE KEY"), false);
     const before = f.authentications();
     const rejected = await f.api("POST", "/terminal-sessions", {
       v: 1,
       device_id: f.id,
-      account_id: account.body.account.id,
+      account_id: account.id,
       cols: 80,
       rows: 24,
     });
@@ -77,10 +74,7 @@ test("retired direct SSH account requests never contact the target; the default 
     const events = f.store.db
       .prepare("SELECT data FROM terminal_recordings WHERE session_id=?")
       .all(terminal.id);
-    assert.equal(
-      JSON.stringify(events).includes(account.body.account.id),
-      false,
-    );
+    assert.equal(JSON.stringify(events).includes(account.id), false);
     assert.equal(JSON.stringify(events).includes("PRIVATE KEY"), false);
   } finally {
     await f.close();
@@ -1452,20 +1446,17 @@ test("password SSH devices authenticate through web and gateway, keep secrets pr
     );
     assert.deepEqual(new Set(f.authMethods), new Set(["password"]));
     // Retired keys cannot bypass a failed default password connection.
-    const account = await f.api("POST", `/devices/${id}/accounts`, {
-      v: 1,
+    const account = seedLegacyAccount(f.store, id, {
       name: "Own key",
       username: "linux-user",
       method: "ssh",
-      allowed_users: [],
       private_key: loginKey,
     });
-    assert.equal(account.status, 200);
     const attemptsBefore = f.authentications();
     const removed = await f.api("POST", "/terminal-sessions", {
       v: 1,
       device_id: id,
-      account_id: account.body.account.id,
+      account_id: account.id,
       cols: 80,
       rows: 24,
     });

@@ -37,7 +37,6 @@ const busy = ref(false),
 const device = ref(props.deviceId ?? ""),
   subjectType = ref("group"),
   subjectId = ref(""),
-  selected = ref<string[]>([]),
   effectiveUser = ref("");
 const result = ref<{
   user: { username: string; role_names: string[] };
@@ -58,26 +57,29 @@ const subjects = computed(() =>
       ? (people.value?.groups ?? [])
       : (people.value?.roles ?? []),
 );
-const available = computed(
+const ordinaryAccounts = computed(
   () =>
     data.value?.accounts.filter(
-      (a) =>
-        a.device_id === device.value &&
-        (subjectType.value !== "device_scope" || a.is_default),
+      (a) => a.is_default && a.method === "default",
+    ) ?? [],
+);
+const effectiveAccounts = computed(
+  () =>
+    result.value?.accounts.filter(
+      (a) => a.is_default && a.method === "default",
     ) ?? [],
 );
 const deviceName = (id: string) =>
   data.value?.devices.find((d) => d.id === id)?.name ?? id;
-const accountName = (id: string) => {
-  const a = data.value?.accounts.find((a) => a.id === id);
-  return a ? `${a.name} · ${a.username}` : id;
-};
 const rules = computed(
   () =>
     data.value?.rules.filter(
       (r) =>
+        ordinaryAccounts.value.some(
+          (a) => a.id === r.account_id && a.device_id === r.device_id,
+        ) &&
         (!props.deviceId || r.device_id === props.deviceId) &&
-        `${r.subject_name} ${deviceName(r.device_id)} ${accountName(r.account_id)}`
+        `${r.subject_name} ${deviceName(r.device_id)}`
           .toLowerCase()
           .includes(search.value.toLowerCase()),
     ) ?? [],
@@ -114,11 +116,7 @@ async function load() {
     if (!disposed) loading.value = false;
   }
 }
-watch(device, () => {
-  selected.value = [];
-});
 watch(subjectType, () => {
-  selected.value = [];
   subjectId.value = "";
 });
 watch(
@@ -128,7 +126,12 @@ watch(
   },
 );
 async function save() {
-  if (busy.value) return;
+  if (
+    busy.value ||
+    !device.value ||
+    (subjectType.value !== "device_scope" && !subjectId.value)
+  )
+    return;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -138,7 +141,6 @@ async function save() {
       body: {
         v: 1,
         device_id: device.value,
-        account_ids: selected.value,
         subject_type: subjectType.value,
         subject_id:
           subjectType.value === "device_scope" ? null : subjectId.value,
@@ -146,7 +148,6 @@ async function save() {
     });
     if (disposed) return;
     editing.value = false;
-    selected.value = [];
     await load();
     notice.value = "访问授权已保存。操作权限仍由角色决定。";
   } catch (e) {
@@ -159,7 +160,7 @@ async function remove(rule: Rule) {
   if (
     busy.value ||
     !window.confirm(
-      `删除「${rule.subject_name} → ${deviceName(rule.device_id)} → ${accountName(rule.account_id)}」的授权？失去访问权限的终端会结束。`,
+      `删除「${rule.subject_name} → ${deviceName(rule.device_id)} → 普通连接」的授权？失去访问权限的终端会结束。`,
     )
   )
     return;
@@ -203,16 +204,16 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="panel authorizations-panel"
-    :aria-label="effective ? '权限核对' : '访问授权'"
+    :aria-label="effective ? '权限核对' : '普通连接授权'"
   >
     <div class="authorization-heading">
       <div>
-        <h2>{{ effective ? "权限核对" : "访问授权" }}</h2>
+        <h2>{{ effective ? "权限核对" : "普通连接授权" }}</h2>
         <p class="muted">
           {{
             effective
-              ? "查看用户最终可用的登录账号、授权来源及缺失权限。"
-              : "统一配置谁可以使用哪些设备上的哪些登录账号。角色决定可执行的操作，登录账号负责凭据和登录方式。"
+              ? "查看用户可普通连接的设备、授权来源及缺失权限。"
+              : "配置用户、用户组或角色可以普通连接哪些设备。连接身份沿用设备接入配置，操作权限由角色决定。"
           }}
         </p>
       </div>
@@ -222,7 +223,7 @@ onBeforeUnmount(() => {
         :disabled="loading || busy || !data?.devices.length"
         @click="editing = !editing"
       >
-        {{ editing ? "收起表单" : "新增访问授权" }}
+        {{ editing ? "收起表单" : "新增连接授权" }}
       </button>
     </div>
     <p v-if="error" class="notice danger" role="alert">{{ error }}</p>
@@ -243,18 +244,15 @@ onBeforeUnmount(() => {
           <table>
             <thead>
               <tr>
-                <th>设备／登录账号</th>
+                <th>设备</th>
                 <th>结果</th>
                 <th>授权来源</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="account in result.accounts" :key="account.id">
-                <td data-label="设备／登录账号">
-                  {{ deviceName(account.device_id) }}<br /><strong>{{
-                    account.name
-                  }}</strong>
-                  · {{ account.username }}
+              <tr v-for="account in effectiveAccounts" :key="account.id">
+                <td data-label="设备">
+                  {{ deviceName(account.device_id) }}
                 </td>
                 <td data-label="结果">
                   {{
@@ -268,8 +266,8 @@ onBeforeUnmount(() => {
             </tbody>
           </table>
         </div>
-        <p v-if="!result.accounts.length" class="muted">
-          该用户没有匹配的登录账号授权。
+        <p v-if="!effectiveAccounts.length" class="muted">
+          该用户没有匹配的普通连接授权。
         </p></template
       >
     </template>
@@ -285,9 +283,7 @@ onBeforeUnmount(() => {
                 <option value="group">用户组</option>
                 <option value="user">用户</option>
                 <option value="role">角色</option>
-                <option value="device_scope">
-                  继承原设备授权（仅默认账号）
-                </option>
+                <option value="device_scope">继承原设备授权</option>
               </select></label
             ><label v-if="subjectType !== 'device_scope'"
               >授权对象<select
@@ -323,32 +319,18 @@ onBeforeUnmount(() => {
               </select></label
             >
           </div>
-          <fieldset class="authorization-accounts">
-            <legend>可使用的登录账号</legend>
-            <label
-              v-for="account in available"
-              :key="account.id"
-              class="authorization-check"
-              ><input
-                v-model="selected"
-                type="checkbox"
-                :value="account.id"
-              />{{ account.name }} · {{ account.username
-              }}<small>{{
-                account.is_default
-                  ? "沿用接入配置"
-                  : account.method === "sudo"
-                    ? "sudo 切换"
-                    : "直接 SSH"
-              }}</small></label
-            >
-          </fieldset>
           <p class="field-hint">
-            新授权同时授予该设备的访问范围和所选账号使用权，不授予其他账号。终端连接及
-            sudo／特权操作仍需相应角色权限。默认账号“继承原设备授权”只沿用旧设备范围，不会接纳仅通过新规则取得的设备范围。
+            授予该设备的普通连接使用权。连接终端及 sudo
+            密码代填仍需对应角色权限；
+            「继承原设备授权」只沿用原用户／用户组的设备范围。
           </p>
-          <button class="button primary" :disabled="busy || !selected.length">
-            {{ busy ? "保存中…" : "保存访问授权" }}
+          <button
+            class="button primary"
+            :disabled="
+              busy || !device || (subjectType !== 'device_scope' && !subjectId)
+            "
+          >
+            {{ busy ? "保存中…" : "保存连接授权" }}
           </button>
         </fieldset>
       </form>
@@ -356,14 +338,14 @@ onBeforeUnmount(() => {
         >搜索授权<input
           v-model="search"
           type="search"
-          placeholder="搜索人员、用户组、角色、设备或账号"
+          placeholder="搜索人员、用户组、角色或设备"
       /></label>
       <div v-if="rules.length" class="authorization-table">
         <table>
           <thead>
             <tr>
               <th>授权对象</th>
-              <th>设备／登录账号</th>
+              <th>设备</th>
               <th>来源</th>
               <th>操作</th>
             </tr>
@@ -374,17 +356,15 @@ onBeforeUnmount(() => {
                 <small>{{ labels[rule.subject_type] }}</small
                 ><br /><strong>{{ rule.subject_name }}</strong>
               </td>
-              <td data-label="设备／登录账号">
-                {{ deviceName(rule.device_id) }}<br />{{
-                  accountName(rule.account_id)
-                }}
+              <td data-label="设备">
+                {{ deviceName(rule.device_id) }}
               </td>
               <td data-label="来源">
                 {{
                   rule.subject_type === "device_scope"
                     ? "保留原设备访问范围"
                     : rule.legacy_scope
-                      ? "原账号授权，仍受原设备范围限制"
+                      ? "原连接授权，仍受原设备范围限制"
                       : "访问授权规则"
                 }}
               </td>
@@ -440,33 +420,6 @@ onBeforeUnmount(() => {
 }
 .authorization-fields label {
   margin-top: 0;
-}
-.authorization-accounts {
-  max-height: 280px;
-  overflow-y: auto;
-  margin: 20px 0;
-}
-.authorization-accounts legend {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.authorization-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 8px;
-  overflow-wrap: anywhere;
-}
-.authorization-check input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  flex: 0 0 16px;
-  accent-color: var(--teal);
-}
-.authorization-check small {
-  color: var(--muted);
 }
 .authorization-table {
   max-width: 100%;

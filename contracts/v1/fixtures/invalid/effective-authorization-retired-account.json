@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "user": {
+    "id": "operator",
+    "username": "operator",
+    "role_names": [
+      "运维角色"
+    ],
+    "permissions": [
+      "devices.read",
+      "terminal.connect"
+    ]
+  },
+  "accounts": [
+    {
+      "id": "11111111-1111-5111-8111-111111111111",
+      "device_id": "device",
+      "name": "普通连接",
+      "username": "Agent 运行账号",
+      "method": "ssh",
+      "revision": 0,
+      "is_default": false,
+      "allowed": true,
+      "reasons": [
+        "运维组"
+      ],
+      "missing": []
+    }
+  ]
+}

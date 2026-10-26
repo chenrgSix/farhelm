@@ -1913,5 +1913,25 @@
     "path": "valid/terminal-commands-response.json",
     "schema": "terminal-commands-response.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/access-authorization-create-default-compat.json",
+    "schema": "access-authorization-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/access-authorization-multiple-accounts.json",
+    "schema": "access-authorization-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/login-account-retired-method.json",
+    "schema": "login-account.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/effective-authorization-retired-account.json",
+    "schema": "effective-authorization-response.schema.json",
+    "valid": false
   }
 ]

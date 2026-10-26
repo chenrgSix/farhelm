@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
-import type { registerTargetAccounts } from "./target-accounts.js";
+import type { registerConnectionAuthorizations } from "./connection-authorizations.js";
 import {
   defaultAccountId,
   type AccountAuthorization,
@@ -14,13 +14,13 @@ export function registerAccessAuthorizations(
   d: {
     store: Store;
     admin(req: FastifyRequest): User;
-    accounts: ReturnType<typeof registerTargetAccounts>;
+    authorization: ReturnType<typeof registerConnectionAuthorizations>;
     changed(): void;
     availableStorage(): void;
   },
 ) {
   const db = d.store.db,
-    policy = d.accounts.policy;
+    policy = d.authorization.policy;
   const scope = (user: User, id: string) =>
     user.role === "admin" ||
     user.device_scope === "*" ||
@@ -35,12 +35,7 @@ export function registerAccessAuthorizations(
       devices,
       accounts: devices.flatMap((device) => {
         policy.ensureDefault(device.id);
-        return [
-          ...d.accounts.loginAccounts(admin, device.id),
-          ...d.accounts
-            .list(admin, device.id)
-            .map((account) => ({ ...account, is_default: false })),
-        ];
+        return d.authorization.loginAccounts(admin, device.id);
       }),
     };
   }
@@ -87,7 +82,7 @@ export function registerAccessAuthorizations(
       rules: (
         db
           .prepare(
-            "SELECT a.* FROM account_authorizations a JOIN devices d ON d.id=a.device_id WHERE d.revoked_at IS NULL ORDER BY d.name,a.account_id,a.id",
+            "SELECT a.* FROM account_authorizations a JOIN devices d ON d.id=a.device_id WHERE d.revoked_at IS NULL AND a.account_id IS NULL ORDER BY d.name,a.id",
           )
           .all() as unknown as AccountAuthorization[]
       ).map(view),
@@ -126,25 +121,16 @@ export function registerAccessAuthorizations(
         .get(subjectId)
     )
       fail(400, "INVALID_AUTHORIZATION_SUBJECT");
-    if (
-      !Array.isArray(b.account_ids) ||
-      !b.account_ids.length ||
-      b.account_ids.length > 100 ||
-      new Set(b.account_ids).size !== b.account_ids.length
-    )
-      fail(400, "INVALID_AUTHORIZATION_ACCOUNTS");
-    const accountIds = b.account_ids.map((value: unknown) => {
-      const id = str(value, 1, 128);
-      if (id === defaultAccountId(deviceId)) return null;
-      if (
-        b.subject_type === "device_scope" ||
-        !db
-          .prepare("SELECT 1 FROM target_accounts WHERE id=? AND device_id=?")
-          .get(id, deviceId)
-      )
+    // Omission authorizes the configured ordinary connection. Keep old clients
+    // that explicitly identify that same default compatible, without accepting
+    // archived accounts or copying any of their grants.
+    if (Object.hasOwn(b, "account_ids")) {
+      if (!Array.isArray(b.account_ids) || b.account_ids.length !== 1)
         fail(400, "INVALID_AUTHORIZATION_ACCOUNTS");
-      return id;
-    });
+      if (b.account_ids[0] !== defaultAccountId(deviceId))
+        fail(400, "ACCOUNT_AUTHORIZATION_REMOVED");
+    }
+    const accountIds = [null];
     d.availableStorage();
     const added = d.store.transaction(() => {
       policy.ensureDefault(deviceId);
@@ -214,6 +200,7 @@ export function registerAccessAuthorizations(
         .prepare("SELECT * FROM account_authorizations WHERE id=?")
         .get(id) as unknown as AccountAuthorization | undefined;
       if (!row) fail(404, "AUTHORIZATION_NOT_FOUND");
+      if (row.account_id !== null) fail(410, "ACCOUNT_AUTHORIZATION_REMOVED");
       if (integer(b.revision, 1, Number.MAX_SAFE_INTEGER) !== row.revision)
         fail(409, "AUTHORIZATION_CHANGED_RELOAD");
       db.prepare("DELETE FROM account_authorizations WHERE id=?").run(id);
@@ -242,7 +229,7 @@ export function registerAccessAuthorizations(
     const user = d.store.user(row),
       resources = choices(admin);
     const accounts = resources.accounts.flatMap((account) => {
-      const accountId = account.is_default ? null : account.id;
+      const accountId = null;
       const reasons =
         user.role === "admin"
           ? ["管理员全平台权限"]
@@ -259,7 +246,6 @@ export function registerAccessAuthorizations(
               });
       if (!reasons.length) return [];
       const missing: string[] = [];
-      if (!account.is_default) missing.push("旧账号连接已移除");
       if (!policy.allowed(user, account.device_id, accountId))
         missing.push("原设备范围");
       if (!row.enabled) missing.push("用户已停用");
@@ -268,14 +254,8 @@ export function registerAccessAuthorizations(
       if (!hasPermission(user, "terminal.connect"))
         missing.push("终端连接权限");
       if (
-        !account.is_default &&
-        (account.method === "sudo" || account.username === "root") &&
-        !hasPermission(user, "terminal.sudo")
-      )
-        missing.push("sudo／特权账号权限");
-      if (
         account.is_default &&
-        d.accounts.defaultNeedsSudo(user, account.device_id) &&
+        d.authorization.defaultNeedsSudo(user, account.device_id) &&
         !hasPermission(user, "terminal.sudo")
       )
         missing.push("sudo／特权账号权限");

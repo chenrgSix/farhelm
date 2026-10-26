@@ -13,11 +13,13 @@
     "account_ids": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 100,
+      "maxItems": 1,
       "uniqueItems": true,
       "items": {
         "$ref": "common.schema.json#/$defs/uuid"
-      }
+      },
+      "deprecated": true,
+      "description": "旧客户端兼容字段，只允许当前设备的默认连接 ID；新请求应省略。"
     },
     "subject_type": {
       "enum": ["user", "group", "role", "device_scope"]
@@ -33,7 +35,7 @@
       ]
     }
   },
-  "required": ["v", "device_id", "account_ids", "subject_type", "subject_id"],
+  "required": ["v", "device_id", "subject_type", "subject_id"],
   "allOf": [
     {
       "if": {

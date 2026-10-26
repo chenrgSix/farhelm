@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import Control from "../src/components/AccessControlPanel.vue";
 import Panel from "../src/components/AccessAuthorizationsPanel.vue";
 import { api } from "../src/api/client";
 const resources = {
@@ -8,7 +9,7 @@ const resources = {
     {
       id: "default",
       device_id: "device",
-      name: "默认登录账号",
+      name: "普通连接",
       username: "fleet",
       method: "default",
       is_default: true,
@@ -23,6 +24,16 @@ const resources = {
     },
   ],
   rules: [
+    {
+      id: "retired-rule",
+      device_id: "device",
+      account_id: "root",
+      subject_type: "user",
+      subject_id: "old",
+      subject_name: "旧账号专属授权",
+      legacy_scope: false,
+      revision: 1,
+    },
     {
       id: "legacy",
       device_id: "device",
@@ -50,10 +61,16 @@ function mock() {
             user: { username: "alice", role_names: ["运维角色"] },
             accounts: [
               {
-                ...resources.accounts[1],
+                ...resources.accounts[0],
                 allowed: false,
                 reasons: ["运维组"],
-                missing: ["sudo／特权账号权限"],
+                missing: ["终端连接权限"],
+              },
+              {
+                ...resources.accounts[1],
+                allowed: true,
+                reasons: ["旧账号来源"],
+                missing: [],
               },
             ],
           }
@@ -62,7 +79,7 @@ function mock() {
           : resources,
   );
 }
-it("shows existing rules first and chooses one subject type in the new grant form", async () => {
+it("creates ordinary device grants without account selection or archived rules", async () => {
   const request = mock();
   const wrapper = mount(Panel);
   await flushPromises();
@@ -70,12 +87,14 @@ it("shows existing rules first and chooses one subject type in the new grant for
   expect(wrapper.find("form").exists()).toBe(false);
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "新增访问授权")!
+    .find((b) => b.text() === "新增连接授权")!
     .trigger("click");
   const selects = wrapper.findAll("select");
   expect(selects[0].element.value).toBe("group");
   await selects[1].setValue("group");
-  await wrapper.get('input[type="checkbox"][value="root"]').setValue(true);
+  expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+  expect(wrapper.text()).not.toContain("生产 root");
+  expect(wrapper.text()).not.toContain("旧账号专属授权");
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(request).toHaveBeenCalledWith("/access-authorizations", {
@@ -83,7 +102,6 @@ it("shows existing rules first and chooses one subject type in the new grant for
     body: {
       v: 1,
       device_id: "device",
-      account_ids: ["root"],
       subject_type: "group",
       subject_id: "group",
     },
@@ -98,7 +116,9 @@ it("shows effective authorization sources and missing operation permission", asy
   await wrapper.get("select").setValue("user");
   await flushPromises();
   expect(wrapper.text()).toContain("运维组");
-  expect(wrapper.text()).toContain("不可使用：缺少 sudo／特权账号权限");
+  expect(wrapper.text()).not.toContain("生产 root");
+  expect(wrapper.text()).not.toContain("旧账号来源");
+  expect(wrapper.text()).toContain("不可使用：缺少 终端连接权限");
   wrapper.unmount();
 });
 it("deletes only the chosen rule with its revision", async () => {
@@ -115,5 +135,28 @@ it("deletes only the chosen rule with its revision", async () => {
     method: "DELETE",
     body: { v: 1, revision: 1 },
   });
+  wrapper.unmount();
+});
+
+it("exposes ordinary authorization and permission inspection directly without advanced account entry points", async () => {
+  const wrapper = mount(Control, {
+    props: { currentUserId: "admin", devices: [] },
+    global: {
+      stubs: { AccessManagementPanel: true, AccessAuthorizationsPanel: true },
+    },
+  });
+  expect(wrapper.find("details").exists()).toBe(false);
+  expect(wrapper.text()).not.toContain("高级授权");
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "普通连接授权")!
+    .trigger("click");
+  expect(wrapper.findComponent(Panel).exists()).toBe(true);
+  expect(wrapper.findComponent(Panel).props("effective")).toBe(false);
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "权限核对")!
+    .trigger("click");
+  expect(wrapper.findComponent(Panel).props("effective")).toBe(true);
   wrapper.unmount();
 });

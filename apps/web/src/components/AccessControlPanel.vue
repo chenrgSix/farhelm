@@ -12,13 +12,11 @@ const emit = defineEmits<{ clearDevice: [] }>();
 const tab = ref<"rules" | "users" | "groups" | "roles" | "effective">(
   props.deviceId ? "rules" : "users",
 );
-const advanced = ref(!!props.deviceId);
 watch(
   () => props.deviceId,
   (value) => {
     if (value) {
       tab.value = "rules";
-      advanced.value = true;
     }
   },
 );
@@ -26,6 +24,8 @@ const tabs = {
   users: "用户",
   groups: "用户组",
   roles: "角色",
+  rules: "普通连接授权",
+  effective: "权限核对",
 };
 </script>
 <template>
@@ -41,24 +41,6 @@ const tabs = {
         {{ label }}
       </button>
     </nav>
-    <details
-      :open="advanced"
-      @toggle="advanced = ($event.target as HTMLDetailsElement).open"
-    >
-      <summary>高级授权（兼容现有账号规则）</summary>
-      <p class="field-hint">
-        原有精确账号授权继续生效。日常授权在用户或用户组中选择设备，在角色中设置是否允许
-        使用 sudo。
-      </p>
-      <div class="advanced-actions">
-        <button class="button secondary" @click="tab = 'rules'">
-          访问授权
-        </button>
-        <button class="button secondary" @click="tab = 'effective'">
-          权限核对
-        </button>
-      </div>
-    </details>
     <p v-if="deviceId && tab === 'rules'" class="scope-notice">
       当前设备：{{
         devices.find((device) => device.id === deviceId)?.name ?? deviceId
@@ -68,7 +50,7 @@ const tabs = {
       </button>
     </p>
     <AccessAuthorizationsPanel
-      v-if="advanced && (tab === 'rules' || tab === 'effective')"
+      v-if="tab === 'rules' || tab === 'effective'"
       :key="tab"
       :device-id="tab === 'rules' ? deviceId : undefined"
       :effective="tab === 'effective'"
@@ -77,20 +59,11 @@ const tabs = {
       :key="tab"
       :current-user-id="currentUserId"
       :devices="devices"
-      :section="tab === 'rules' || tab === 'effective' ? 'users' : tab"
+      :section="tab"
     />
   </div>
 </template>
 <style scoped>
-.access-control > details {
-  margin-bottom: 16px;
-}
-.advanced-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
 .control-tabs {
   display: flex;
   flex-wrap: wrap;

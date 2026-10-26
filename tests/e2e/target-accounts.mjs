@@ -6,6 +6,9 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { createServer as netServer } from "node:net";
+import { randomUUID } from "node:crypto";
+import { Credentials } from "../../apps/server/dist/credentials.js";
+import { AccountAuthorizations } from "../../apps/server/dist/account-authorizations.js";
 import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 const require = createRequire(import.meta.url);
@@ -81,6 +84,58 @@ async function api(method, path, payload, auth = admin) {
   const data = await r.json();
   assert.equal(r.status, 200, JSON.stringify(data));
   return data;
+}
+function archivedAccount(data) {
+  const id = randomUUID();
+  const {
+    name,
+    username,
+    method,
+    allowed_users = [],
+    allowed_groups = [],
+    allowed_roles = [],
+    sudo_password,
+  } = data;
+  server.store.db
+    .prepare(
+      "INSERT INTO target_accounts(id,device_id,name,username,method,revision,allowed_users,secrets) VALUES(?,?,?,?,?,1,?,?)",
+    )
+    .run(
+      id,
+      device.id,
+      name,
+      username,
+      method,
+      JSON.stringify(allowed_users),
+      new Credentials(server.store.dataDir, false).seal(
+        id,
+        sudo_password ? { sudo_password } : {},
+      ),
+    );
+  for (const group of allowed_groups)
+    server.store.db
+      .prepare("INSERT INTO target_account_groups VALUES(?,?)")
+      .run(id, group);
+  for (const role of allowed_roles)
+    server.store.db
+      .prepare("INSERT INTO target_account_roles VALUES(?,?)")
+      .run(id, role);
+  new AccountAuthorizations(server.store.db).replaceLegacy(device.id, id, {
+    allowed_users,
+    allowed_groups,
+    allowed_roles,
+  });
+  return {
+    id,
+    device_id: device.id,
+    name,
+    username,
+    method,
+    revision: 1,
+    allowed_users,
+    allowed_groups,
+    allowed_roles,
+  };
 }
 let device;
 async function open(accountId, auth = admin) {
@@ -580,14 +635,11 @@ try {
       .n,
     0,
   );
-  const passwordlessAccount = (
-    await api("POST", `/devices/${device.id}/accounts`, {
-      v: 1,
-      name: "免密 root 示例",
-      username: "root",
-      method: "sudo",
-    })
-  ).account;
+  const passwordlessAccount = archivedAccount({
+    name: "免密 root 示例",
+    username: "root",
+    method: "sudo",
+  });
   async function rejectAccount(accountId, auth = admin) {
     const before = server.store.db
       .prepare("SELECT COUNT(*) AS n FROM terminal_sessions")
@@ -616,11 +668,35 @@ try {
     );
   }
   await rejectAccount(passwordlessAccount.id);
-  await api(
-    "DELETE",
+  const archiveSnapshot = () =>
+    JSON.stringify(
+      server.store.db
+        .prepare("SELECT * FROM target_accounts ORDER BY id")
+        .all(),
+    );
+  const archivedBefore = archiveSnapshot();
+  for (const path of [
+    `/devices/${device.id}/accounts`,
     `/devices/${device.id}/accounts/${passwordlessAccount.id}`,
-    { v: 1, revision: passwordlessAccount.revision },
-  );
+  ])
+    for (const method of ["GET", "POST", "PUT", "DELETE"]) {
+      const response = await fetch(origin + "/api/v1" + path, {
+        method,
+        headers: {
+          authorization: "Bearer " + admin,
+          "content-type": "application/json",
+        },
+        ...(method === "GET"
+          ? {}
+          : { body: JSON.stringify({ v: 1, revision: 1, name: "Overwrite" }) }),
+      });
+      assert.equal(response.status, 410);
+      assert.equal(
+        (await response.json()).error,
+        "ACCOUNT_CONFIGURATION_REMOVED",
+      );
+    }
+  assert.equal(archiveSnapshot(), archivedBefore);
   await docker([
     "exec",
     "--user",
@@ -676,18 +752,14 @@ try {
   server.store.db
     .prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)")
     .run(principals[1].id, targetRole.id);
-  const account = (
-    await api("POST", `/devices/${device.id}/accounts`, {
-      v: 1,
-      name: "root via sudo",
-      username: "root",
-      method: "sudo",
-      allowed_users: [],
-      allowed_groups: [targetGroup.id],
-      allowed_roles: [targetRole.id],
-      sudo_password: secret,
-    })
-  ).account;
+  const account = archivedAccount({
+    name: "root via sudo",
+    username: "root",
+    method: "sudo",
+    allowed_groups: [targetGroup.id],
+    allowed_roles: [targetRole.id],
+    sudo_password: secret,
+  });
   assertValid("target-account", account);
   const legacyBefore = server.store.db
     .prepare("SELECT * FROM target_accounts WHERE id=?")
@@ -710,7 +782,7 @@ try {
     ).access_token;
     const visible = await api(
       "GET",
-      `/devices/${device.id}/accounts`,
+      `/devices/${device.id}/login-accounts`,
       undefined,
       auth,
     );
@@ -772,15 +844,31 @@ try {
   server.store.db
     .prepare("INSERT INTO user_roles(user_id,role_id) VALUES(?,?)")
     .run(restricted.id, targetRole.id);
-  const grant = (
-    await api("POST", "/access-authorizations", {
+  const grant = randomUUID();
+  server.store.db
+    .prepare(
+      "INSERT INTO account_authorizations(id,device_id,account_id,user_id) VALUES(?,?,?,?)",
+    )
+    .run(grant, device.id, account.id, restricted.id);
+  const retiredGrant = await fetch(origin + "/api/v1/access-authorizations", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + admin,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
       v: 1,
       device_id: device.id,
       account_ids: [account.id],
       subject_type: "user",
       subject_id: restricted.id,
-    })
-  ).rule_ids[0];
+    }),
+  });
+  assert.equal(retiredGrant.status, 400);
+  assert.equal(
+    (await retiredGrant.json()).error,
+    "ACCOUNT_AUTHORIZATION_REMOVED",
+  );
   const restrictedAuth = (
     await api(
       "POST",
@@ -844,7 +932,23 @@ try {
   await once(restrictedChannel, "close");
   assert.match(restrictedError, /unavailable/);
   assert.doesNotMatch(restrictedText, /输入账号编号|root@|高级账号/);
-  await api("DELETE", `/access-authorizations/${grant}`, { v: 1, revision: 1 });
+  const retiredDelete = await fetch(
+    origin + `/api/v1/access-authorizations/${grant}`,
+    {
+      method: "DELETE",
+      headers: {
+        authorization: "Bearer " + admin,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ v: 1, revision: 1 }),
+    },
+  );
+  assert.equal(retiredDelete.status, 410);
+  assert.ok(
+    server.store.db
+      .prepare("SELECT 1 FROM account_authorizations WHERE id=?")
+      .get(grant),
+  );
   restrictedSsh.end();
   await api("POST", "/logout", { v: 1 }, restrictedAuth);
   // Existing default access remains until its visible compatibility rule is explicitly removed.
@@ -1110,6 +1214,88 @@ try {
     await terminal
       .getByRole("button", { name: "关闭终端", exact: true })
       .click();
+    await page.getByRole("button", { name: /访问控制/ }).click();
+    await page
+      .getByRole("button", { name: "普通连接授权", exact: true })
+      .click();
+    const authorization = page.getByRole("region", {
+      name: "普通连接授权",
+      exact: true,
+    });
+    await authorization
+      .getByRole("button", { name: "新增连接授权", exact: true })
+      .click();
+    await authorization
+      .getByLabel("授权对象类型", { exact: true })
+      .selectOption("user");
+    await authorization
+      .getByLabel("授权对象", { exact: true })
+      .selectOption(restricted.id);
+    await authorization
+      .getByLabel("设备", { exact: true })
+      .selectOption(device.id);
+    assert.equal(
+      await authorization.locator('input[type="checkbox"]').count(),
+      0,
+    );
+    assert.equal(
+      await page
+        .getByText("高级授权（兼容现有账号规则）", { exact: true })
+        .count(),
+      0,
+    );
+    assert.equal(
+      await authorization.getByText("root via sudo", { exact: true }).count(),
+      0,
+    );
+    const savedAuthorization = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/api/v1/access-authorizations") &&
+        r.request().method() === "POST",
+    );
+    await authorization
+      .getByRole("button", { name: "保存连接授权", exact: true })
+      .click();
+    const savedResponse = await savedAuthorization;
+    assert.equal(savedResponse.request().postDataJSON().account_ids, undefined);
+    const ordinaryRule = (await savedResponse.json()).rule_ids[0];
+    await page.getByRole("button", { name: "权限核对", exact: true }).click();
+    await page
+      .getByLabel("核对用户", { exact: true })
+      .selectOption(restricted.id);
+    await page.getByText("允许使用", { exact: true }).waitFor();
+    assert.equal(
+      await page.getByText("root via sudo", { exact: true }).count(),
+      0,
+    );
+    await page.screenshot({
+      path: join(root, ".test-output/ordinary-authorization-inspection.png"),
+      fullPage: true,
+    });
+    const restoredAuth = (
+      await api(
+        "POST",
+        "/login",
+        { username: restricted.username, password: "accounts-e2e-login1" },
+        "",
+      )
+    ).access_token;
+    const grantedOrdinary = await open(undefined, restoredAuth);
+    await grantedOrdinary.ready();
+    grantedOrdinary.send("printf '__ORDINARY_GRANT_UID__'; id -u\r");
+    await until(
+      () => /__ORDINARY_GRANT_UID__[1-9][0-9]*/.test(grantedOrdinary.text()),
+      "ordinary authorization from browser form",
+    );
+    await api("DELETE", `/access-authorizations/${ordinaryRule}`, {
+      v: 1,
+      revision: 1,
+    });
+    await until(
+      () => grantedOrdinary.messages.some((m) => m.type === "terminal.closed"),
+      "ordinary authorization revoke closes real terminal",
+    );
+    await api("POST", "/logout", { v: 1 }, restoredAuth);
     assert.deepEqual(errors, []);
   }
   if (testPrivilegeSettings) {
@@ -1274,6 +1460,9 @@ try {
         wrongPasswordRejected: true,
         ordinarySessionRevocation: true,
         explicitAccountApiRemoved: true,
+        accountConfigurationApiRemoved: true,
+        ordinaryAuthorizationBrowserFlow: !!browser,
+        archivedAuthorizationsHidden: true,
         realBrowser: !!browser,
         passwordAbsentFromRecordingsAndAudit: true,
       },
@@ -1282,7 +1471,7 @@ try {
     ),
   );
   console.log(
-    "Target accounts E2E passed: ordinary web/SSH connections without account menus, sudo delegation and retired account API rejection; wrong sudo password rejected; recordings and audit contain no password.",
+    "Target accounts E2E passed: ordinary web/SSH connections without account menus, sudo delegation, ordinary authorization UI and retired account API rejection; wrong sudo password rejected; recordings and audit contain no password.",
   );
 } catch (error) {
   if (started)

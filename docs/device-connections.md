@@ -80,8 +80,8 @@ npm run test:ssh:backup # 同一个已存在的 Agent 设备配置备用 SSH
 
 默认登录账号、SSH 凭据和 sudo 密码在「接入配置」维护。网页的高级账号管理与选择入口、SSH 第二级账号菜单均已移除。已有目标账号记录、加密凭据、精确授权及历史录制保留，不删除、不合并到默认账号，也不自动选择任一旧账号。
 
-旧账号配置 API 保留管理兼容，但 `POST /api/v1/terminal-sessions` 不再允许 `account_id`，包括默认账号 ID；返回 HTTP 400 / `ACCOUNT_CONNECTION_REMOVED`，不创建会话、不回退到其他身份。脚本应省略该字段，以普通连接执行 sudo。旧账号的凭据不再参与连接，也不会复制为默认账号凭据；历史回放保留原账号身份。
+旧账号配置 API 的 GET、POST、PUT、DELETE 已移除，认证后返回 HTTP 410 / `ACCOUNT_CONFIGURATION_REMOVED`，不读取或修改旧数据。 `POST /api/v1/terminal-sessions` 不再允许 `account_id`，包括默认账号 ID；返回 HTTP 400 / `ACCOUNT_CONNECTION_REMOVED`，不创建会话、不回退到其他身份。脚本应省略该字段，以普通连接执行 sudo。旧账号的凭据不再参与连接，也不会复制为默认账号凭据；历史回放保留原账号身份。
 
-账号配置 API 的版本校验、活跃会话保护和授权撤销规则不变；普通连接继续校验默认账号权限，不恢复已撤销授权。平台不会创建 Linux 用户或改写 sudoers、SSH 接入配置、网络策略。
+授权界面和 API 仅管理普通连接：旧账号及其规则不再展示，也不能新增或删除；旧数据、历史查询范围、录制和回放保留。普通连接继续校验默认授权，沿用版本检查和撤权断连，不恢复已撤销规则。平台不会创建 Linux 用户或改写 sudoers、SSH 接入配置、网络策略。
 
-验证：`npm run test:target-accounts` 在隔离 Linux 容器中使用真实 Agent 和 sudo，覆盖网页普通连接、SSH 选设备后直接连接、sudo 密码代填和免密 sudo、旧账号存在时的连接行为、旧 API 鉴权兼容及录制密码排除。需要先构建 Linux Agent，可用 `FLEET_AGENT_BIN` 指定；测试镜像默认 `farhelm-agent-dev:local`。不修改已有部署。
+验证：`npm run test:target-accounts` 在隔离 Linux 容器中使用真实 Agent 和 sudo，覆盖网页普通连接、SSH 选设备后直接连接、sudo 密码代填和免密 sudo、旧账号存在时的连接行为、旧配置 API 拒绝、普通连接授权新增／撤销及录制密码排除。需要先构建 Linux Agent，可用 `FLEET_AGENT_BIN` 指定；测试镜像默认 `farhelm-agent-dev:local`。不修改已有部署。
