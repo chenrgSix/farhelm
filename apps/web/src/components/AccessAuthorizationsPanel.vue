@@ -697,6 +697,9 @@ onBeforeUnmount(() => {
 .authorization-table td {
   overflow-wrap: anywhere;
 }
+.authorization-table td .text-button + .text-button {
+  margin-left: 12px;
+}
 .authorization-search {
   max-width: 480px;
 }
