@@ -1656,7 +1656,7 @@ test("new user, group and inherited-role rules supply resource scope without cha
   }
 });
 
-test("explicit default root grants require privilege permission while existing default authorization is preserved", async () => {
+test("root backup SSH configuration does not require sudo for the Agent ordinary identity", async () => {
   const f = await fixture();
   try {
     const legacy = f.store.seedUser({
@@ -1702,10 +1702,7 @@ test("explicit default root grants require privilege permission while existing d
     );
     assert.equal(added.status, 200);
     const freshAuth = await f.login(fresh.username);
-    assert.equal(
-      (await f.create(freshAuth)).body.error,
-      "SUDO_PERMISSION_REQUIRED",
-    );
+    assert.equal((await f.create(freshAuth)).status, 200);
     const effective = (
       await f.api(
         "GET",
@@ -1714,8 +1711,8 @@ test("explicit default root grants require privilege permission while existing d
         f.admin,
       )
     ).body.accounts;
-    assert.equal(effective[0].allowed, false);
-    assert.ok(effective[0].missing.includes("sudo／特权账号权限"));
+    assert.equal(effective[0].allowed, true);
+    assert.equal(effective[0].sudo_allowed, false);
   } finally {
     await f.close();
   }

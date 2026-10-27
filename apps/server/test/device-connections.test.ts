@@ -1279,6 +1279,19 @@ test("existing default root SSH access survives ordinary web and gateway connect
       role: "ops",
       deviceScope: [f.id],
     });
+    const unprivileged = await f.login(user.username);
+    const denied = await f.api(
+      "POST",
+      "/terminal-sessions",
+      { v: 1, device_id: f.id, cols: 80, rows: 24 },
+      unprivileged,
+    );
+    assert.equal(denied.body.error, "SUDO_PERMISSION_REQUIRED");
+    const effective = (
+      await f.api("GET", `/access-authorizations/effective/${user.id}`)
+    ).body.accounts;
+    assert.equal(effective[0].allowed, false);
+    assert.ok(effective[0].missing.includes("sudo／特权账号权限"));
     f.store.db
       .prepare(
         "INSERT INTO device_sudo_rules(id,device_id,user_id,effect) VALUES(?,?,?,'allow')",
@@ -1762,6 +1775,59 @@ test("restricted SSH fails closed when target cannot attest no_new_privs and nev
     );
     assert.equal(terminal.output(), "");
     assert.equal(f.inputs.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("an ordinary Agent identity remains restricted with a root backup, and fallback cannot inherit root without device sudo", async () => {
+  const f = await fixture(15000, "root");
+  try {
+    assert.equal(
+      (
+        await f.api("PUT", f.path, {
+          v: 1,
+          revision: 1,
+          ssh: { ...f.ssh, username: "root" },
+        })
+      ).status,
+      200,
+    );
+    f.store.db
+      .prepare("UPDATE devices SET connection_kind='agent' WHERE id=?")
+      .run(f.id);
+    const user = f.store.seedUser({
+      username: "root-backup-ordinary",
+      password: "connection-test-password1",
+      role: "ops",
+      deviceScope: [f.id],
+    });
+    const auth = await f.login(user.username);
+    const agent = await f.agent(f.id);
+    const terminal = await f.web(auth);
+    const ready = await terminal.wait("terminal.ready");
+    assert.equal(ready.backend, "agent");
+    assert.equal(ready.sudo_allowed, false);
+    agent.terminate();
+    await until(
+      async () =>
+        (await f.api("GET", "/devices")).body.devices.find(
+          (d: any) => d.id === f.id,
+        )?.terminal_backend === "ssh",
+    );
+    const authentications = f.authentications();
+    const rejected = await f.api(
+      "POST",
+      "/terminal-sessions",
+      { v: 1, device_id: f.id, cols: 80, rows: 24 },
+      auth,
+    );
+    assert.equal(rejected.body.error, "SUDO_PERMISSION_REQUIRED");
+    assert.equal(
+      f.authentications(),
+      authentications,
+      "root SSH is rejected before target authentication",
+    );
   } finally {
     await f.close();
   }

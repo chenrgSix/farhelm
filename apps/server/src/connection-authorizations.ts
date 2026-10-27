@@ -21,18 +21,23 @@ export function registerConnectionAuthorizations(
 ) {
   const db = d.store.db;
   const policy = new AccountAuthorizations(db);
-  function defaultNeedsSudo(user: User, deviceId: string) {
+  function defaultNeedsSudo(
+    _user: User,
+    deviceId: string,
+    backend?: "agent" | "ssh",
+  ) {
+    const selected = backend ?? d.requireDevice(deviceId).connection_kind;
+    if (selected === "agent") return false;
     const row = db
       .prepare("SELECT config_json FROM device_connections WHERE device_id=?")
       .get(deviceId);
-    const privileged =
-      !!row && JSON.parse(row.config_json as string).username === "root";
-    return (
-      privileged &&
-      !policy.matches(user, deviceId, null).some((rule) => rule.legacy_scope)
-    );
+    return !!row && JSON.parse(row.config_json as string).username === "root";
   }
-  function requireDefault(user: User, deviceId: string) {
+  function requireDefault(
+    user: User,
+    deviceId: string,
+    backend?: "agent" | "ssh",
+  ) {
     d.requireScope(user, deviceId);
     if (
       !hasPermission(user, "terminal.connect") ||
@@ -40,7 +45,7 @@ export function registerConnectionAuthorizations(
     )
       fail(403, "TARGET_ACCOUNT_DENIED");
     if (
-      defaultNeedsSudo(user, deviceId) &&
+      defaultNeedsSudo(user, deviceId, backend) &&
       !deviceSudo(db, user, deviceId).allowed
     )
       fail(403, "SUDO_PERMISSION_REQUIRED");

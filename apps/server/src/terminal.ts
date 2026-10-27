@@ -174,7 +174,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     )
       return false;
     try {
-      d.authorization?.requireDefault(user, s.deviceId);
+      d.authorization?.requireDefault(user, s.deviceId, s.backend);
     } catch {
       return false;
     }
@@ -321,6 +321,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       if (!agent) fail(409, "DEVICE_OFFLINE");
       fail(409, "TERMINAL_NOT_SUPPORTED_UPDATE_AGENT");
     }
+    d.authorization?.requireDefault(user, deviceId, selectedBackend);
     const sudoGranted = deviceSudo(db, user, deviceId).allowed;
     const policyControlled =
       selectedBackend === "ssh" || d.agent(deviceId)?.policy === true;
