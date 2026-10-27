@@ -1007,3 +1007,122 @@ test("SSH never substitutes a legacy account or grants ordinary access when only
     await f.close();
   }
 });
+
+test("SSH menus and web tickets share each user's limit; opening a shell reuses its SSH slot and close releases it", async () => {
+  const f = await fixture();
+  try {
+    const auth = (
+      await f.app.inject({
+        method: "POST",
+        url: "/api/v1/login",
+        payload: { username: "admin", password: "ssh-test-password1" },
+      })
+    ).json().access_token;
+    const api = async (method: string, path: string, body?: any) => {
+      const r = await f.app.inject({
+        method: method as any,
+        url: "/api/v1" + path,
+        payload: body,
+        headers: { authorization: "Bearer " + auth },
+      });
+      return { status: r.statusCode, body: r.json() };
+    };
+    const { updated_at, ...limits } = (
+      await api("GET", "/settings/connections")
+    ).body;
+    assert.equal(
+      (
+        await api("PUT", "/settings/connections", {
+          ...limits,
+          per_user: 2,
+          per_device: 8,
+          ssh_total: 8,
+          ssh_per_ip: 8,
+        })
+      ).status,
+      200,
+    );
+    const menu = await f.menu();
+    const ticket = await api("POST", "/terminal-sessions", {
+      v: 1,
+      device_id: "device",
+      cols: 80,
+      rows: 24,
+    });
+    assert.equal(ticket.status, 200);
+    assert.equal(
+      (
+        await api("POST", "/terminal-sessions", {
+          v: 1,
+          device_id: "device",
+          cols: 80,
+          rows: 24,
+        })
+      ).body.error,
+      "USER_CONNECTION_LIMIT",
+    );
+    await assert.rejects(f.connect(), /authentication/);
+    menu.channel.write("1\r");
+    const open = await f.wait("terminal.open");
+    f.send("terminal.opened", { session_id: open.session_id });
+    await f.wait("terminal.resize");
+    assert.equal(
+      f.store.db
+        .prepare(
+          "SELECT count(*) AS n FROM terminal_sessions WHERE ended_at IS NULL",
+        )
+        .get()!.n,
+      2,
+      "SSH shell is not counted twice",
+    );
+    menu.client.destroy();
+    await until(
+      () =>
+        f.store.db
+          .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
+          .get(open.session_id)!.ended_at,
+      "SSH release",
+    );
+    assert.equal(
+      (
+        await api("POST", "/terminal-sessions", {
+          v: 1,
+          device_id: "device",
+          cols: 80,
+          rows: 24,
+        })
+      ).status,
+      200,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("SSH global and per-IP connection limits can change live without dropping existing clients", async () => {
+  const f = await fixture();
+  try {
+    f.store.db.exec(
+      "UPDATE connection_limits SET per_user=8,ssh_total=2,ssh_per_ip=2",
+    );
+    const first = await f.connect();
+    const second = await f.connect();
+    await assert.rejects(f.connect(), /before handshake|socket|closed|reset/i);
+    f.store.db.exec("UPDATE connection_limits SET ssh_total=4,ssh_per_ip=2");
+    await assert.rejects(f.connect(), /before handshake|socket|closed|reset/i);
+    f.store.db.exec("UPDATE connection_limits SET ssh_per_ip=4");
+    const third = await f.connect();
+    assert.ok(third);
+    first.destroy();
+    second.destroy();
+    third.destroy();
+    await until(
+      () =>
+        f.store.db.prepare("SELECT count(*) AS n FROM user_sessions").get()!
+          .n === 0,
+      "all SSH auth slots and sessions released",
+    );
+  } finally {
+    await f.close();
+  }
+});

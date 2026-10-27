@@ -2333,3 +2333,69 @@ test("device sudo rules control passwordless and manual sudo sessions and revoke
     await f.close();
   }
 });
+
+test("configurable terminal limits count pending tickets across logins, allow a fifth terminal and recover slots after close or failed audit", async () => {
+  const f = await fixture();
+  try {
+    const read = () =>
+      f.api("GET", "/api/v1/settings/connections", undefined, f.admin);
+    const save = async (changes: any) => {
+      const { updated_at, ...current } = (await read()).body;
+      const r = await f.api(
+        "PUT",
+        "/api/v1/settings/connections",
+        { ...current, ...changes },
+        f.admin,
+      );
+      assert.equal(r.status, 200);
+    };
+    await save({ per_user: 6, per_device: 6, terminal_total: 8 });
+    const auth2 = await f.login("admin");
+    const opened = [];
+    for (let n = 0; n < 6; n++) {
+      const r = await f.create(n % 2 ? auth2 : f.admin);
+      assert.equal(r.status, 200);
+      opened.push(r.body);
+    }
+    assert.equal((await f.create()).body.error, "DEVICE_TERMINAL_LIMIT");
+    const browser = await f.attach(opened[0]);
+    const request = await f.agent.wait("terminal.open");
+    assert.equal(request.max_sessions, 6);
+    f.agent.send("terminal.opened", { session_id: request.session_id });
+    await browser.wait("terminal.ready");
+    await save({ per_device: 8 });
+    assert.equal((await f.create()).body.error, "USER_CONNECTION_LIMIT");
+    await save({ per_user: 1 });
+    assert.equal(
+      browser.ws.readyState,
+      WebSocket.OPEN,
+      "lowering limits preserves live sessions",
+    );
+    for (const row of opened)
+      assert.equal(
+        (
+          await f.api(
+            "POST",
+            `/api/v1/terminal-sessions/${row.session_id}/close`,
+            { v: 1 },
+            f.admin,
+          )
+        ).status,
+        200,
+      );
+    const audit = f.store.audit;
+    f.store.audit = function (action, ...args) {
+      if (action === "terminal.created") throw new Error("audit failed");
+      return audit.call(this, action, ...args);
+    };
+    assert.equal((await f.create()).status, 500);
+    f.store.audit = audit;
+    assert.equal(
+      (await f.create()).status,
+      200,
+      "failed audit releases the admission slot",
+    );
+  } finally {
+    await f.close();
+  }
+});

@@ -33,6 +33,7 @@ import {
 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, isAbsolute, resolve, extname } from "node:path";
+import { ConnectionLimits } from "./connection-limits.js";
 import { Store } from "./store.js";
 import { auditContext, auditText } from "./audit-context.js";
 import { deployment } from "./deployment.js";
@@ -152,6 +153,7 @@ export async function buildServer(config: ServerConfig) {
   };
   const store = new Store(config.dataDir);
   const apiTokens = new ApiTokens(store);
+  const connectionLimits = new ConnectionLimits(store);
   const db = store.db;
   const rate = new RateLimiter();
   const connections = new Map<string, Connection>();
@@ -838,7 +840,9 @@ export async function buildServer(config: ServerConfig) {
     requireScope,
     requireDevice,
   });
+  connectionLimits.register(app, admin, availableStorage);
   const terminals = registerTerminals(app, {
+    limits: connectionLimits,
     authorization: connectionAuthorizations,
     credentialUser: (tokenHash) => {
       const row = db
@@ -1035,6 +1039,22 @@ export async function buildServer(config: ServerConfig) {
     config.ssh
       ? createSshGateway(config.dataDir, config.ssh, {
           terminals,
+          limits: () => connectionLimits.current(),
+          reserve(login) {
+            try {
+              connectionLimits.acquire(
+                "ssh:" + login.sessionHash,
+                login.user.id,
+              );
+            } catch (error) {
+              store.audit("authorization.denied", login.user.id, null, null, {
+                reason: "USER_CONNECTION_LIMIT",
+                method: "SSH",
+                route: "ssh",
+              });
+              throw error;
+            }
+          },
           async authenticate(username, password, target, ip) {
             if (config.deploymentControl?.terminalsBlocked())
               fail(503, "DEPLOYMENT_APPLYING");
@@ -1134,6 +1154,7 @@ export async function buildServer(config: ServerConfig) {
             };
           },
           release(sessionHash) {
+            connectionLimits.release("ssh:" + sessionHash);
             db.prepare("DELETE FROM user_sessions WHERE token_hash=?").run(
               sessionHash,
             );

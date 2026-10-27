@@ -69,6 +69,7 @@
         "connection.host_key_scanned",
         "connection.tested",
         "settings.updated",
+        "settings.connections_updated",
         "settings.agent_sync",
         "settings.sync_requested",
         "agent.upgrade_requested",
@@ -129,6 +130,7 @@
     },
     "detail": {
       "anyOf": [
+        {"type": "object", "additionalProperties": false, "properties": {"per_user": {"type": "integer", "minimum": 1, "maximum": 128}, "per_device": {"type": "integer", "minimum": 1, "maximum": 128}, "terminal_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_per_ip": {"type": "integer", "minimum": 1, "maximum": 1024}, "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}, "required": ["per_user", "per_device", "terminal_total", "ssh_total", "ssh_per_ip", "revision"]},
         {
           "type": "object",
           "additionalProperties": false,
@@ -3608,7 +3610,8 @@
           }
         }
       }
-    }
+    },
+    {"if": {"properties": {"action": {"const": "settings.connections_updated"}}}, "then": {"properties": {"detail": {"type": "object", "additionalProperties": false, "properties": {"per_user": {"type": "integer", "minimum": 1, "maximum": 128}, "per_device": {"type": "integer", "minimum": 1, "maximum": 128}, "terminal_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_per_ip": {"type": "integer", "minimum": 1, "maximum": 1024}, "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}, "required": ["per_user", "per_device", "terminal_total", "ssh_total", "ssh_per_ip", "revision"]}}}}
   ],
   "description": "Strict current server audit output variants. New actions and detail fields require explicit contract updates; storage may remain extensible."
 }

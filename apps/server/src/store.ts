@@ -403,6 +403,12 @@ export class Store {
       ),
     );
     migrateDeviceSudo(this.db, (row) => this.user(row));
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/041_connection_limits.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

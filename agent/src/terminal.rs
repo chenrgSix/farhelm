@@ -64,6 +64,8 @@ struct Open {
     #[serde(default)]
     allow_sudo: Option<bool>,
     #[serde(default)]
+    max_sessions: Option<usize>,
+    #[serde(default)]
     username: Option<String>,
 }
 #[derive(Deserialize)]
@@ -157,7 +159,15 @@ impl Terminals {
                     .await?;
                 return Ok(());
             }
-            if !self.cfg.execution_enabled || self.entries.len() >= 4 || self.seen.len() > 1024 {
+            let max_sessions = open.max_sessions.unwrap_or(4);
+            ensure!(
+                (1..=128).contains(&max_sessions),
+                "invalid terminal session limit"
+            );
+            if !self.cfg.execution_enabled
+                || self.entries.len() >= max_sessions
+                || self.seen.len() > 1024
+            {
                 self.output
                     .send((
                         "terminal.closed".into(),
@@ -761,5 +771,67 @@ mod tests {
             .receive("terminal.close", json!({"session_id":id}))
             .await
             .unwrap();
+    }
+    #[tokio::test]
+    async fn configured_terminal_limit_admits_five_real_ptys_and_rejects_the_sixth() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            connect_ip: None,
+            server: url::Url::parse("https://localhost:8443").unwrap(),
+            state: temp.path().into(),
+            ca_pem: None,
+            enrollment_token: None,
+            name: "limit-test".into(),
+            execution_enabled: true,
+            terminal_allow_privilege_escalation: false,
+            heartbeat_ms: 2000,
+            fault: None,
+        };
+        let (output, mut events) = mpsc::channel(256);
+        let mut manager = Terminals::new(cfg, output);
+        let ids: Vec<String> = (0..6).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+        for id in &ids {
+            manager
+                .receive(
+                    "terminal.open",
+                    json!({"session_id":id,"cols":80,"rows":24,"max_sessions":5}),
+                )
+                .await
+                .unwrap();
+        }
+        let mut opened = HashSet::new();
+        let mut limited = false;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while opened.len() < 5 || !limited {
+                let (kind, body) = events.recv().await.unwrap();
+                if kind == "terminal.opened" {
+                    opened.insert(body["session_id"].as_str().unwrap().to_string());
+                }
+                if kind == "terminal.closed" {
+                    assert_eq!(body["session_id"], ids[5]);
+                    assert_eq!(body["reason"], "TERMINAL_DISABLED_OR_LIMIT");
+                    limited = true;
+                }
+                if kind == "terminal.output" {
+                    manager
+                        .receive(
+                            "terminal.ack",
+                            json!({"session_id":body["session_id"],"seq":body["seq"]}),
+                        )
+                        .await
+                        .unwrap();
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(opened.contains(&ids[4]));
+        for id in ids.iter().take(5) {
+            manager
+                .receive("terminal.close", json!({"session_id":id}))
+                .await
+                .unwrap();
+        }
+        assert!(manager.receive("terminal.open",json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"max_sessions":129})).await.is_err());
     }
 }

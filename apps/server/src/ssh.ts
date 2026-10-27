@@ -16,6 +16,8 @@ export interface SshLogin {
   deviceId?: string;
 }
 interface Dependencies {
+  limits?(): { ssh_total: number; ssh_per_ip: number };
+  reserve?(login: SshLogin): void;
   authenticate(
     username: string,
     password: string,
@@ -82,7 +84,11 @@ export function createSshGateway(
   const listener = createServer((socket) => {
     const ip = socket.remoteAddress ?? "unknown";
     socket.on("error", () => {});
-    if (sockets.size >= 64 || (byIp.get(ip) ?? 0) >= 16) {
+    const limits = d.limits?.() ?? { ssh_total: 64, ssh_per_ip: 16 };
+    if (
+      sockets.size >= limits.ssh_total ||
+      (byIp.get(ip) ?? 0) >= limits.ssh_per_ip
+    ) {
       socket.destroy();
       return;
     }
@@ -145,6 +151,12 @@ export function createSshGateway(
         if (closed || socket.destroyed) {
           d.release(authenticated.sessionHash);
           return;
+        }
+        try {
+          d.reserve?.(authenticated);
+        } catch (error) {
+          d.release(authenticated.sessionHash);
+          throw error;
         }
         login = authenticated;
         deadline(socket, 30000); // Authenticated clients must open a shell promptly.
@@ -340,6 +352,10 @@ export function createSshGateway(
                   DEVICE_OFFLINE: "设备离线，请刷新列表或选择其他设备。",
                   TERMINAL_NOT_SUPPORTED_UPDATE_AGENT:
                     "该设备暂不支持终端，请更新 Agent。",
+                  USER_CONNECTION_LIMIT:
+                    "该用户的并发连接数已达上限，请关闭其他终端或 SSH 连接。",
+                  DEVICE_TERMINAL_LIMIT:
+                    "该设备的终端数已达上限，请关闭其他会话。",
                   TERMINAL_SESSION_LIMIT: "终端会话数量已达上限，请稍后重试。",
                   DEVICE_SCOPE_DENIED: "该设备的访问权限已变更，请重新选择。",
                   TARGET_ACCOUNT_DENIED:

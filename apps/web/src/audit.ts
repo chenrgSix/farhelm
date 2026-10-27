@@ -47,6 +47,7 @@ export const auditActionLabels: Record<string, string> = {
   "connection.configured": "修改设备接入配置",
   "connection.host_key_scanned": "扫描 SSH 主机密钥",
   "connection.tested": "测试 SSH 连接",
+  "settings.connections_updated": "修改连接限额",
   "settings.updated": "修改平台服务端地址",
   "settings.agent_sync": "Agent 地址同步结果",
   "settings.sync_requested": "发起 Agent 地址同步",
@@ -85,6 +86,14 @@ export const auditActionLabels: Record<string, string> = {
 };
 const labels: Record<string, string> = {
   rule_id: "授权规则 ID",
+  effect: "sudo 策略",
+  sudo_allowed: "会话允许 sudo",
+  sudo_enforced: "会话策略已落实",
+  per_user: "单用户并发连接上限",
+  per_device: "单设备终端上限",
+  terminal_total: "平台终端总上限",
+  ssh_total: "SSH 总连接上限",
+  ssh_per_ip: "单 IP SSH 连接上限",
   account_id: "登录账号 ID",
   subject_type: "授权对象类型",
   subject_id: "授权对象 ID",
@@ -196,6 +205,8 @@ const values: Record<string, string> = {
   AGENT_DISCONNECTED: "Agent 断连",
   AUTHORIZATION_EXPIRED: "登录或权限已失效",
   BROWSER_DISCONNECTED: "网页连接断开",
+  allow: "允许",
+  deny: "明确禁止",
   add: "添加",
   remove: "移除",
   completed: "已完成",
@@ -270,6 +281,7 @@ function format(key: string, value: unknown): string {
         "backend",
         "connection_kind",
         "operation",
+        "effect",
         "mode",
         "cleanup",
       ].includes(key) && Object.hasOwn(values, value)
@@ -339,7 +351,8 @@ export function auditOutcome(entry: AuditEntry): string {
   if (
     entry.action.startsWith("access.") ||
     entry.action.endsWith("configured") ||
-    entry.action === "settings.updated"
+    entry.action === "settings.updated" ||
+    entry.action === "settings.connections_updated"
   )
     return "已保存";
   if (entry.action === "task.created") return "已创建";

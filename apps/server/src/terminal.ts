@@ -1,3 +1,4 @@
+import type { ConnectionLimits } from "./connection-limits.js";
 import { deviceSudo } from "./device-sudo.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
@@ -54,6 +55,7 @@ interface Session {
   target?: TargetTerminal;
 }
 interface Dependencies {
+  limits: ConnectionLimits;
   authorization?: ReturnType<typeof registerConnectionAuthorizations>;
   store: Store;
   operator(req: FastifyRequest): User;
@@ -223,6 +225,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   }
   function end(s: Session, reason: string, complete = false) {
     if (!sessions.delete(s.id)) return;
+    d.limits.release("web:" + s.id);
     // Stop further input first, even if final audit storage itself has failed.
     if (s.backend === "ssh") s.target?.close();
     else d.agent(s.deviceId)?.send("terminal.close", { session_id: s.id });
@@ -341,35 +344,53 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     const sudoAuto = !!sudoAutoPassword;
     if (sudoAutoPassword && /[\r\n\0]/.test(sudoAutoPassword))
       fail(409, "INVALID_SUDO_PASSWORD");
-    if (
-      sessions.size >= 32 ||
-      [...sessions.values()].filter((s) => s.deviceId === deviceId).length >=
-        4 ||
-      [...sessions.values()].filter((s) => s.actorId === user.id).length >= 4
-    )
+    const limits = d.limits.current();
+    if (sessions.size >= limits.terminal_total)
       fail(429, "TERMINAL_SESSION_LIMIT");
+    if (
+      [...sessions.values()].filter((s) => s.deviceId === deviceId).length >=
+      limits.per_device
+    )
+      fail(429, "DEVICE_TERMINAL_LIMIT");
+    if (transport === "ssh" && !d.limits.holds("ssh:" + userSession, user.id))
+      fail(401, "SSH_CONNECTION_EXPIRED");
     d.availableStorage();
     const id = randomUUID(),
       ticket = token(),
       now = Date.now();
-    store.transaction(() => {
-      db.prepare(
-        "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,transport,backend) VALUES(?,?,?,'OPENING',?,?,?,?,?)",
-      ).run(id, deviceId, user.id, cols, rows, now, transport, selectedBackend);
-      record(id, "open", {
-        cols,
-        rows,
-        sudo_allowed: allowPrivilege,
-        sudo_enforced: policyControlled,
-        ...(sudoAuto ? { sudo_auto: true } : {}),
+    if (transport === "web") d.limits.acquire("web:" + id, user.id);
+    try {
+      store.transaction(() => {
+        db.prepare(
+          "INSERT INTO terminal_sessions(id,device_id,actor_id,status,cols,rows,created_at,transport,backend) VALUES(?,?,?,'OPENING',?,?,?,?,?)",
+        ).run(
+          id,
+          deviceId,
+          user.id,
+          cols,
+          rows,
+          now,
+          transport,
+          selectedBackend,
+        );
+        record(id, "open", {
+          cols,
+          rows,
+          sudo_allowed: allowPrivilege,
+          sudo_enforced: policyControlled,
+          ...(sudoAuto ? { sudo_auto: true } : {}),
+        });
+        store.audit("terminal.created", user.id, deviceId, null, {
+          session_id: id,
+          sudo_allowed: allowPrivilege,
+          sudo_enforced: policyControlled,
+          ...(sudoAuto ? { sudo_auto: true } : {}),
+        });
       });
-      store.audit("terminal.created", user.id, deviceId, null, {
-        session_id: id,
-        sudo_allowed: allowPrivilege,
-        sudo_enforced: policyControlled,
-        ...(sudoAuto ? { sudo_auto: true } : {}),
-      });
-    });
+    } catch (error) {
+      d.limits.release("web:" + id);
+      throw error;
+    }
     const session: Session = {
       commands: new CommandStream(id),
       id,
@@ -548,7 +569,12 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         session_id: s.id,
         cols,
         rows,
-        ...(s.policyControlled ? { allow_sudo: s.allowPrivilege } : {}),
+        ...(s.policyControlled
+          ? {
+              allow_sudo: s.allowPrivilege,
+              max_sessions: d.limits.current().per_device,
+            }
+          : {}),
         ...(s.sudoAuto
           ? { sudo_auto_password: d.connections.sudoPassword?.(s.deviceId) }
           : {}),

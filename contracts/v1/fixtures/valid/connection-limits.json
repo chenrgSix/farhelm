@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "revision": 0,
+  "per_user": 4,
+  "per_device": 4,
+  "terminal_total": 32,
+  "ssh_total": 64,
+  "ssh_per_ip": 16,
+  "updated_at": null
+}

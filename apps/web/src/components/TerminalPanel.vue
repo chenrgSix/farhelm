@@ -27,6 +27,10 @@ const records = ref<
 const speed = ref(2);
 const playing = ref(false);
 const sudoErrors: Record<string, string> = {
+  USER_CONNECTION_LIMIT:
+    "该用户的并发连接数已达上限，请关闭其他网页终端或 SSH 连接。",
+  DEVICE_TERMINAL_LIMIT: "该设备的终端数已达上限，请关闭其他会话。",
+  TERMINAL_SESSION_LIMIT: "平台终端总数已达上限，请稍后重试。",
   TERMINAL_POLICY_NOT_SUPPORTED_UPDATE_AGENT:
     "当前 Agent 无法落实单用户 sudo 限制，请升级 Agent。",
   SSH_PRIVILEGE_POLICY_NOT_SUPPORTED:

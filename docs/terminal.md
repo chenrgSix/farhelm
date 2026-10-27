@@ -94,3 +94,11 @@ FLEET_TEST_BROWSER_CHANNEL=chromium node tests/e2e/target-accounts.mjs
 - 使用隔离的示例数据库进行浏览器界面验收：进入页面不查询，超出 7 天禁止查询，用户与命令组合过滤、50／7 条翻页和定位回放通过；桌面及 390px 手机布局检查通过。
 
 本地证据保存在 `.test-output/terminal-e2e.json`、`target-accounts-e2e.json` 和 `command-history-*.png`。以上为本地隔离环境验证，不代表 CI 或生产验收；更新平台与 Agent 后需建立新会话，旧会话不回填命令。
+
+## 连接限额
+
+管理员在「系统设置 → 连接限额」配置 Farhelm 的单用户并发连接、单设备终端、平台终端总数、SSH 总连接及单 IP SSH 连接上限。默认分别为 4、4、32、64、16，兼容原限额；单用户及单设备可设 1–128，其他项可设 1–1024。各项上限同时生效，实际接纳数受最先达到的上限限制。
+
+单用户计数跨登录令牌、网页和 SSH 共用：等待附着的网页票据占一个名额，认证完成的 SSH 连接（含设备选择菜单）占一个名额；SSH 选择设备后不会再次计数。单设备及平台终端数包含待连接和活动终端。SSH 总数与单 IP 数包含尚未完成认证的 TCP 连接，以限制握手资源。关闭、失败和票据过期后释放相应名额。
+
+保存后新连接立即使用新限额，降低上限不会断开已有连接；提高单设备上限需同步升级 Agent，以免仍受旧 Agent 的 4 会话限制。配置持久化且保存带版本校验和审计。API 为管理员专用 `GET/PUT /api/v1/settings/connections`；PUT 提交 `v`、`revision`、`per_user`、`per_device`、`terminal_total`、`ssh_total`、`ssh_per_ip`。此配置不修改目标机 sshd、监听端口、路由或网络策略。

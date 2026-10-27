@@ -1938,5 +1938,10 @@
     "path": "valid/device-sudo-rule.json",
     "schema": "device-sudo-rule.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/connection-limits.json",
+    "schema": "connection-limits.schema.json",
+    "valid": true
   }
 ]
