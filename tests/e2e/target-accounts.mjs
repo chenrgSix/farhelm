@@ -1546,6 +1546,8 @@ try {
         webTerminalPrivilege: testPrivilegeSettings,
         normalTerminalSudo: testSudoCommands,
         ordinaryConnectionAndRemovedRootMode: true,
+        deviceSudoAuthorization: true,
+        explicitDenyBlocksNopasswdWebAndSsh: true,
         passwordlessSudo: true,
         missingPasswordPreservesOrdinaryConnection: true,
         usePty: true,
