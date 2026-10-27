@@ -163,7 +163,7 @@ try {
   args.push(
     process.env.FLEET_AGENT_DOCKER_IMAGE ?? "farhelm-agent-dev:local",
     "-c",
-    "mkdir -p /state && chown fleet /state && exec runuser -u fleet -- /agent",
+    "mkdir -p /state && chmod 700 /state && chown fleet /state && exec runuser -u fleet -- /agent",
   );
   await docker(args);
   started = true;
