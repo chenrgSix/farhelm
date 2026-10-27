@@ -1126,3 +1126,86 @@ test("SSH global and per-IP connection limits can change live without dropping e
     await f.close();
   }
 });
+
+test("a per-device override shares admission between SSH menus and web tickets and reset follows the global default", async () => {
+  const f = await fixture();
+  try {
+    const auth = (
+      await f.app.inject({
+        method: "POST",
+        url: "/api/v1/login",
+        payload: { username: "admin", password: "ssh-test-password1" },
+      })
+    ).json().access_token;
+    const api = async (method: string, path: string, body?: any) => {
+      const r = await f.app.inject({
+        method: method as any,
+        url: "/api/v1" + path,
+        payload: body,
+        headers: { authorization: "Bearer " + auth },
+      });
+      return { status: r.statusCode, body: r.json() };
+    };
+    const { updated_at, ...limits } = (
+      await api("GET", "/settings/connections")
+    ).body;
+    assert.equal(
+      (
+        await api("PUT", "/settings/connections", {
+          ...limits,
+          per_user: 8,
+          per_device: 1,
+        })
+      ).status,
+      200,
+    );
+    const setting = (limit: number | null, revision: number) =>
+      api("PUT", "/devices/device/terminal-limit", { v: 1, revision, limit });
+    const create = () =>
+      api("POST", "/terminal-sessions", {
+        v: 1,
+        device_id: "device",
+        cols: 80,
+        rows: 24,
+      });
+    assert.equal((await setting(1, 0)).status, 200);
+    const web = await create();
+    assert.equal(web.status, 200);
+    const menu = await f.menu();
+    menu.channel.write("1\r");
+    await menu.waitText("该设备的终端数已达上限");
+    assert.equal(
+      f.messages.some((m) => m.type === "terminal.open"),
+      false,
+    );
+    assert.equal((await setting(2, 1)).status, 200);
+    menu.channel.write("1\r");
+    const opened = await f.wait("terminal.open");
+    assert.equal(opened.max_sessions, 2);
+    f.send("terminal.opened", { session_id: opened.session_id });
+    await f.wait("terminal.resize");
+    assert.equal((await create()).body.error, "DEVICE_TERMINAL_LIMIT");
+    assert.equal((await setting(null, 2)).body.effective_limit, 1);
+    assert.equal(
+      f.store.db
+        .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
+        .get(opened.session_id)!.ended_at,
+      null,
+    );
+    await api("POST", `/terminal-sessions/${web.body.session_id}/close`, {
+      v: 1,
+    });
+    assert.equal((await create()).body.error, "DEVICE_TERMINAL_LIMIT");
+    menu.client.destroy();
+    await until(
+      () =>
+        f.store.db
+          .prepare("SELECT ended_at FROM terminal_sessions WHERE id=?")
+          .get(opened.session_id)!.ended_at,
+      "SSH closed",
+    );
+    assert.equal((await create()).status, 200);
+  } finally {
+    await f.close();
+  }
+});

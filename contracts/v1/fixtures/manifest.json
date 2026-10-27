@@ -1943,5 +1943,45 @@
     "path": "valid/connection-limits.json",
     "schema": "connection-limits.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/device-terminal-limit-inherited.json",
+    "schema": "device-terminal-limit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-terminal-limit-overridden.json",
+    "schema": "device-terminal-limit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-terminal-limit-update.json",
+    "schema": "device-terminal-limit-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-terminal-limit-reset.json",
+    "schema": "device-terminal-limit-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-terminal-limit-audit-detail.json",
+    "schema": "device-terminal-limit-audit-detail.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/device-terminal-limit-zero.json",
+    "schema": "device-terminal-limit-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/device-terminal-limit-large.json",
+    "schema": "device-terminal-limit-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/device-terminal-limit-string.json",
+    "schema": "device-terminal-limit-update.schema.json",
+    "valid": false
   }
 ]

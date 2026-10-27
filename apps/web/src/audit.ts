@@ -5,6 +5,7 @@ export const auditActionLabels: Record<string, string> = {
   "device.disk_requested": "请求磁盘采集",
   "device.disk_collected": "磁盘采集完成",
   "device.disk_failed": "磁盘采集失败",
+  "device.terminal_limit_updated": "修改设备终端限额",
   "device.disk_schedule_updated": "修改磁盘采集间隔",
   "api_token.created": "创建 API Token",
   "api_token.updated": "修改 API Token 授权",
@@ -90,7 +91,9 @@ const labels: Record<string, string> = {
   sudo_allowed: "会话允许 sudo",
   sudo_enforced: "会话策略已落实",
   per_user: "单用户并发连接上限",
-  per_device: "单设备终端上限",
+  per_device: "单设备终端默认上限",
+  terminal_limit: "设备终端上限",
+  effective_limit: "生效终端上限",
   terminal_total: "平台终端总上限",
   ssh_total: "SSH 总连接上限",
   ssh_per_ip: "单 IP SSH 连接上限",
@@ -236,6 +239,7 @@ function object(value: unknown): Record<string, unknown> {
     : {};
 }
 function format(key: string, value: unknown): string {
+  if (key === "terminal_limit" && value === null) return "继承全局";
   if (value === null || value === undefined) return "未记录";
   if (typeof value === "boolean") return value ? "是" : "否";
   if (

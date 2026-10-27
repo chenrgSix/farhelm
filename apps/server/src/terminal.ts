@@ -350,7 +350,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       fail(429, "TERMINAL_SESSION_LIMIT");
     if (
       [...sessions.values()].filter((s) => s.deviceId === deviceId).length >=
-      limits.per_device
+      d.limits.device(deviceId).effective_limit
     )
       fail(429, "DEVICE_TERMINAL_LIMIT");
     if (transport === "ssh" && !d.limits.holds("ssh:" + userSession, user.id))
@@ -573,7 +573,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         ...(s.policyControlled
           ? {
               allow_sudo: s.allowPrivilege,
-              max_sessions: d.limits.current().per_device,
+              max_sessions: d.limits.device(s.deviceId).effective_limit,
             }
           : {}),
         ...(s.sudoAuto

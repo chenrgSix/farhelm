@@ -2396,3 +2396,114 @@ test("configurable terminal limits count pending tickets across logins, allow a 
     await f.close();
   }
 });
+
+test("device overrides replace the global default for admission and Agent capacity, with independent devices and live reset", async () => {
+  const f = await fixture();
+  let second: ReturnType<typeof client> | undefined;
+  try {
+    const global = async (per_device: number) => {
+      const { updated_at, ...old } = (
+        await f.api("GET", "/api/v1/settings/connections", undefined, f.admin)
+      ).body;
+      assert.equal(
+        (
+          await f.api(
+            "PUT",
+            "/api/v1/settings/connections",
+            { ...old, per_device, per_user: 8, terminal_total: 16 },
+            f.admin,
+          )
+        ).status,
+        200,
+      );
+    };
+    const save = async (limit: number | null, revision: number) => {
+      const r = await f.api(
+        "PUT",
+        "/api/v1/devices/device/terminal-limit",
+        { v: 1, revision, limit },
+        f.admin,
+      );
+      assert.equal(r.status, 200);
+    };
+    const close = (id: string) =>
+      f.api("POST", `/api/v1/terminal-sessions/${id}/close`, { v: 1 }, f.admin);
+    await global(2);
+    await save(5, 0);
+    f.store.db
+      .prepare(
+        "INSERT INTO devices(id,public_key,name,created_at) VALUES('other','other-key','other',1)",
+      )
+      .run();
+    const access = token();
+    f.store.db
+      .prepare(
+        "INSERT INTO device_tokens(token_hash,device_id,expires_at,scope) VALUES(?,'other',?,'agent-control-output')",
+      )
+      .run(hash(access), Date.now() + 60000);
+    second = client(f.wsUrl + "/agent/ws", {
+      headers: { authorization: "Bearer " + access },
+    });
+    await once(second.ws, "open");
+    second.send("agent.hello", {
+      agent_version: "limit-double",
+      capabilities: ["terminal.pty.v1", "terminal.policy.v1"],
+    });
+    for (let i = 0; i < 100; i++) {
+      if (
+        (
+          await f.api("GET", "/api/v1/devices", undefined, f.admin)
+        ).body.devices.find((d: any) => d.id === "other")?.control_online
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const other = () =>
+      f.api(
+        "POST",
+        "/api/v1/terminal-sessions",
+        { v: 1, device_id: "other", cols: 80, rows: 24 },
+        f.admin,
+      );
+    const tickets = [];
+    for (let i = 0; i < 5; i++) {
+      const created = await f.create();
+      assert.equal(created.status, 200);
+      tickets.push(created.body);
+    }
+    assert.equal((await f.create()).body.error, "DEVICE_TERMINAL_LIMIT");
+    for (let i = 0; i < 2; i++) assert.equal((await other()).status, 200);
+    assert.equal((await other()).body.error, "DEVICE_TERMINAL_LIMIT");
+    const browser = await f.attach(tickets[0]);
+    const open = await f.agent.wait("terminal.open");
+    assert.equal(open.max_sessions, 5);
+    f.agent.send("terminal.opened", { session_id: open.session_id });
+    await browser.wait("terminal.ready");
+    await global(3);
+    assert.equal(
+      (await other()).status,
+      200,
+      "inherited device follows the changed global default",
+    );
+    assert.equal(
+      (await f.create()).body.error,
+      "DEVICE_TERMINAL_LIMIT",
+      "overridden device stays at five",
+    );
+    await save(1, 1);
+    assert.equal(browser.ws.readyState, WebSocket.OPEN);
+    for (const t of tickets.slice(1)) await close(t.session_id);
+    assert.equal((await f.create()).body.error, "DEVICE_TERMINAL_LIMIT");
+    await close(tickets[0].session_id);
+    const first = await f.create();
+    assert.equal(first.status, 200);
+    await save(null, 2);
+    for (let i = 0; i < 2; i++) assert.equal((await f.create()).status, 200);
+    assert.equal((await f.create()).body.error, "DEVICE_TERMINAL_LIMIT");
+    await f.attach(first.body);
+    assert.equal((await f.agent.wait("terminal.open")).max_sessions, 3);
+  } finally {
+    second?.ws.terminate();
+    await f.close();
+  }
+});

@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "../api/client";
 const fields = [
   { key: "per_user", label: "单用户并发连接上限", max: 128 },
-  { key: "per_device", label: "单设备终端上限", max: 128 },
+  { key: "per_device", label: "单设备终端默认上限", max: 128 },
   { key: "terminal_total", label: "平台终端总上限", max: 1024 },
   { key: "ssh_total", label: "SSH 总连接上限", max: 1024 },
   { key: "ssh_per_ip", label: "单 IP SSH 连接上限", max: 1024 },
@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
     <h3>连接限额</h3>
     <p class="field-hint">
       单用户限额合计网页终端（含等待连接）和已认证的 SSH 连接，SSH
-      设备菜单也占用一个连接。设备终端限额由所有用户共用。
+      设备菜单也占用一个连接。设备终端限额由所有用户共用，可在设备接入配置中单独覆盖。
     </p>
     <p class="field-hint">
       只调整 Farhelm 接纳的新连接，降低限额不会中断已有连接。SSH 总数及单 IP

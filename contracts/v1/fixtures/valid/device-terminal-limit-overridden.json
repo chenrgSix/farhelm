@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "device_id": "device",
+  "revision": 1,
+  "limit": 6,
+  "global_limit": 4,
+  "effective_limit": 6,
+  "source": "device",
+  "updated_at": 1
+}

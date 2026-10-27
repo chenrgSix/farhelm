@@ -23,7 +23,7 @@ it("saves Farhelm limits with revision and bounded inputs without sending networ
   expect(
     wrapper.get('input[aria-label="单用户并发连接上限"]').attributes("max"),
   ).toBe("128");
-  await wrapper.get('input[aria-label="单设备终端上限"]').setValue(8);
+  await wrapper.get('input[aria-label="单设备终端默认上限"]').setValue(8);
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   expect(request.mock.calls[1]).toEqual([

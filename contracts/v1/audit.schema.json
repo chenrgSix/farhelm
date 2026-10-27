@@ -125,11 +125,13 @@
         "device.disk_requested",
         "device.disk_collected",
         "device.disk_failed",
-        "device.disk_schedule_updated"
+        "device.disk_schedule_updated",
+        "device.terminal_limit_updated"
       ]
     },
     "detail": {
       "anyOf": [
+        {"$ref":"device-terminal-limit-audit-detail.schema.json"},
         {"type": "object", "additionalProperties": false, "properties": {"per_user": {"type": "integer", "minimum": 1, "maximum": 128}, "per_device": {"type": "integer", "minimum": 1, "maximum": 128}, "terminal_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_per_ip": {"type": "integer", "minimum": 1, "maximum": 1024}, "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}, "required": ["per_user", "per_device", "terminal_total", "ssh_total", "ssh_per_ip", "revision"]},
         {
           "type": "object",
@@ -3611,7 +3613,8 @@
         }
       }
     },
-    {"if": {"properties": {"action": {"const": "settings.connections_updated"}}}, "then": {"properties": {"detail": {"type": "object", "additionalProperties": false, "properties": {"per_user": {"type": "integer", "minimum": 1, "maximum": 128}, "per_device": {"type": "integer", "minimum": 1, "maximum": 128}, "terminal_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_per_ip": {"type": "integer", "minimum": 1, "maximum": 1024}, "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}, "required": ["per_user", "per_device", "terminal_total", "ssh_total", "ssh_per_ip", "revision"]}}}}
+    {"if": {"properties": {"action": {"const": "settings.connections_updated"}}}, "then": {"properties": {"detail": {"type": "object", "additionalProperties": false, "properties": {"per_user": {"type": "integer", "minimum": 1, "maximum": 128}, "per_device": {"type": "integer", "minimum": 1, "maximum": 128}, "terminal_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_per_ip": {"type": "integer", "minimum": 1, "maximum": 1024}, "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}, "required": ["per_user", "per_device", "terminal_total", "ssh_total", "ssh_per_ip", "revision"]}}}},
+    {"if": {"properties": {"action": {"const": "device.terminal_limit_updated"}}}, "then": {"properties": {"detail": {"$ref": "device-terminal-limit-audit-detail.schema.json"}}}}
   ],
   "description": "Strict current server audit output variants. New actions and detail fields require explicit contract updates; storage may remain extensible."
 }

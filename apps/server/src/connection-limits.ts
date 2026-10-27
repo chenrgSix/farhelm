@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
-import { fail, integer, keys, object, version } from "./util.js";
+import { fail, integer, keys, object, str, version } from "./util.js";
 export const LIMIT_BOUNDS = {
   per_user: 128,
   per_device: 128,
@@ -27,6 +27,25 @@ export class ConnectionLimits {
       .get()!;
     return row as Limits;
   }
+  device(deviceId: string) {
+    const row = this.store.db
+      .prepare(
+        "SELECT terminal_limit,revision,updated_at FROM device_terminal_limits WHERE device_id=?",
+      )
+      .get(deviceId);
+    const limit = (row?.terminal_limit ?? null) as number | null;
+    const global = this.current().per_device;
+    return {
+      v: 1,
+      device_id: deviceId,
+      revision: Number(row?.revision ?? 0),
+      limit,
+      global_limit: global,
+      effective_limit: limit ?? global,
+      source: limit === null ? "global" : "device",
+      updated_at: row?.updated_at ?? null,
+    };
+  }
   acquire(key: string, actorId: string) {
     if (this.slots.has(key)) {
       if (this.slots.get(key) !== actorId)
@@ -51,6 +70,47 @@ export class ConnectionLimits {
     admin: (req: FastifyRequest) => User,
     availableStorage: () => void,
   ) {
+    const deviceRequest = (req: FastifyRequest) => {
+      const user = admin(req),
+        id = str((req.params as any).id, 1, 128);
+      if (
+        !this.store.db
+          .prepare("SELECT 1 FROM devices WHERE id=? AND revoked_at IS NULL")
+          .get(id)
+      )
+        fail(404, "DEVICE_NOT_FOUND");
+      return { user, id };
+    };
+    app.get("/api/v1/devices/:id/terminal-limit", async (req) =>
+      this.device(deviceRequest(req).id),
+    );
+    app.put("/api/v1/devices/:id/terminal-limit", async (req) => {
+      const { user, id } = deviceRequest(req),
+        b = object(req.body);
+      version(b);
+      keys(b, ["v", "revision", "limit"]);
+      const revision = integer(b.revision, 0, Number.MAX_SAFE_INTEGER - 1),
+        limit = b.limit === null ? null : integer(b.limit, 1, 128);
+      availableStorage();
+      return this.store.transaction(() => {
+        const before = this.device(id);
+        if (before.revision !== revision)
+          fail(409, "DEVICE_TERMINAL_LIMIT_CHANGED_RELOAD");
+        if (before.limit === limit) return before;
+        this.store.db
+          .prepare(
+            "INSERT INTO device_terminal_limits(device_id,terminal_limit,revision,updated_at) VALUES(?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET terminal_limit=excluded.terminal_limit,revision=excluded.revision,updated_at=excluded.updated_at",
+          )
+          .run(id, limit, revision + 1, Date.now());
+        const saved = this.device(id);
+        this.store.audit("device.terminal_limit_updated", user.id, id, null, {
+          revision: saved.revision,
+          terminal_limit: limit,
+          effective_limit: saved.effective_limit,
+        });
+        return saved;
+      });
+    });
     app.get("/api/v1/settings/connections", async (req) => {
       admin(req);
       return { v: 1, ...this.current() };
