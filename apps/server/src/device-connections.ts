@@ -427,6 +427,7 @@ export function registerDeviceConnections(
       rows: number,
       receive: (type: string, body: Record<string, any>) => void,
       commandToken?: string,
+      restrictPrivilege = false,
     ) {
       const revision = saved(id)?.revision,
         selected = routeTargets(id);
@@ -493,6 +494,7 @@ export function registerDeviceConnections(
             receive(type, body);
           },
           commandToken,
+          restrictPrivilege,
         );
       };
       queueMicrotask(start);

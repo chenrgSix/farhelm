@@ -106,6 +106,7 @@ interface Connection {
   sudo: boolean;
   sudoNopasswd: boolean;
   sudoCommands: boolean;
+  terminalPolicy: boolean;
   terminalConfig: boolean;
   terminalConfigReported: boolean;
   health: boolean;
@@ -881,6 +882,7 @@ export async function buildServer(config: ServerConfig) {
         sudo: c.sudo,
         sudoNopasswd: c.sudoNopasswd,
         sudoCommands: c.sudoCommands,
+        policy: c.terminalPolicy,
         sudoEnabled:
           terminalPrivilege.effective(id) ??
           (c.terminalConfig ? false : undefined),
@@ -1999,6 +2001,7 @@ export async function buildServer(config: ServerConfig) {
         sudo: false,
         sudoNopasswd: false,
         sudoCommands: false,
+        terminalPolicy: false,
         terminalConfig: false,
         terminalConfigReported: false,
         health: false,
@@ -2063,6 +2066,7 @@ export async function buildServer(config: ServerConfig) {
               c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
               c.sudo = b.capabilities.includes("terminal.sudo.v1");
+              c.terminalPolicy = b.capabilities.includes("terminal.policy.v1");
               c.sudoCommands = b.capabilities.includes(
                 "terminal.sudo.command.v1",
               );

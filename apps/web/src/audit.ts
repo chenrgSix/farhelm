@@ -31,6 +31,8 @@ export const auditActionLabels: Record<string, string> = {
   "task.finished": "任务执行结束",
   "access.authorization_created": "新增访问授权",
   "access.authorization_deleted": "删除访问授权",
+  "access.sudo_configured": "配置设备 sudo 授权",
+  "access.sudo_deleted": "删除设备 sudo 授权",
   "account.configured": "配置登录账号",
   "account.deleted": "删除登录账号",
   "terminal.privilege_requested": "修改 Agent 终端提权设置",

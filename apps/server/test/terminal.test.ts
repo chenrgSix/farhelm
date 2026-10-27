@@ -92,7 +92,7 @@ async function fixture() {
   await once(agent.ws, "open");
   agent.send("agent.hello", {
     agent_version: "terminal-test-double",
-    capabilities: ["terminal.pty.v1"],
+    capabilities: ["terminal.pty.v1", "terminal.policy.v1"],
   });
   // Message ordering on this socket is preserved before creation via the HTTP API.
   for (let n = 0; n < 50; n++) {
@@ -1777,6 +1777,8 @@ test("removed root mode is rejected without opening a session; normal clients an
     f.agent.send("terminal.opened", { session_id: request.session_id });
     assert.deepEqual(await browser.wait("terminal.ready"), {
       backend: "agent",
+      sudo_allowed: false,
+      sudo_enforced: true,
     });
     const rules = new AccountAuthorizations(f.store.db);
     rules.ensureDefault("device");
@@ -1818,7 +1820,11 @@ test("legacy passwordless accounts stay stored but cannot open terminals regardl
       );
     f.agent.send("agent.heartbeat", {
       agent_version: "password-only",
-      capabilities: ["terminal.pty.v1", "terminal.sudo.v1"],
+      capabilities: [
+        "terminal.pty.v1",
+        "terminal.policy.v1",
+        "terminal.sudo.v1",
+      ],
     });
     await new Promise((r) => setTimeout(r, 30));
     assert.equal((await create()).body.error, "ACCOUNT_CONNECTION_REMOVED");
@@ -1826,6 +1832,7 @@ test("legacy passwordless accounts stay stored but cannot open terminals regardl
       agent_version: "nopasswd",
       capabilities: [
         "terminal.pty.v1",
+        "terminal.policy.v1",
         "terminal.sudo.v1",
         "terminal.sudo.nopasswd.v1",
       ],
@@ -1863,6 +1870,7 @@ test("normal sudo delegation uses the existing role and switch, never reaches th
     assert.equal(config.status, 200);
     const capabilities = [
       "terminal.pty.v1",
+      "terminal.policy.v1",
       "terminal.sudo.v1",
       "terminal.config.v1",
       "terminal.sudo.command.v1",
@@ -1959,6 +1967,15 @@ test("normal sudo delegation uses the existing role and switch, never reaches th
       assert.equal(JSON.stringify(ready).includes(password), false);
       return browser;
     };
+    for (const [name, role] of [
+      ["auto-sudo-ops", "ops"],
+      ["admin", "admin"],
+    ])
+      f.store.db
+        .prepare(
+          "INSERT INTO device_sudo_rules(id,device_id,user_id,effect,origin,legacy_role_ids) VALUES(?,'device',(SELECT id FROM users WHERE username=?),'allow','legacy',?)",
+        )
+        .run(name, name, JSON.stringify([role]));
     const delegated = await open(ops);
     f.store.db
       .prepare("UPDATE access_roles SET permissions=? WHERE id='ops'")
@@ -2063,6 +2080,7 @@ test("web terminal privilege settings require admin, report real state, gate sud
       agent_version: "settings-agent",
       capabilities: [
         "terminal.pty.v1",
+        "terminal.policy.v1",
         "terminal.sudo.v1",
         "terminal.sudo.nopasswd.v1",
         "terminal.config.v1",
@@ -2238,6 +2256,79 @@ test("web terminal privilege settings require admin, report real state, gate sud
       0,
     );
     reopened.db.close();
+  } finally {
+    await f.close();
+  }
+});
+
+test("device sudo rules control passwordless and manual sudo sessions and revoke active sessions and tickets without deleting recordings", async () => {
+  const f = await fixture();
+  try {
+    const me = (await f.api("GET", "/api/v1/me", undefined, f.admin)).body;
+    const policy = async (effect: string, revision: number) =>
+      f.api(
+        "POST",
+        "/api/v1/access-authorizations/sudo",
+        {
+          v: 1,
+          device_id: "device",
+          subject_type: "user",
+          subject_id: me.id,
+          effect,
+          revision,
+        },
+        f.admin,
+      );
+    const restricted = await f.create();
+    const browser = await f.attach(restricted.body);
+    let request = await f.agent.wait("terminal.open");
+    assert.equal(request.allow_sudo, false);
+    f.agent.send("terminal.opened", { session_id: request.session_id });
+    assert.equal((await browser.wait("terminal.ready")).sudo_allowed, false);
+    assert.equal((await policy("allow", 0)).status, 200);
+    assert.equal(
+      (await browser.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    const permitted = await f.create();
+    const pending = await f.create();
+    const grantedBrowser = await f.attach(permitted.body);
+    request = await f.agent.wait("terminal.open");
+    assert.equal(request.allow_sudo, true);
+    assert.equal(request.sudo_auto_password, undefined);
+    f.agent.send("terminal.opened", { session_id: request.session_id });
+    assert.equal(
+      (await grantedBrowser.wait("terminal.ready")).sudo_allowed,
+      true,
+    );
+    assert.equal((await policy("deny", 1)).status, 200);
+    assert.equal(
+      (await grantedBrowser.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
+    const stale = await f.attach(pending.body);
+    const [code] = await once(stale.ws, "close");
+    assert.equal(code, 4003);
+    assert.equal(
+      (
+        await f.api(
+          "GET",
+          `/api/v1/terminal-sessions/${permitted.body.session_id}/recording`,
+          undefined,
+          f.admin,
+        )
+      ).status,
+      200,
+    );
+    f.agent.send("agent.heartbeat", {
+      agent_version: "old",
+      capabilities: ["terminal.pty.v1"],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(
+      (await f.create()).body.error,
+      "TERMINAL_POLICY_NOT_SUPPORTED_UPDATE_AGENT",
+    );
   } finally {
     await f.close();
   }

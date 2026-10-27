@@ -1933,5 +1933,10 @@
     "path": "invalid/effective-authorization-retired-account.json",
     "schema": "effective-authorization-response.schema.json",
     "valid": false
+  },
+  {
+    "path": "valid/device-sudo-rule.json",
+    "schema": "device-sudo-rule.schema.json",
+    "valid": true
   }
 ]

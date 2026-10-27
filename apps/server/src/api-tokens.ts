@@ -1,3 +1,5 @@
+import { deviceSudo } from "./device-sudo.js";
+import { AccountAuthorizations } from "./account-authorizations.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext, auditText } from "./audit-context.js";
@@ -52,6 +54,21 @@ export class ApiTokens {
       .prepare("SELECT * FROM api_tokens WHERE token_hash=?")
       .get(tokenHash) as TokenRow | undefined;
   }
+  private ownerCan(user: User, permission: Permission) {
+    if (permission !== "terminal.sudo") return hasPermission(user, permission);
+    const policy = new AccountAuthorizations(this.store.db);
+    return this.store.db
+      .prepare("SELECT id FROM devices WHERE revoked_at IS NULL")
+      .all()
+      .some((row) => {
+        const id = row.id as string;
+        return (
+          (user.device_scope === "*" || user.device_scope.includes(id)) &&
+          policy.allowed(user, id, null) &&
+          deviceSudo(this.store.db, user, id).allowed
+        );
+      });
+  }
   private principal(row: TokenRow): User | undefined {
     if (row.revoked_at !== null || row.expires_at <= Date.now()) return;
     const owner = this.store.db
@@ -67,7 +84,7 @@ export class ApiTokens {
           ? granted
           : granted.filter((id) => user.device_scope.includes(id));
     const permissions = (JSON.parse(row.permissions) as Permission[]).filter(
-      (p) => hasPermission(user, p),
+      (p) => this.ownerCan(user, p),
     );
     return {
       ...user,
@@ -247,7 +264,7 @@ export class ApiTokens {
         b.permissions.some((p: any) => !PERMISSIONS.includes(p))
       )
         fail(400, "INVALID_TOKEN_PERMISSIONS");
-      if (b.permissions.some((p: Permission) => !hasPermission(owner, p)))
+      if (b.permissions.some((p: Permission) => !this.ownerCan(owner, p)))
         fail(403, "TOKEN_PERMISSION_EXCEEDS_OWNER");
       const permissions = [...b.permissions].sort() as Permission[];
       for (const p of ["tasks", "recordings", "audit"])

@@ -641,7 +641,7 @@ async function splitPeer(
   await once(agent, "open");
   send("agent.hello", {
     agent_version: "split-test",
-    capabilities: ["terminal.pty.v1"],
+    capabilities: ["terminal.pty.v1", "terminal.policy.v1"],
   });
   await f.until(
     async () =>

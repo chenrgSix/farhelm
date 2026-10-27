@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/device-sudo-rule.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "subject_type": {
+      "enum": [
+        "user",
+        "group",
+        "role"
+      ]
+    },
+    "subject_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "subject_name": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "effect": {
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "origin": {
+      "enum": [
+        "explicit",
+        "legacy"
+      ]
+    },
+    "legacy_roles": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "maxLength": 128
+      }
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "id",
+    "device_id",
+    "subject_type",
+    "subject_id",
+    "subject_name",
+    "effect",
+    "origin",
+    "legacy_roles",
+    "revision"
+  ]
+}

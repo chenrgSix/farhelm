@@ -260,6 +260,9 @@ export function createSshGateway(
             } else if (type === "terminal.closed") {
               closed = true;
               const errors: Record<string, string> = {
+                SSH_PRIVILEGE_POLICY_NOT_SUPPORTED:
+                  "目标 SSH 环境无法落实 sudo 限制，请联系管理员检查 Linux setpriv 支持。",
+                SUDO_NOT_AUTHORIZED: "当前用户未获该设备的 sudo 授权。",
                 SUDO_DISABLED:
                   "Agent 未启用终端提权，请联系管理员在设备接入配置中开启；旧 Agent 需先升级。",
                 SUDO_AUTH_FAILED:
@@ -332,6 +335,8 @@ export function createSshGateway(
                 return undefined;
               } catch (error) {
                 const messages: Record<string, string> = {
+                  TERMINAL_POLICY_NOT_SUPPORTED_UPDATE_AGENT:
+                    "该 Agent 无法落实 sudo 限制，请先升级。",
                   DEVICE_OFFLINE: "设备离线，请刷新列表或选择其他设备。",
                   TERMINAL_NOT_SUPPORTED_UPDATE_AGENT:
                     "该设备暂不支持终端，请更新 Agent。",

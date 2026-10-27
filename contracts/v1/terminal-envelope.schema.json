@@ -34,12 +34,23 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1024
+            },
+            "allow_sudo": {
+              "type": "boolean"
             }
           },
-          "required": ["session_id", "cols", "rows"]
+          "required": [
+            "session_id",
+            "cols",
+            "rows"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -59,10 +70,16 @@
               "$ref": "common.schema.json#/$defs/uuid"
             }
           },
-          "required": ["session_id"]
+          "required": [
+            "session_id"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -86,10 +103,17 @@
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
           },
-          "required": ["session_id", "ticket"]
+          "required": [
+            "session_id",
+            "ticket"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -106,21 +130,36 @@
           "additionalProperties": false,
           "properties": {
             "backend": {
-              "enum": ["agent", "ssh"]
+              "enum": [
+                "agent",
+                "ssh"
+              ]
             },
             "elevated": {
               "type": "boolean"
             },
-            "sudo_auto": { "type": "boolean" },
+            "sudo_auto": {
+              "type": "boolean"
+            },
             "username": {
               "type": "string",
               "maxLength": 32
+            },
+            "sudo_allowed": {
+              "type": "boolean"
+            },
+            "sudo_enforced": {
+              "type": "boolean"
             }
           },
           "required": []
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -143,10 +182,17 @@
               "$ref": "common.schema.json#/$defs/sequence"
             }
           },
-          "required": ["session_id", "seq"]
+          "required": [
+            "session_id",
+            "seq"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -177,10 +223,17 @@
               ]
             }
           },
-          "required": ["session_id", "data"]
+          "required": [
+            "session_id",
+            "data"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -214,10 +267,18 @@
               ]
             }
           },
-          "required": ["session_id", "seq", "data"]
+          "required": [
+            "session_id",
+            "seq",
+            "data"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -247,10 +308,18 @@
               "maximum": 200
             }
           },
-          "required": ["session_id", "cols", "rows"]
+          "required": [
+            "session_id",
+            "cols",
+            "rows"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -270,10 +339,16 @@
               "$ref": "common.schema.json#/$defs/uuid"
             }
           },
-          "required": ["session_id"]
+          "required": [
+            "session_id"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -298,10 +373,17 @@
               "maxLength": 128
             }
           },
-          "required": ["session_id", "reason"]
+          "required": [
+            "session_id",
+            "reason"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -329,10 +411,16 @@
               ]
             }
           },
-          "required": ["data"]
+          "required": [
+            "data"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -360,10 +448,16 @@
               ]
             }
           },
-          "required": ["data"]
+          "required": [
+            "data"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -390,10 +484,17 @@
               "maximum": 200
             }
           },
-          "required": ["cols", "rows"]
+          "required": [
+            "cols",
+            "rows"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -412,7 +513,11 @@
           "required": []
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -437,10 +542,17 @@
               "type": "boolean"
             }
           },
-          "required": ["reason", "audit_complete"]
+          "required": [
+            "reason",
+            "audit_complete"
+          ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     },
     {
       "type": "object",
@@ -489,7 +601,11 @@
           ]
         }
       },
-      "required": ["v", "type", "body"]
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
     }
   ],
   "description": "Agent frames include session_id; attached browser input/output use the bound session. Maximum 8192 decoded bytes per chunk is also enforced at runtime. Never persist raw terminal.input."

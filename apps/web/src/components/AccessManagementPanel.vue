@@ -177,7 +177,7 @@ function selectDeviceGroup(group: ManagedDeviceGroup, selected: boolean) {
 function permissionChanged() {
   const selected = new Set(draft.value.permissions);
   if (selected.size) selected.add("devices.read");
-  if (selected.has("terminal.sudo")) selected.add("terminal.connect");
+  if (!selected.has("terminal.connect")) selected.delete("terminal.sudo");
   if (selected.has("tasks.execute") || selected.has("tasks.read_all"))
     selected.add("tasks.read");
   if (selected.has("audit.read_all")) selected.add("audit.read");
@@ -340,7 +340,7 @@ onBeforeUnmount(() => {
       <div>
         <h2>{{ props.section ? labels[props.section] : "用户与角色" }}</h2>
         <p class="muted">
-          用户组组织人员，角色分配操作权限。普通连接的新增授权在「普通连接授权」中配置。
+          用户组组织人员，角色分配操作权限。普通连接的新增授权在「设备访问授权」中配置。
         </p>
       </div>
       <button
@@ -668,7 +668,9 @@ onBeforeUnmount(() => {
                   }}
                 </p>
                 <label
-                  v-for="permission in data?.permissions"
+                  v-for="permission in data?.permissions.filter(
+                    (p) => p.id !== 'terminal.sudo',
+                  )"
                   :key="permission.id"
                   class="access-check"
                   ><input
@@ -676,8 +678,6 @@ onBeforeUnmount(() => {
                     type="checkbox"
                     :value="permission.id"
                     :disabled="
-                      (permission.id === 'terminal.connect' &&
-                        draft.permissions.includes('terminal.sudo')) ||
                       (permission.id === 'devices.read' &&
                         draft.permissions.some((p) => p !== 'devices.read')) ||
                       (permission.id === 'tasks.read' &&
@@ -754,7 +754,7 @@ onBeforeUnmount(() => {
               >
                 <p class="field-hint">
                   选择可访问的设备；角色决定是否可以连接终端及使用
-                  sudo。精确的普通连接规则可在「普通连接授权」中维护。
+                  sudo。精确的普通连接规则可在「设备访问授权」中维护。
                 </p>
                 <fieldset class="access-options">
                   <legend>允许访问的设备</legend>

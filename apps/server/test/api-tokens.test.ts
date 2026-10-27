@@ -994,7 +994,7 @@ test("API tokens: terminal tickets, recorded output, immediate revocation and ex
     await once(agent.ws, "open");
     agent.send("agent.hello", {
       agent_version: "token-protocol-test",
-      capabilities: ["terminal.pty.v1"],
+      capabilities: ["terminal.pty.v1", "terminal.policy.v1"],
     });
     for (let n = 0; n < 50; n++) {
       if (

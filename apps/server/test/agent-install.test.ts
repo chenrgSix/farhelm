@@ -514,7 +514,7 @@ const hello = (ws: WebSocket, runtime?: any) =>
       type: "agent.hello",
       body: {
         agent_version: "0.2.3",
-        capabilities: ["terminal.pty.v1"],
+        capabilities: ["terminal.pty.v1", "terminal.policy.v1"],
         ...(runtime ? { runtime } : {}),
       },
     }),

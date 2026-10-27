@@ -149,7 +149,7 @@ it("exposes ordinary authorization and permission inspection directly without ad
   expect(wrapper.text()).not.toContain("高级授权");
   await wrapper
     .findAll("button")
-    .find((b) => b.text() === "普通连接授权")!
+    .find((b) => b.text() === "设备访问授权")!
     .trigger("click");
   expect(wrapper.findComponent(Panel).exists()).toBe(true);
   expect(wrapper.findComponent(Panel).props("effective")).toBe(false);
@@ -158,5 +158,41 @@ it("exposes ordinary authorization and permission inspection directly without ad
     .find((b) => b.text() === "权限核对")!
     .trigger("click");
   expect(wrapper.findComponent(Panel).props("effective")).toBe(true);
+  wrapper.unmount();
+});
+
+it("saves per-device personal deny and permits only allow rules for groups", async () => {
+  const request = mock();
+  const wrapper = mount(Panel);
+  await flushPromises();
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "配置 sudo 授权")!
+    .trigger("click");
+  await wrapper.get('select[aria-label="sudo 授权对象"]').setValue("user");
+  await wrapper.get('select[aria-label="sudo 策略"]').setValue("deny");
+  await wrapper.get('form[aria-label="配置 sudo 授权"]').trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith("/access-authorizations/sudo", {
+    method: "POST",
+    body: {
+      v: 1,
+      device_id: "device",
+      subject_type: "user",
+      subject_id: "user",
+      effect: "deny",
+      revision: 0,
+    },
+  });
+  await wrapper
+    .findAll("button")
+    .find((b) => b.text() === "配置 sudo 授权")!
+    .trigger("click");
+  await wrapper.get('select[aria-label="sudo 授权对象类型"]').setValue("group");
+  expect(
+    wrapper
+      .find('select[aria-label="sudo 策略"] option[value="deny"]')
+      .exists(),
+  ).toBe(false);
   wrapper.unmount();
 });

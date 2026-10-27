@@ -1,3 +1,4 @@
+import { migrateDeviceSudo } from "./device-sudo.js";
 import { DatabaseSync } from "node:sqlite";
 import {
   grantedDevices,
@@ -395,6 +396,13 @@ export class Store {
       ),
     );
     migrateAccountAuthorizations(this.db);
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/040_device_sudo.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    migrateDeviceSudo(this.db, (row) => this.user(row));
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

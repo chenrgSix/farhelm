@@ -34,7 +34,12 @@
           }
         }
       },
-      "required": ["id", "username", "role_names", "permissions"]
+      "required": [
+        "id",
+        "username",
+        "role_names",
+        "permissions"
+      ]
     },
     "accounts": {
       "type": "array",
@@ -85,6 +90,27 @@
               "type": "string",
               "maxLength": 128
             }
+          },
+          "sudo_allowed": {
+            "type": "boolean"
+          },
+          "sudo_reason": {
+            "enum": [
+              "USER_DENIED",
+              "USER_ALLOWED",
+              "INHERITED",
+              "NOT_GRANTED",
+              "TOKEN_DENIED",
+              "CONNECTION_DENIED"
+            ]
+          },
+          "sudo_sources": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "string",
+              "maxLength": 512
+            }
           }
         },
         "required": [
@@ -102,5 +128,9 @@
       }
     }
   },
-  "required": ["v", "user", "accounts"]
+  "required": [
+    "v",
+    "user",
+    "accounts"
+  ]
 }

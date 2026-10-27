@@ -248,13 +248,21 @@ export class SshTargets {
     rows: number,
     receive: (type: string, body: Record<string, any>) => void,
     commandToken?: string,
+    restrictPrivilege = false,
   ): TargetTerminal {
+    if (restrictPrivilege && !commandToken)
+      throw new Error("SSH_PRIVILEGE_POLICY_NOT_SUPPORTED");
     const client = this.client();
     let channel: ClientChannel | undefined;
     let stopped = false,
       mismatch = false,
       exited = false,
       seq = 0;
+    let policyPending = restrictPrivilege;
+    let policyBytes = Buffer.alloc(0);
+    const policyMarker = Buffer.from(
+      `\x1b]777;farhelm;${commandToken};P;restricted\x07`,
+    );
     const close = () => {
       if (stopped) return;
       stopped = true;
@@ -289,16 +297,39 @@ export class SshTargets {
           finish("SSH_PTY_FAILED");
           return;
         }
-        clearTimeout(timer);
+        if (!policyPending) clearTimeout(timer);
         channel = stream;
         stream.on("error", () => finish("SSH_TARGET_DISCONNECTED"));
         stream.on("exit", () => {
           exited = true;
         });
         stream.on("close", () =>
-          finish(exited ? "SHELL_EXIT" : "SSH_TARGET_DISCONNECTED"),
+          finish(
+            policyPending
+              ? "SSH_PRIVILEGE_POLICY_NOT_SUPPORTED"
+              : exited
+                ? "SHELL_EXIT"
+                : "SSH_TARGET_DISCONNECTED",
+          ),
         );
         const output = (data: Buffer) => {
+          if (policyPending) {
+            policyBytes = Buffer.concat([policyBytes, data]);
+            const index = policyBytes.indexOf(policyMarker);
+            if (index < 0) {
+              if (policyBytes.length > 8192)
+                finish("SSH_PRIVILEGE_POLICY_NOT_SUPPORTED");
+              return;
+            }
+            data = Buffer.concat([
+              policyBytes.subarray(0, index),
+              policyBytes.subarray(index + policyMarker.length),
+            ]);
+            policyBytes = Buffer.alloc(0);
+            policyPending = false;
+            clearTimeout(timer);
+            receive("terminal.opened", {});
+          }
           for (let offset = 0; offset < data.length && !stopped; offset += 8192)
             receive("terminal.output", {
               seq: ++seq,
@@ -308,11 +339,11 @@ export class SshTargets {
         // Register consumers before ready; the shared recorder commits before display.
         stream.on("data", output);
         stream.stderr.on("data", output);
-        receive("terminal.opened", {});
+        if (!policyPending) receive("terminal.opened", {});
       };
       if (commandToken)
         client.exec(
-          terminalShell(commandToken),
+          terminalShell(commandToken, restrictPrivilege),
           { pty: { term: "xterm-256color", cols, rows } },
           opened,
         );

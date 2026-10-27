@@ -22,7 +22,10 @@
             "maxLength": 256
           }
         },
-        "required": ["id", "name"]
+        "required": [
+          "id",
+          "name"
+        ]
       }
     },
     "accounts": {
@@ -38,7 +41,19 @@
       "items": {
         "$ref": "access-authorization.schema.json"
       }
+    },
+    "sudo_rules": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "device-sudo-rule.schema.json"
+      }
     }
   },
-  "required": ["v", "devices", "accounts", "rules"]
+  "required": [
+    "v",
+    "devices",
+    "accounts",
+    "rules"
+  ]
 }

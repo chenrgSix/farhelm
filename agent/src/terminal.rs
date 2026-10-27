@@ -62,6 +62,8 @@ struct Open {
     #[serde(default)]
     sudo_auto_password: Option<String>,
     #[serde(default)]
+    allow_sudo: Option<bool>,
+    #[serde(default)]
     username: Option<String>,
 }
 #[derive(Deserialize)]
@@ -116,7 +118,17 @@ impl Terminals {
                 !privileged || open.sudo_auto_password.is_none(),
                 "conflicting sudo modes"
             );
+            let allow_sudo = open.allow_sudo.unwrap_or(false);
             let auto_sudo = open.sudo_auto_password.is_some();
+            if (privileged || auto_sudo) && !allow_sudo {
+                self.output
+                    .send((
+                        "terminal.closed".into(),
+                        json!({"session_id":open.session_id,"reason":"SUDO_NOT_AUTHORIZED"}),
+                    ))
+                    .await?;
+                return Ok(());
+            }
             let password = open
                 .sudo_password
                 .take()
@@ -157,7 +169,8 @@ impl Terminals {
             let id = open.session_id.clone();
             let (input, receiver) = mpsc::channel(32);
             let output = self.output.clone();
-            let allow_privilege_escalation = self.cfg.terminal_allow_privilege_escalation;
+            let allow_privilege_escalation =
+                self.cfg.terminal_allow_privilege_escalation && allow_sudo;
             let task = tokio::spawn(async move {
                 let reason = run(
                     &open,
@@ -555,7 +568,7 @@ mod tests {
         };
         let (output, mut events) = mpsc::channel(8);
         let mut terminals = Terminals::new(cfg, output);
-        let body = json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"username":"root","sudo_password":"public-test-password"});
+        let body = json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"allow_sudo":true,"username":"root","sudo_password":"public-test-password"});
         assert!(terminals
             .receive("terminal.open", body.clone())
             .await
@@ -565,7 +578,7 @@ mod tests {
         assert_eq!(kind, "terminal.closed");
         assert_eq!(body["reason"], "SUDO_DISABLED");
         assert!(!body.to_string().contains("public-test-password"));
-        terminals.receive("terminal.sudo.open", json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"username":"root","sudo_password":""})).await.unwrap();
+        terminals.receive("terminal.sudo.open", json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"allow_sudo":true,"username":"root","sudo_password":""})).await.unwrap();
         let (_, body) = events.recv().await.unwrap();
         assert_eq!(body["reason"], "SUDO_DISABLED");
     }
@@ -725,7 +738,7 @@ mod tests {
         manager
             .receive(
                 "terminal.open",
-                json!({"session_id":id,"cols":80,"rows":24}),
+                json!({"session_id":id,"cols":80,"rows":24,"allow_sudo":true}),
             )
             .await
             .unwrap();

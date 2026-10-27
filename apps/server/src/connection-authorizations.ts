@@ -3,6 +3,7 @@ import {
   AccountAuthorizations,
   defaultAccountId,
 } from "./account-authorizations.js";
+import { deviceSudo } from "./device-sudo.js";
 import { hasPermission } from "./permissions.js";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
@@ -40,7 +41,7 @@ export function registerConnectionAuthorizations(
       fail(403, "TARGET_ACCOUNT_DENIED");
     if (
       defaultNeedsSudo(user, deviceId) &&
-      !hasPermission(user, "terminal.sudo")
+      !deviceSudo(db, user, deviceId).allowed
     )
       fail(403, "SUDO_PERMISSION_REQUIRED");
   }
@@ -63,7 +64,7 @@ export function registerConnectionAuthorizations(
       (hasPermission(user, "terminal.connect") &&
         policy.allowed(user, deviceId, null) &&
         (!defaultNeedsSudo(user, deviceId) ||
-          hasPermission(user, "terminal.sudo")))
+          deviceSudo(db, user, deviceId).allowed))
         ? [
             {
               id: defaultAccountId(deviceId),

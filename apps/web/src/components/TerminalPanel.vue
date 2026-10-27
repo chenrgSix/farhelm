@@ -18,6 +18,7 @@ const host = ref<HTMLDivElement>();
 const state = ref("正在连接…");
 const connected = ref(false);
 const sudoAuto = ref(false);
+const sudoAllowed = ref<boolean>();
 const backend = ref<"agent" | "ssh" | undefined>(props.recording?.backend);
 const error = ref("");
 const records = ref<
@@ -26,8 +27,13 @@ const records = ref<
 const speed = ref(2);
 const playing = ref(false);
 const sudoErrors: Record<string, string> = {
+  TERMINAL_POLICY_NOT_SUPPORTED_UPDATE_AGENT:
+    "当前 Agent 无法落实单用户 sudo 限制，请升级 Agent。",
+  SSH_PRIVILEGE_POLICY_NOT_SUPPORTED:
+    "目标 SSH 环境无法落实 sudo 限制，请联系管理员检查 Linux setpriv 支持。",
+  SUDO_NOT_AUTHORIZED: "当前用户未获该设备的 sudo 授权。",
   TARGET_ACCOUNT_DENIED: "默认账号未授权或授权已变更，请联系管理员。",
-  SUDO_PERMISSION_REQUIRED: "当前账号没有使用 sudo／高级特权账号的权限。",
+  SUDO_PERMISSION_REQUIRED: "当前用户未获该设备的 sudo 授权。",
   SUDO_AGENT_REQUIRED:
     "sudo 切换需要在线 Agent；SSH 设备请使用其已配置的登录账号。",
   SUDO_NOT_SUPPORTED_UPDATE_AGENT: "此 Agent 尚不支持密码提权，请升级 Agent。",
@@ -163,6 +169,7 @@ async function connect() {
   error.value = "";
   state.value = "正在连接…";
   sudoAuto.value = false;
+  sudoAllowed.value = undefined;
   backend.value = undefined;
   fit.fit();
   try {
@@ -209,6 +216,7 @@ async function connect() {
             throw new Error("普通连接返回了非预期的提权会话，已断开终端。");
           connected.value = true;
           sudoAuto.value = message.body.sudo_auto === true;
+          sudoAllowed.value = message.body.sudo_allowed;
           state.value = "已连接";
           backend.value = ["agent", "ssh"].includes(message.body.backend)
             ? message.body.backend
@@ -381,6 +389,9 @@ onBeforeUnmount(() => {
           ><span v-if="backend" class="terminal-state">{{
             backend === "ssh" ? "SSH 通道" : "Agent 通道"
           }}</span>
+          <span v-if="connected && sudoAllowed === false" class="terminal-state"
+            >sudo 已限制</span
+          >
           <span v-if="connected && sudoAuto" class="terminal-state"
             >sudo 自动代填已启用</span
           >

@@ -30,8 +30,8 @@ export const permissionCatalog = [
   },
   {
     id: "terminal.sudo",
-    label: "允许使用 sudo",
-    description: "允许在已授权设备代填 sudo 密码，并使用已授权的高级特权账号",
+    label: "旧 sudo 角色标记（迁移兼容）",
+    description: "仅保留旧授权迁移来源；新的 sudo 权限在设备访问授权中配置",
   },
   {
     id: "tasks.read",

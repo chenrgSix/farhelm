@@ -61,7 +61,11 @@ test("retired direct SSH account requests never contact the target; the default 
       0,
     );
     const terminal = await f.web(f.admin, f.id);
-    assert.deepEqual(await terminal.wait("terminal.ready"), { backend: "ssh" });
+    assert.deepEqual(await terminal.wait("terminal.ready"), {
+      backend: "ssh",
+      sudo_allowed: false,
+      sudo_enforced: true,
+    });
     await until(() => terminal.output().includes("TARGET_SSH_READY"));
     terminal.send("terminal.input", {
       data: Buffer.from("output\r").toString("base64"),
@@ -91,6 +95,7 @@ async function fixture(
   heartbeatTimeoutMs = 15000,
   targetUsername = "linux-user",
   targetPassword?: string,
+  policySupported = true,
 ) {
   const downstream = new Set<Connection>();
   const shells: ServerChannel[] = [],
@@ -134,7 +139,7 @@ async function fixture(
         sizes.push(info);
         accept?.();
       });
-      const shell = (accept: () => ServerChannel) => {
+      const shell = (accept: () => ServerChannel, proof = "") => {
         const stream = accept();
         shells.push(stream);
         stream.on("error", () => {});
@@ -147,12 +152,23 @@ async function fixture(
           } else if (chunk.toString().includes("output"))
             stream.write("TARGET_OUTPUT 中文\r\n");
         });
-        stream.write("TARGET_SSH_READY\r\n");
+        if (proof && !policySupported) {
+          stream.exit(126);
+          stream.end();
+          return;
+        }
+        stream.write(proof + "TARGET_SSH_READY\r\n");
       };
       session.on("shell", shell);
       session.on("exec", (accept, _reject, info) => {
         assert.ok(info.command.includes("FARHELM_COMMAND_TOKEN"));
-        shell(accept);
+        const policy = info.command.match(
+          /farhelm;([a-f0-9-]{36});P;restricted/,
+        );
+        shell(
+          accept,
+          policy ? `\x1b]777;farhelm;${policy[1]};P;restricted\x07` : "",
+        );
       });
     });
   });
@@ -303,7 +319,7 @@ async function fixture(
     await once(ws, "open");
     send("agent.hello", {
       agent_version: "dual-channel-test-double",
-      capabilities: terminal ? ["terminal.pty.v1"] : [],
+      capabilities: terminal ? ["terminal.pty.v1", "terminal.policy.v1"] : [],
     });
     await until(
       async () =>
@@ -1263,6 +1279,11 @@ test("existing default root SSH access survives ordinary web and gateway connect
       role: "ops",
       deviceScope: [f.id],
     });
+    f.store.db
+      .prepare(
+        "INSERT INTO device_sudo_rules(id,device_id,user_id,effect) VALUES(?,?,?,'allow')",
+      )
+      .run("root-allowed", f.id, user.id);
     const auth = await f.login(user.username);
     const rejected = await f.api("POST", "/terminal-sessions", {
       v: 1,
@@ -1273,7 +1294,11 @@ test("existing default root SSH access survives ordinary web and gateway connect
     });
     assert.equal(rejected.body.error, "ROOT_CONNECTION_MODE_REMOVED");
     const terminal = await f.web(auth);
-    assert.deepEqual(await terminal.wait("terminal.ready"), { backend: "ssh" });
+    assert.deepEqual(await terminal.wait("terminal.ready"), {
+      backend: "ssh",
+      sudo_allowed: true,
+      sudo_enforced: true,
+    });
     await until(() => terminal.output().includes("TARGET_SSH_READY"));
     const gateway = await f.gateway(`${user.username}:${f.id}`);
     await until(() => gateway.output().includes("TARGET_SSH_READY"));
@@ -1724,5 +1749,20 @@ test("password credentials survive server restart without returning plaintext", 
     );
   } finally {
     await restored.close();
+  }
+});
+
+test("restricted SSH fails closed when target cannot attest no_new_privs and never accepts input", async () => {
+  const f = await fixture(15000, "linux-user", undefined, false);
+  try {
+    const terminal = await f.web();
+    assert.equal(
+      (await terminal.wait("terminal.closed")).reason,
+      "SSH_PRIVILEGE_POLICY_NOT_SUPPORTED",
+    );
+    assert.equal(terminal.output(), "");
+    assert.equal(f.inputs.length, 0);
+  } finally {
+    await f.close();
   }
 });

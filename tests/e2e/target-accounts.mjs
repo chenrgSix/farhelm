@@ -337,6 +337,15 @@ try {
       return state.online && state.enabled === true && state.revision === 1;
     }, "web-enabled setting survives Agent restart and env-disabled default");
   }
+  const operatorId = (await api("GET", "/me")).id;
+  await api("POST", "/access-authorizations/sudo", {
+    v: 1,
+    device_id: device.id,
+    subject_type: "user",
+    subject_id: operatorId,
+    effect: "allow",
+    revision: 0,
+  });
   // The everyday flow requires no target account or account authorization.
   const ordinary = await open(undefined, admin);
   await ordinary.ready();
@@ -543,6 +552,14 @@ try {
         device_scope: [],
       })
     ).group;
+    await api("POST", "/access-authorizations/sudo", {
+      v: 1,
+      device_id: device.id,
+      subject_type: "group",
+      subject_id: group.id,
+      effect: "allow",
+      revision: 0,
+    });
     const grantedAuth = (
       await api(
         "POST",
@@ -630,6 +647,90 @@ try {
     () => passwordless.messages.some((m) => m.type === "terminal.closed"),
     "passwordless closed",
   );
+  {
+    // Kernel enforcement applies even after target sudoers becomes NOPASSWD.
+    await api("POST", "/access-authorizations/sudo", {
+      v: 1,
+      device_id: device.id,
+      subject_type: "user",
+      subject_id: operatorId,
+      effect: "deny",
+      revision: 1,
+    });
+    const denied = await open();
+    await denied.ready();
+    assert.equal(
+      denied.messages.find((m) => m.type === "terminal.ready").body
+        .sudo_allowed,
+      false,
+    );
+    denied.send(
+      "grep '^NoNewPrivs:' /proc/self/status; /usr/bin/sudo -n -k id -u; printf '__DENIED_SUDO_EXIT__%s\\n' \"$?\"\r",
+    );
+    await until(
+      () => denied.text().includes("__DENIED_SUDO_EXIT__1"),
+      "explicit deny blocks absolute-path NOPASSWD sudo",
+    );
+    assert.match(denied.text(), /NoNewPrivs:\s+1/);
+    denied.send("exit\r");
+    await until(
+      () => denied.messages.some((m) => m.type === "terminal.closed"),
+      "restricted web closed",
+    );
+    const deniedSsh = new Client();
+    clients.push(deniedSsh);
+    deniedSsh.on("error", () => {});
+    const deniedReady = once(deniedSsh, "ready");
+    deniedSsh.connect({
+      host: "127.0.0.1",
+      port: server.ssh.info().port,
+      username: `admin:${device.id}`,
+      password: "accounts-e2e-login1",
+      hostVerifier: (raw) =>
+        "SHA256:" +
+          require("node:crypto")
+            .createHash("sha256")
+            .update(raw)
+            .digest("base64")
+            .replace(/=+$/, "") ===
+        server.ssh.info().fingerprint,
+    });
+    await deniedReady;
+    const deniedChannel = await new Promise((resolve, reject) =>
+      deniedSsh.shell({ term: "xterm", cols: 80, rows: 24 }, (error, stream) =>
+        error ? reject(error) : resolve(stream),
+      ),
+    );
+    let deniedText = "";
+    deniedChannel.on("data", (chunk) => (deniedText += chunk.toString()));
+    await until(() => deniedText.includes("fleet@"), "restricted SSH ready");
+    deniedChannel.write(
+      "/usr/bin/sudo -n -k id -u; printf '__SSH_DENIED__%s\\n' \"$?\"\r",
+    );
+    await until(
+      () => deniedText.includes("__SSH_DENIED__1"),
+      "SSH deny blocks NOPASSWD sudo",
+    );
+    deniedChannel.end();
+    deniedSsh.end();
+    await until(
+      () =>
+        server.store.db
+          .prepare(
+            "SELECT count(*) AS n FROM terminal_sessions WHERE ended_at IS NULL",
+          )
+          .get().n === 0,
+      "restricted SSH closed",
+    );
+    await api("POST", "/access-authorizations/sudo", {
+      v: 1,
+      device_id: device.id,
+      subject_type: "user",
+      subject_id: operatorId,
+      effect: "allow",
+      revision: 2,
+    });
+  }
   assert.equal(
     server.store.db.prepare("SELECT count(*) AS n FROM target_accounts").get()
       .n,
@@ -1216,10 +1317,10 @@ try {
       .click();
     await page.getByRole("button", { name: /访问控制/ }).click();
     await page
-      .getByRole("button", { name: "普通连接授权", exact: true })
+      .getByRole("button", { name: "设备访问授权", exact: true })
       .click();
     const authorization = page.getByRole("region", {
-      name: "普通连接授权",
+      name: "设备访问授权",
       exact: true,
     });
     await authorization

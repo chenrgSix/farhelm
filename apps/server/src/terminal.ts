@@ -1,3 +1,4 @@
+import { deviceSudo } from "./device-sudo.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
@@ -45,6 +46,9 @@ interface Session {
   peer?: TerminalPeer;
   ready: boolean;
   backend: "agent" | "ssh";
+  sudoGranted: boolean;
+  allowPrivilege: boolean;
+  policyControlled: boolean;
   sudoAuto?: boolean;
   sudoCredentialHash?: string;
   target?: TargetTerminal;
@@ -72,12 +76,14 @@ interface Dependencies {
       rows: number,
       receive: (type: string, body: Record<string, any>) => void,
       commandToken?: string,
+      restrictPrivilege?: boolean,
     ): TargetTerminal;
   };
   agent(id: string):
     | {
         send(type: string, body: unknown): boolean;
         terminal: boolean;
+        policy?: boolean;
         sudo?: boolean;
         sudoNopasswd?: boolean;
         sudoCommands?: boolean;
@@ -148,6 +154,10 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   }
   function authorized(
     s: Pick<Session, "deviceId" | "userSession" | "actorId"> & {
+      backend?: "agent" | "ssh";
+      allowPrivilege?: boolean;
+      sudoGranted?: boolean;
+      policyControlled?: boolean;
       sudoAuto?: boolean;
       sudoCredentialHash?: string;
     },
@@ -166,6 +176,24 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     } catch {
       return false;
     }
+    if (
+      s.sudoGranted !== undefined &&
+      deviceSudo(db, user, s.deviceId).allowed !== s.sudoGranted
+    )
+      return false;
+    if (
+      s.policyControlled &&
+      s.backend === "agent" &&
+      !d.agent(s.deviceId)?.policy
+    )
+      return false;
+    if (
+      s.backend === "agent" &&
+      s.allowPrivilege !== undefined &&
+      s.allowPrivilege !==
+        (s.sudoGranted === true && d.agent(s.deviceId)?.sudoEnabled !== false)
+    )
+      return false;
     if (s.sudoAuto) {
       try {
         const password = d.connections.sudoPassword?.(s.deviceId);
@@ -183,7 +211,6 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     return (
       !user.must_change_password &&
       hasPermission(user, "terminal.connect") &&
-      (!s.sudoAuto || hasPermission(user, "terminal.sudo")) &&
       d.inScope(user, s.deviceId)
     );
   }
@@ -291,9 +318,22 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       if (!agent) fail(409, "DEVICE_OFFLINE");
       fail(409, "TERMINAL_NOT_SUPPORTED_UPDATE_AGENT");
     }
+    const sudoGranted = deviceSudo(db, user, deviceId).allowed;
+    const policyControlled =
+      selectedBackend === "ssh" || d.agent(deviceId)?.policy === true;
+    const allowPrivilege =
+      sudoGranted &&
+      (selectedBackend === "ssh" || d.agent(deviceId)?.sudoEnabled !== false);
+    if (
+      selectedBackend === "agent" &&
+      !policyControlled &&
+      !allowPrivilege &&
+      d.agent(deviceId)?.sudoEnabled !== false
+    )
+      fail(409, "TERMINAL_POLICY_NOT_SUPPORTED_UPDATE_AGENT");
     const sudoAutoPassword =
       selectedBackend === "agent" &&
-      hasPermission(user, "terminal.sudo") &&
+      sudoGranted &&
       d.agent(deviceId)?.sudoCommands &&
       d.agent(deviceId)?.sudoEnabled === true
         ? d.connections.sudoPassword?.(deviceId)
@@ -319,10 +359,14 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       record(id, "open", {
         cols,
         rows,
+        sudo_allowed: allowPrivilege,
+        sudo_enforced: policyControlled,
         ...(sudoAuto ? { sudo_auto: true } : {}),
       });
       store.audit("terminal.created", user.id, deviceId, null, {
         session_id: id,
+        sudo_allowed: allowPrivilege,
+        sudo_enforced: policyControlled,
         ...(sudoAuto ? { sudo_auto: true } : {}),
       });
     });
@@ -337,6 +381,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       created: now,
       ready: false,
       backend: selectedBackend,
+      sudoGranted,
+      allowPrivilege,
+      policyControlled,
       sudoAuto,
       sudoCredentialHash: sudoAutoPassword ? hash(sudoAutoPassword) : undefined,
     };
@@ -489,6 +536,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           (type, body) =>
             receive(s.deviceId, type, { ...body, session_id: s.id }, "ssh"),
           s.id,
+          !s.allowPrivilege,
         );
       } catch {
         safeEnd(s, "SSH_CONNECT_FAILED");
@@ -500,6 +548,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         session_id: s.id,
         cols,
         rows,
+        ...(s.policyControlled ? { allow_sudo: s.allowPrivilege } : {}),
         ...(s.sudoAuto
           ? { sudo_auto_password: d.connections.sudoPassword?.(s.deviceId) }
           : {}),
@@ -595,6 +644,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           store.audit("terminal.opened", s.actorId, s.deviceId, null, {
             network_route: d.route?.(s.deviceId, s.backend) ?? null,
             session_id: s.id,
+            sudo_allowed: s.allowPrivilege,
+            sudo_enforced: s.policyControlled,
             ...(s.sudoAuto ? { sudo_auto: true } : {}),
           });
         });
@@ -602,6 +653,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         if (
           !sendClient(s, "terminal.ready", {
             backend: s.backend,
+            sudo_allowed: s.allowPrivilege,
+            sudo_enforced: s.policyControlled,
             ...(s.sudoAuto ? { sudo_auto: true } : {}),
           })
         )

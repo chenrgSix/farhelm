@@ -65,7 +65,7 @@ async function fixture() {
     agent.send(JSON.stringify({ v: 1, type, body }));
   send("agent.hello", {
     agent_version: "ssh-test-double",
-    capabilities: ["terminal.pty.v1"],
+    capabilities: ["terminal.pty.v1", "terminal.policy.v1"],
   });
   await new Promise((r) => setTimeout(r, 30));
   async function wait(type: string) {

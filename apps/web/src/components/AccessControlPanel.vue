@@ -24,7 +24,7 @@ const tabs = {
   users: "用户",
   groups: "用户组",
   roles: "角色",
-  rules: "普通连接授权",
+  rules: "设备访问授权",
   effective: "权限核对",
 };
 </script>

@@ -490,8 +490,8 @@ async function testConnection() {
                   />清除已保存的 sudo 密码</label
                 >
                 <p class="field-hint">
-                  仅管理员可设置或替换，保存后不可查看。具有「允许使用 sudo」
-                  权限的用户在普通 Agent 终端执行 sudo 时自动代填密码，
+                  仅管理员可设置或替换，保存后不可查看。获该设备 sudo
+                  授权的用户在普通 Agent 终端执行 sudo 时自动代填密码，
                   前端不接收密码明文。自动代填需要 Agent 0.2.12+，运行账号
                   须已有 sudo 权限，并启用终端提权。免密 sudo 不需要保存密码。
                 </p>
