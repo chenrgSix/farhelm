@@ -1,6 +1,6 @@
 {
   "name": "farhelm",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,6 +17,7 @@
     "test:browser": "node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/browser-smoke.ts",
     "test:frontend": "npm --prefix apps/web run build && node --import ./apps/server/node_modules/tsx/dist/loader.mjs tests/e2e/frontend-optimization.ts",
     "test:terminal": "node tests/e2e/terminal.mjs",
+    "test:terminal:limits": "node tests/e2e/terminal-limits.mjs",
     "test:terminal:browser": "node tests/e2e/terminal-browser.mjs",
     "test:health:browser": "node tests/e2e/health-browser.mjs",
     "test:disks": "npm --prefix apps/server run build && npm --prefix apps/web run build && node tests/e2e/device-disks.mjs",

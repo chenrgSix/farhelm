@@ -8,10 +8,10 @@
 
 支持使用 systemd 的现代 glibc Linux，x86_64 / ARM64，建议 Debian 12+ / Ubuntu 22.04+。安装器自动准备必要命令、下载并校验 Node.js 24.21.0，使用普通 `farhelm` 用户构建前后端，配置 systemd 并执行健康检查。需要下载 GitHub 源码、Node.js 和 npm 依赖；不修改系统默认 Node，不需要预先安装 npm 或 Rust。
 
-当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.14，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
+当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.15，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
 
 ```bash
-( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.14/install.sh -o "$installer" && bash "$installer" --ref v0.2.14 --host 10.10.0.10 --web-http )
+( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.15/install.sh -o "$installer" && bash "$installer" --ref v0.2.15 --host 10.10.0.10 --web-http )
 ```
 
 不加 `--web-http` 时网页默认 HTTPS。私有仓库部署仍可先执行 `gh auth login`，通过 GitHub CLI 下载对应版本安装脚本。脚本在提权前读取当前用户的 gh 凭据，通过临时 0600 文件传给安装过程；不把访问令牌放进命令参数、服务配置或日志。也支持 `GH_TOKEN` / `GITHUB_TOKEN` / `--token-file`。私有仓库不支持匿名 curl 安装；不会为部署而修改仓库可见性。
@@ -60,7 +60,7 @@ sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 
 ```bash
 # 也可下载 Release 源码包后进入解压目录
-git clone --branch v0.2.14 https://github.com/chenrgSix/farhelm.git
+git clone --branch v0.2.15 https://github.com/chenrgSix/farhelm.git
 cd farhelm/deploy
 cp compose.env.example .env
 ```
@@ -104,11 +104,11 @@ FLEET_WEB_PROTOCOL=http
 
 启动后访问 `http://10.10.0.10:8443`；Agent 使用 `https://10.10.0.10:8444`，安装命令自动携带 CA。浏览器不需要信任该 CA，Agent 的证书校验、后台自动续签和热加载继续运行。HTTP 网页不加密登录与终端流量，适用于受控内网或 VPN；跨不可信网络管理时选择 HTTPS。
 
-| 入口 | 默认对外端口 | 用途 |
-| --- | --- | --- |
-| 网页 HTTP 或 HTTPS | 8443 | 登录、管理 API、网页终端、录制回放 |
-| Agent HTTPS / WSS | 8444 | 安装下载、注册、认证、控制和任务传输；不提供管理 API |
-| SSH 网关 | 2222 | 平台账号认证、设备选择、终端及录制；使用持久 SSH 主机密钥 |
+| 入口               | 默认对外端口 | 用途                                                      |
+| ------------------ | ------------ | --------------------------------------------------------- |
+| 网页 HTTP 或 HTTPS | 8443         | 登录、管理 API、网页终端、录制回放                        |
+| Agent HTTPS / WSS  | 8444         | 安装下载、注册、认证、控制和任务传输；不提供管理 API      |
+| SSH 网关           | 2222         | 平台账号认证、设备选择、终端及录制；使用持久 SSH 主机密钥 |
 
 端口号不会随网页 HTTP/HTTPS 切换而改变。仅开放网页端口不足以连接 Agent，目标设备必须能访问独立 Agent 端口。
 
@@ -157,6 +157,12 @@ FLEET_WEB_PROTOCOL=http
 2026-10-17 在 ARM64 Linux 容器实际验证：原生 systemd 安装和重启自启、Compose HTTPS / HTTP 首次启动和重建、网页静态资源及登录、真实 sshd 的网页终端与 SSH 网关录制、CA / SSH 主机密钥 / 管理员 / 设备 / 历史录制保留，以及发布版 Agent 的 HTTPS 信任和 PTY 录制。x86_64 安装路径已实现，未进行本次 x86_64 系统级验收；公网 CA 正式签发仍需在实际域名或公网 IP 环境验证。
 
 ## 已有部署迁移
+
+v0.2.15 先升级平台，再上传对应架构的 Agent 二进制及同名 JSON 清单完成 Agent 升级。升级前结束活跃终端、停服备份完整数据目录，并保留 CA、SSH 主机密钥、凭据加密密钥及 Agent 完整状态目录。平台迁移仅执行一次，按原 sudo 权限、终端权限、设备范围和普通连接授权的交集保留用户在对应设备的 sudo 权限；保留原角色来源。可在「访问控制 → 设备访问授权」调整个人／用户组／角色授权，个人禁止优先。新设备、新用户默认无 sudo，删除迁移规则不会在重启时恢复。
+
+本版要求 Agent 支持每会话 sudo 限制；旧 Agent 无法落实时明确要求升级，不自动降级放行。纯 SSH／备用 SSH 的受限终端需要 Linux `/usr/bin/setpriv` 与 `/proc` 校验；无法确认限制时拒绝连接。普通 Agent 会话不受备用 SSH 的 root 身份配置影响，实际走 root SSH 时必须有该设备的 sudo 授权。设备提权开关仍是上限，已获授权会话保留密码代填、手工认证和免密 sudo；不修改 sudoers 或网络配置。共享 Linux UID 的终端进程限制不等于完整安全隔离，详见[授权边界](access-control.md#sudo-迁移与执行边界)。
+
+连接限额默认保持每用户 4、每设备默认 4、平台终端总数 32、SSH 总数 64、单 IP SSH 16；可在系统设置调整。每台设备默认继承，也可在「接入配置 → 终端限额」覆盖为 1–128。提高设备上限需新版 Agent；单用户与平台总量仍同时约束，降低值不主动断开已有会话。旧账号、加密凭据、普通连接授权、命令历史及回放保留；无需重新注册设备。一键安装器不能直接作为已有部署的升级命令。
 
 v0.2.14 先升级平台，再上传对应架构的 Agent 二进制和同名 JSON 清单。网页、Farhelm SSH 和 API 只允许普通连接，旧 root 快捷连接、附加账号连接及配置 API 已移除；授权界面仅管理普通连接。旧账号、凭据、规则、命令历史及录制原样保留，不合并为普通连接授权，历史查询和回放继续沿用原权限。
 
