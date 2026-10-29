@@ -405,6 +405,42 @@ export function registerDeviceConnections(
   return {
     kind,
     hasSsh,
+    forwardRevision(id: string) {
+      return `${saved(id)?.revision ?? 0}:${d.routes.current(id).revision}`;
+    },
+    async forward(id: string, host: string, port: number, signal: AbortSignal) {
+      const revision = saved(id)?.revision,
+        selected = routeTargets(id);
+      for (let i = 0; i < selected.targets.length; i++) {
+        const candidate = selected.targets[i]!;
+        try {
+          const stream = await targets.forward(
+            candidate.config,
+            host,
+            port,
+            signal,
+          );
+          if (
+            signal.aborted ||
+            d.requireDevice(id).revoked_at ||
+            saved(id)?.revision !== revision ||
+            d.routes.current(id).revision !== selected.revision
+          ) {
+            stream.destroy();
+            fail(409, "DEVICE_CONNECTION_CHANGED");
+          }
+          return stream;
+        } catch (error) {
+          if (
+            signal.aborted ||
+            i + 1 === selected.targets.length ||
+            !canFallback(error instanceof Error ? error.message : "")
+          )
+            throw error;
+        }
+      }
+      fail(409, "SSH_NOT_CONFIGURED");
+    },
     canSsh: (id: string) => {
       if (!hasSsh(id)) return false;
       const p = d.routes.current(id).policy;

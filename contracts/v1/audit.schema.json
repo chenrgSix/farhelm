@@ -126,11 +126,15 @@
         "device.disk_collected",
         "device.disk_failed",
         "device.disk_schedule_updated",
-        "device.terminal_limit_updated"
+        "device.terminal_limit_updated",
+        "ssh.forward_opened",
+        "ssh.forward_closed"
       ]
     },
     "detail": {
       "anyOf": [
+        {"type":"object","additionalProperties":false,"properties":{"forward_id":{"$ref":"common.schema.json#/$defs/uuid"},"host":{"type":"string","minLength":1,"maxLength":253},"port":{"type":"integer","minimum":1,"maximum":65535},"backend":{"enum":["agent","ssh"]}},"required":["forward_id","host","port","backend"]},
+        {"type":"object","additionalProperties":false,"properties":{"forward_id":{"$ref":"common.schema.json#/$defs/uuid"},"host":{"type":"string","minLength":1,"maxLength":253},"port":{"type":"integer","minimum":1,"maximum":65535},"backend":{"enum":["agent","ssh"]},"reason":{"type":"string","minLength":1,"maxLength":128},"opened":{"type":"boolean"},"bytes_sent":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes_received":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["forward_id","host","port","backend","reason","opened","bytes_sent","bytes_received"]},
         {"$ref":"device-terminal-limit-audit-detail.schema.json"},
         {"type": "object", "additionalProperties": false, "properties": {"per_user": {"type": "integer", "minimum": 1, "maximum": 128}, "per_device": {"type": "integer", "minimum": 1, "maximum": 128}, "terminal_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_per_ip": {"type": "integer", "minimum": 1, "maximum": 1024}, "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}, "required": ["per_user", "per_device", "terminal_total", "ssh_total", "ssh_per_ip", "revision"]},
         {
@@ -3614,7 +3618,9 @@
       }
     },
     {"if": {"properties": {"action": {"const": "settings.connections_updated"}}}, "then": {"properties": {"detail": {"type": "object", "additionalProperties": false, "properties": {"per_user": {"type": "integer", "minimum": 1, "maximum": 128}, "per_device": {"type": "integer", "minimum": 1, "maximum": 128}, "terminal_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_total": {"type": "integer", "minimum": 1, "maximum": 1024}, "ssh_per_ip": {"type": "integer", "minimum": 1, "maximum": 1024}, "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}, "required": ["per_user", "per_device", "terminal_total", "ssh_total", "ssh_per_ip", "revision"]}}}},
-    {"if": {"properties": {"action": {"const": "device.terminal_limit_updated"}}}, "then": {"properties": {"detail": {"$ref": "device-terminal-limit-audit-detail.schema.json"}}}}
+    {"if": {"properties": {"action": {"const": "device.terminal_limit_updated"}}}, "then": {"properties": {"detail": {"$ref": "device-terminal-limit-audit-detail.schema.json"}}}},
+    {"if":{"properties":{"action":{"const":"ssh.forward_opened"}}},"then":{"properties":{"detail":{"type":"object","additionalProperties":false,"properties":{"forward_id":{"$ref":"common.schema.json#/$defs/uuid"},"host":{"type":"string","minLength":1,"maxLength":253},"port":{"type":"integer","minimum":1,"maximum":65535},"backend":{"enum":["agent","ssh"]}},"required":["forward_id","host","port","backend"]}}}},
+    {"if":{"properties":{"action":{"const":"ssh.forward_closed"}}},"then":{"properties":{"detail":{"type":"object","additionalProperties":false,"properties":{"forward_id":{"$ref":"common.schema.json#/$defs/uuid"},"host":{"type":"string","minLength":1,"maxLength":253},"port":{"type":"integer","minimum":1,"maximum":65535},"backend":{"enum":["agent","ssh"]},"reason":{"type":"string","minLength":1,"maxLength":128},"opened":{"type":"boolean"},"bytes_sent":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes_received":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["forward_id","host","port","backend","reason","opened","bytes_sent","bytes_received"]}}}}
   ],
   "description": "Strict current server audit output variants. New actions and detail fields require explicit contract updates; storage may remain extensible."
 }

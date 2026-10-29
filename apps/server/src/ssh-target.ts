@@ -242,6 +242,75 @@ export class SshTargets {
       }
     });
   }
+  forward(
+    config: SshTargetConfig,
+    host: string,
+    port: number,
+    signal: AbortSignal,
+  ): Promise<ClientChannel> {
+    return new Promise((resolve, reject) => {
+      const client = this.client();
+      let stream: ClientChannel | undefined;
+      let settled = false,
+        mismatch = false;
+      const finish = (reason: string) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        stream?.destroy();
+        this.destroy(client);
+        if (!settled) {
+          settled = true;
+          reject(new Error(reason));
+        }
+      };
+      const abort = () => finish("FORWARD_CANCELLED");
+      const timer = setTimeout(() => finish("SSH_CONNECT_TIMEOUT"), 10000);
+      signal.addEventListener("abort", abort, { once: true });
+      client.on("error", (error: any) =>
+        finish(
+          mismatch
+            ? "SSH_HOST_KEY_MISMATCH"
+            : error.level === "client-authentication"
+              ? "SSH_AUTH_FAILED"
+              : "SSH_CONNECT_FAILED",
+        ),
+      );
+      client.on("close", () => finish("SSH_TARGET_DISCONNECTED"));
+      client.on("ready", () => {
+        if (settled) return;
+        client.forwardOut("127.0.0.1", 0, host, port, (error, channel) => {
+          if (settled) {
+            channel?.destroy();
+            return;
+          }
+          if (error) {
+            finish("SSH_FORWARD_FAILED");
+            return;
+          }
+          stream = channel;
+          stream.on("error", () => finish("SSH_TARGET_DISCONNECTED"));
+          stream.once("close", () => finish("FORWARD_CLOSED"));
+          clearTimeout(timer);
+          settled = true;
+          resolve(stream);
+        });
+      });
+      if (signal.aborted) {
+        abort();
+        return;
+      }
+      try {
+        this.connect(
+          client,
+          this.connectConfig(config, () => {
+            mismatch = true;
+          }),
+        );
+      } catch {
+        finish("SSH_CONNECT_FAILED");
+      }
+    });
+  }
   open(
     config: SshTargetConfig,
     cols: number,

@@ -251,7 +251,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","tcp.forward.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","tcp.forward.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
             )?
             .into(),
         ))
@@ -301,6 +301,8 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
     // Artifact transfer must not block incoming cancellations or heartbeats.
     // JoinSet aborts pending uploads when this authenticated session closes.
     let mut uploads = tokio::task::JoinSet::<Result<Event>>::new();
+    let (tcp_output, mut tcp_events) = tokio::sync::mpsc::channel(64);
+    let mut forwards = crate::tcp_forward::Forwards::new(tcp_output);
     let (terminal_output, mut terminal_events) = tokio::sync::mpsc::channel(128);
     let mut terminal_privilege = crate::terminal_privilege::State::load(cfg, journal)?;
     let mut terminal_cfg = cfg.clone();
@@ -417,6 +419,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                 renew.as_mut().reset(tokio::time::Instant::now()+Duration::from_millis(remaining.saturating_sub((remaining/2).min(30_000))));
                 access=renewed;
             }
+            Some((kind,body))=tcp_events.recv()=>{socket.send(Message::Text(envelope(&kind,body)?.into())).await?;}
             Some((kind,body))=terminal_events.recv()=>{socket.send(Message::Text(envelope(&kind,body)?.into())).await?;}
             Some(body)=health_events.recv()=>{socket.send(Message::Text(envelope("health.result",body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
@@ -428,7 +431,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                         socket.send(Message::Text(envelope("agent.trust.result",trust_receipt.take().unwrap())?.into())).await?;
                     } else { continue; }
                 }
-                if upgrade::supervised() && downloads.is_empty() && terminals.is_idle() && terminal_events.is_empty() && journal.upgrade_idle()? {
+                if upgrade::supervised() && downloads.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() && journal.upgrade_idle()? {
                     if let Some(mut state)=UpgradeState::load(journal)? {
                         if state.status=="WAITING_IDLE" {
                             state.status="RESTARTING".into();state.save(journal)?;
@@ -438,10 +441,10 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                         }
                     }
                 }
-                if route_pending && downloads.is_empty() && renewal.is_empty() && terminals.is_idle() && terminal_events.is_empty() && journal.upgrade_idle()? {
+                if route_pending && downloads.is_empty() && renewal.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() && journal.upgrade_idle()? {
                     network.planned()?;let _=socket.close(None).await;return Ok(SessionEnd::AddressChange);
                 }
-                if route.policy.is_none() && address.pending.is_some() && address_probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() {
+                if route.policy.is_none() && address.pending.is_some() && address_probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() {
                     network.planned()?;
                     let _=socket.close(None).await;
                     return Ok(SessionEnd::AddressChange);
@@ -552,6 +555,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                             "task.assign"=>{let task:Task=serde_json::from_value(envelope.body)?;task.validate(&access.device_id)?;let fresh=journal.accept(&task)?;if fresh{cfg.fault("after_accept")?;}}
                             "task.cancel"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Cancel{task_id:String}let body:Cancel=serde_json::from_value(envelope.body)?;journal.cancel(&body.task_id)?;}
                             "event.ack"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{event_id:String,task_id:String,seq:i64}let ack:Ack=serde_json::from_value(envelope.body)?;journal.ack(&ack.event_id,&ack.task_id,ack.seq)?;}
+                            kind if kind.starts_with("tcp.")=>{forwards.receive(kind,envelope.body)?;}
                             kind if kind.starts_with("terminal.")=>{terminals.receive(kind,envelope.body).await?;}
                             "health.config"=>{health.configure(serde_json::from_value(envelope.body)?)?;}
                             "health.run"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Run{revision:u64}let body:Run=serde_json::from_value(envelope.body)?;health.run(body.revision);}

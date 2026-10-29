@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import { setMaxListeners } from "node:events";
 import { auditContext, auditText } from "./audit-context.js";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Socket, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import ssh2 from "ssh2";
 import type { ServerChannel } from "ssh2";
+import type { createSshForwarding } from "./ssh-forwarding.js";
 import type { ServerConfig, User } from "./types.js";
 import type { registerTerminals, TerminalPeer } from "./terminal.js";
 import { createDeviceMenu, type SshDevicePage } from "./ssh-menu.js";
@@ -16,6 +18,7 @@ export interface SshLogin {
   deviceId?: string;
 }
 interface Dependencies {
+  forwarding: ReturnType<typeof createSshForwarding>;
   limits?(): { ssh_total: number; ssh_per_ip: number };
   reserve?(login: SshLogin): void;
   authenticate(
@@ -71,7 +74,7 @@ export function createSshGateway(
     hostKeys: [readFileSync(path)],
     ident: "Farhelm",
     banner:
-      "Farhelm: platform-user (device menu) or platform-user:device-id, platform password. Interactive terminal only.\r\n",
+      "Farhelm: platform-user (device menu) or platform-user:device-id, platform password. Interactive terminals and device TCP forwarding.\r\n",
   });
   const sockets = new Set<Socket>();
   const deadlines = new Map<Socket, ReturnType<typeof setTimeout>>();
@@ -111,6 +114,16 @@ export function createSshGateway(
     const socket = [...sockets].find(
       (s) => s.remoteAddress === info.ip && s.remotePort === info.port,
     )!;
+    const forwardingAbort = new AbortController();
+    setMaxListeners(32, forwardingAbort.signal);
+    const permissionTimer = setInterval(() => {
+      if (!login) return;
+      try {
+        d.currentUser(login);
+      } catch {
+        socket.destroy();
+      }
+    }, 1000).unref();
     let login: SshLogin | undefined;
     let attempts = 0;
     let authenticating = false;
@@ -120,6 +133,8 @@ export function createSshGateway(
     connection.on("error", () => socket.destroy());
     connection.on("close", () => {
       closed = true;
+      clearInterval(permissionTimer);
+      forwardingAbort.abort();
       handle?.disconnect();
       if (login) d.release(login.sessionHash);
     });
@@ -159,7 +174,7 @@ export function createSshGateway(
           throw error;
         }
         login = authenticated;
-        deadline(socket, 30000); // Authenticated clients must open a shell promptly.
+        deadline(socket, authenticated.deviceId ? 3600000 : 30000); // -N may wait before its first direct-tcpip channel.
         ctx.accept();
       } catch {
         if (!closed && !socket.destroyed) ctx.reject(["password"]);
@@ -167,10 +182,31 @@ export function createSshGateway(
         authenticating = false;
       }
     });
-    // Explicitly deny all paths that could bypass the PTY audit/authorization flow.
-    connection.on("tcpip", (_accept, reject) => reject());
+    connection.on("tcpip", (accept, reject, target) => {
+      if (!login || closed) {
+        reject();
+        return;
+      }
+      void auditContext
+        .run({ source: "ssh", remote_address: auditText(info.ip, 128) }, () =>
+          d.forwarding.open(
+            login!,
+            target.destIP,
+            target.destPort,
+            accept,
+            forwardingAbort.signal,
+          ),
+        )
+        .catch(() => {
+          if (!closed) reject();
+        });
+    });
+    // Remote listeners and non-TCP channels remain unsupported.
     connection.on("openssh.streamlocal", (_accept, reject) => reject());
-    connection.on("request", (_accept, reject) => reject?.());
+    connection.on("request", (accept, reject, name) => {
+      if (String(name) === "keepalive@openssh.com") accept?.();
+      else reject?.();
+    });
     connection.on("session", (accept, reject) => {
       if (!login || used) {
         reject();
@@ -324,6 +360,7 @@ export function createSshGateway(
                 peer,
               ),
           );
+          authenticated.deviceId = deviceId;
           menu = undefined;
           if (!closed) deadline(socket, 3600000);
         }

@@ -41,6 +41,8 @@ export const auditActionLabels: Record<string, string> = {
   "terminal.created": "创建终端会话",
   "terminal.opened": "终端连接成功",
   "terminal.closed": "终端会话结束",
+  "ssh.forward_opened": "TCP 转发已连接",
+  "ssh.forward_closed": "TCP 转发已关闭",
   "terminal.recording_viewed": "查看终端录制",
   "terminal.recording_exported": "导出终端录制",
   "health.configured": "修改健康检查",
@@ -86,6 +88,10 @@ export const auditActionLabels: Record<string, string> = {
   "user.password_change_failed": "本人改密验证失败",
 };
 const labels: Record<string, string> = {
+  forward_id: "转发连接 ID",
+  bytes_sent: "发送字节数",
+  bytes_received: "接收字节数",
+  opened: "曾建立连接",
   rule_id: "授权规则 ID",
   effect: "sudo 策略",
   sudo_allowed: "会话允许 sudo",

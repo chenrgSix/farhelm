@@ -1983,5 +1983,55 @@
     "path": "invalid/device-terminal-limit-string.json",
     "schema": "device-terminal-limit-update.schema.json",
     "valid": false
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "valid/tcp-open.json",
+    "valid": true
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "valid/tcp-opened.json",
+    "valid": true
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "valid/tcp-data.json",
+    "valid": true
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "valid/tcp-ack.json",
+    "valid": true
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "valid/tcp-end.json",
+    "valid": true
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "valid/tcp-close.json",
+    "valid": true
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "valid/tcp-closed.json",
+    "valid": true
+  },
+  {
+    "schema": "audit.schema.json",
+    "path": "valid/audit-ssh.forward_opened.json",
+    "valid": true
+  },
+  {
+    "schema": "audit.schema.json",
+    "path": "valid/audit-ssh.forward_closed.json",
+    "valid": true
+  },
+  {
+    "schema": "tcp-forward-envelope.schema.json",
+    "path": "invalid/tcp-invalid-port.json",
+    "valid": false
   }
 ]

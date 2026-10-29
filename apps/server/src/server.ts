@@ -54,6 +54,7 @@ import { registerConnectionAuthorizations } from "./connection-authorizations.js
 import { registerAccessAuthorizations } from "./access-authorizations-api.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
+import { createSshForwarding } from "./ssh-forwarding.js";
 import { registerNetworkRoutes } from "./network-routes.js";
 import { registerNetworkProbes } from "./network-probes.js";
 import { registerAgentNetwork } from "./agent-network.js";
@@ -104,6 +105,7 @@ interface Connection {
   lastHeartbeat: number;
   ready: boolean;
   terminal: boolean;
+  tcpForward: boolean;
   sudo: boolean;
   sudoNopasswd: boolean;
   sudoCommands: boolean;
@@ -548,7 +550,10 @@ export async function buildServer(config: ServerConfig) {
     userAuth,
     availableStorage,
     rate,
-    changed: () => terminals.tick(),
+    changed: () => {
+      terminals.tick();
+      forwarding.tick();
+    },
   });
   function syncDir(path: string) {
     const fd = openSync(path, "r");
@@ -942,7 +947,10 @@ export async function buildServer(config: ServerConfig) {
     store,
     admin,
     authorization: connectionAuthorizations,
-    changed: () => terminals.tick(),
+    changed: () => {
+      terminals.tick();
+      forwarding.tick();
+    },
     availableStorage,
   });
   registerAccessControl(app, {
@@ -951,7 +959,10 @@ export async function buildServer(config: ServerConfig) {
     passwordAuth: sessionUser,
     availableStorage,
     rate,
-    changed: () => terminals.tick(),
+    changed: () => {
+      terminals.tick();
+      forwarding.tick();
+    },
   });
   app.get("/healthz", async () => ({
     v: 1,
@@ -1032,13 +1043,57 @@ export async function buildServer(config: ServerConfig) {
     if (user.must_change_password) fail(403, "PASSWORD_CHANGE_REQUIRED");
     if (!hasPermission(user, "terminal.connect"))
       fail(403, "EXEC_ROLE_REQUIRED");
+    if (
+      login.deviceId &&
+      (requireDevice(login.deviceId).revoked_at ||
+        !inScope(user, login.deviceId))
+    )
+      fail(403, "SSH_TARGET_DENIED");
     return user;
   }
+  const forwarding = createSshForwarding({
+    store,
+    authorize(login) {
+      if (config.deploymentControl?.terminalsBlocked())
+        fail(503, "DEPLOYMENT_APPLYING");
+      const user = sshUser(login),
+        id = login.deviceId!;
+      if (upgrades.active(id)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
+      const c = connections.get(id);
+      const agent =
+        deviceConnections.kind(id) === "agent" &&
+        c?.ready &&
+        c.tcpForward &&
+        live(c) &&
+        Date.now() - c.lastHeartbeat <= heartbeatTimeout &&
+        networkRoutes.allowed(id);
+      const backend = agent ? "agent" : "ssh";
+      connectionAuthorizations.requireDefault(user, id, backend);
+      if (agent)
+        return {
+          backend,
+          revision: String(networkRoutes.current(id).revision),
+          agent: {
+            id: c.healthSession,
+            send: (type, body) => send(c, type, body),
+          },
+        };
+      if (!deviceConnections.canSsh(id))
+        fail(
+          409,
+          c?.ready ? "FORWARD_NOT_SUPPORTED_UPDATE_AGENT" : "DEVICE_OFFLINE",
+        );
+      return { backend, revision: deviceConnections.forwardRevision(id) };
+    },
+    openSsh: (id, host, port, signal) =>
+      deviceConnections.forward(id, host, port, signal),
+  });
   let ssh: ReturnType<typeof createSshGateway> | undefined;
   const prepareSsh = () =>
     config.ssh
       ? createSshGateway(config.dataDir, config.ssh, {
           terminals,
+          forwarding,
           limits: () => connectionLimits.current(),
           reserve(login) {
             try {
@@ -2019,6 +2074,7 @@ export async function buildServer(config: ServerConfig) {
         lastHeartbeat: Date.now(),
         ready: false,
         terminal: false,
+        tcpForward: false,
         sudo: false,
         sudoNopasswd: false,
         sudoCommands: false,
@@ -2037,6 +2093,7 @@ export async function buildServer(config: ServerConfig) {
       const old = connections.get(auth.id);
       if (old) {
         terminals.disconnect(auth.id);
+        forwarding.disconnect(auth.id);
         disks.disconnect(auth.id, old.healthSession);
       }
       connections.set(auth.id, c);
@@ -2045,6 +2102,7 @@ export async function buildServer(config: ServerConfig) {
       socket.on("close", () => {
         if (connections.get(auth.id) === c) {
           terminals.disconnect(auth.id);
+          forwarding.disconnect(auth.id);
           disks.disconnect(auth.id, c.healthSession);
           connections.delete(auth.id);
         }
@@ -2061,10 +2119,10 @@ export async function buildServer(config: ServerConfig) {
           version(env);
           const b = object(env.body);
           rate.check(
-            (String(env.type).startsWith("terminal.")
+            (/^(terminal|tcp)\./.test(String(env.type))
               ? "terminal-output:"
               : "ws:") + c.deviceId,
-            String(env.type).startsWith("terminal.") ? 12000 : 1200,
+            /^(terminal|tcp)\./.test(String(env.type)) ? 12000 : 1200,
           );
           if (env.type === "agent.hello" || env.type === "agent.heartbeat") {
             keys(b, [
@@ -2086,6 +2144,7 @@ export async function buildServer(config: ServerConfig) {
               c.disk = b.capabilities.includes("disk.usage.v1");
               c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
+              c.tcpForward = b.capabilities.includes("tcp.forward.v1");
               c.sudo = b.capabilities.includes("terminal.sudo.v1");
               c.terminalPolicy = b.capabilities.includes("terminal.policy.v1");
               c.sudoCommands = b.capabilities.includes(
@@ -2199,6 +2258,9 @@ export async function buildServer(config: ServerConfig) {
           } else if (env.type === "health.result") {
             if (!c.ready || !c.health) fail(400, "HEALTH_HELLO_REQUIRED");
             health.receive(c.deviceId, b);
+          } else if (String(env.type).startsWith("tcp.")) {
+            if (!c.ready || !c.tcpForward) fail(400, "FORWARD_HELLO_REQUIRED");
+            forwarding.receive(c.deviceId, c.healthSession, env.type, b);
           } else if (String(env.type).startsWith("terminal.")) {
             if (!c.ready) fail(400, "HELLO_REQUIRED");
             terminals.receive(c.deviceId, env.type, b);
@@ -2288,6 +2350,7 @@ export async function buildServer(config: ServerConfig) {
       const now = Date.now();
       ++ticks;
       terminals.tick();
+      forwarding.tick();
       settings.sync.flush();
       caSync.flush();
       terminalPrivilege.flush();
@@ -2295,6 +2358,7 @@ export async function buildServer(config: ServerConfig) {
       for (const c of connections.values()) {
         if (!live(c) || now - c.lastHeartbeat > heartbeatTimeout) {
           terminals.disconnect(c.deviceId);
+          forwarding.disconnect(c.deviceId);
           c.socket.close(4003, "Authorization or heartbeat expired");
           if (connections.get(c.deviceId) === c) connections.delete(c.deviceId);
         } else if (ticks % 5 === 0) dispatch(c.deviceId);
@@ -2304,6 +2368,7 @@ export async function buildServer(config: ServerConfig) {
       db.prepare("DELETE FROM user_sessions WHERE expires_at<?").run(now);
     } catch {
       terminals.close();
+      forwarding.close();
       for (const c of connections.values())
         c.socket.close(1011, "Storage unavailable");
     }
@@ -2313,6 +2378,7 @@ export async function buildServer(config: ServerConfig) {
     clearInterval(timer);
     await disks.close();
     terminals.close();
+    forwarding.close();
     await ssh?.close();
     await deviceConnections.close();
     for (const c of connections.values()) c.socket.terminate();

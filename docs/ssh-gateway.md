@@ -1,6 +1,6 @@
 # SSH 统一入口
 
-用户用标准 SSH 客户端连接 Farhelm 服务端，认证平台账号、检查设备授权后，按接入方式创建 PTY：Agent 设备使用出站 WSS，SSH 设备由平台通过配置的账号和私钥连接目标 sshd。Agent 模式无需目标 sshd；SSH 模式无需安装 Agent。配置与凭据管理见[双接入说明](device-connections.md)。当前为受审计的交互终端转接，不转发任意 SSH 通道。
+用户用标准 SSH 客户端连接 Farhelm 服务端，认证平台账号、检查设备授权后，按接入方式创建 PTY：Agent 设备使用出站 WSS，SSH 设备由平台通过配置的账号和私钥连接目标 sshd。Agent 模式无需目标 sshd；SSH 模式无需安装 Agent。配置与凭据管理见[双接入说明](device-connections.md)。支持受审计的交互终端，以及按设备授权的 TCP 转发（`-J` / `-L`）。
 
 ```text
 OpenSSH / SSH 客户端 ── SSH ── Farhelm 服务端 ── 已认证 WSS ── Agent PTY
@@ -30,6 +30,34 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 
 网页「终端会话」区分 SSH/网页来源，并统一展示状态、录制时长、回放和导出；管理员或原操作者可点击「结束会话」断开活跃连接。输入 `exit` 正常结束，意外 SSH/Agent 断线显示中断。SSH 退出码 0 表示会话传输正常结束，不提供 Shell 内最后一条命令/进程的退出码；自动化请继续使用命令任务。
 
+## 跳板和本地端口转发
+
+转发使用 `平台用户名:设备ID`（或唯一设备名）明确指定出口设备。平台账号需拥有该设备的访问范围、`terminal.connect` 和默认连接账号授权；SSH 默认账号为 root 时仍需现有 sudo 授权。只有旧附加账号授权不足以转发。未指定设备的纯 `-N` 连接不会自动选择出口。
+
+直接访问出口设备可达的数据库：
+
+```bash
+ssh -N -p 2222 -l '平台用户名:设备ID' \
+  -L 127.0.0.1:11433:192.168.0.4:1433 平台地址
+```
+
+使用出口设备继续连接一台 SSH 主机，并由该 SSH 主机访问数据库：
+
+```bash
+ssh -N -J '平台用户名:设备ID@平台地址:2222' \
+  -L 127.0.0.1:11433:192.168.0.4:1433 genie@10.0.1.20
+```
+
+第一种命令从选定设备连接 `192.168.0.4:1433`；第二种先从选定设备连接 `10.0.1.20:22`，数据库连接由 `10.0.1.20` 的 sshd 建立，需另行验证 `genie` 的凭据与主机指纹。出口设备本身就是所需的内网入口时，可以直接使用第一种。
+
+- Agent 设备通过已认证 WSS 通道从设备本机建立 TCP 连接，需要升级至支持 `tcp.forward.v1` 的 Agent；不要求设备安装 sshd。旧 Agent 可使用已配置的备用 SSH，否则明确拒绝转发。
+- SSH 设备沿用保存的目标账号、密码/私钥、主机指纹和 VPN/公网路由策略，由目标 sshd 发起连接。目标 sshd 必须允许 TCP 转发，且其 `PermitOpen` 等策略仍然生效。认证失败、指纹不符或目标拒绝转发时不会降级绕过检查。
+- 授权范围是**出口设备**：允许访问它可达的任意 TCP 地址和端口，不要求数据库等目的地另行登记为设备；域名在出口设备解析。平台自身不会直接拨打用户提供的目的地址。该权限也允许访问出口设备的回环服务。
+- 每次开通和传输、以及每秒检查会话与设备授权；撤权、停用账号、登录过期、设备撤销、出口失联或配置/路由变化后关闭连接。SSH 总连接数、单 IP 和单用户连接额度仍生效；额外限制每连接 16、每出口设备 32、全平台 128 个转发通道（包括正在连接的请求）。连接最长一小时，`-N` 可空闲等待首次使用，不再要求 30 秒内打开 Shell。
+- 审计记录出口设备、操作者、目的地址、端口、通道、字节数及关闭原因，不记录隧道负载，也不提供隧道内部的终端录制或 sudo 限制；目标服务仍负责其账号认证与权限。
+
+支持 OpenSSH keepalive；每方向使用背压和有限缓冲，保留 TCP 半关闭语义。远程监听 `-R`、Unix socket、X11、ssh-agent 转发，以及直接向平台发起 exec/SFTP 仍被拒绝。`-D` 使用相同的 `direct-tcpip` 协议，因此也遵守上述出口设备权限和限额。
+
 ## 不使用 HTTPS 的部署
 
 设备仅用 SSH 时，设置 `FLEET_DEVICE_ACCESS=ssh-only`。保留网页管理可用 `FLEET_WEB_ENABLED=1`、`FLEET_WEB_PROTOCOL=http`，无需 HTTPS 证书或 CA；显式设置 `FLEET_WEB_ENABLED=0` 才关闭网页。SSH 主机密钥自动生成并持久保存，详见 [SSH 接入与网页管理](ssh-only.md)。
@@ -51,9 +79,9 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 
 仅 admin 或有设备范围的 ops 可开 Shell；business/auditor 不可操作。SSH 和 HTTPS 共用密码验证、登录限速、用户/设备权限，SSH 内部登录凭据不会发给客户端，断连后清除。每次输入、输出和每秒定时检查权限/会话有效性；撤销设备、变更范围/角色或到期会关闭现有会话。Shell 创建前再次检查权限，防止认证后权限变化。
 
-录制、存储失败关闭、输出序列校验及额度与网页终端共用。输出在 SQLite 提交后才传给 SSH 客户端并 ACK Agent；不保存原始按键。SSH 全局最多 64 个 TCP 连接、每 IP 16 个，握手/认证限时 10 秒，认证后须在 30 秒内请求 Shell（带目标时进入终端，不带目标时显示菜单），每个连接一个目标 Shell。终端共用每用户/设备 4、全局 32、单次 1 小时等限额。慢客户端超过发送缓存限制会中断，不无限堆积数据。
+录制、存储失败关闭、输出序列校验及额度与网页终端共用。输出在 SQLite 提交后才传给 SSH 客户端并 ACK Agent；不保存原始按键。SSH 全局最多 64 个 TCP 连接、每 IP 16 个，握手/认证限时 10 秒，未指定目标时认证后须在 30 秒内请求 Shell 显示菜单；指定目标可打开终端或使用纯转发，每个连接一个目标 Shell。终端共用每用户/设备 4、全局 32、单次 1 小时等限额。慢客户端超过发送缓存限制会中断，不无限堆积数据。
 
-当前只有密码认证的交互终端；未实现 SSH 公钥/SSO/MFA、SFTP/SCP、`ssh host command`、VS Code Remote SSH 所需的 exec/转发、TCP/Unix socket/X11/ssh-agent 转发，这些请求明确拒绝。不能宣称与 Warpgate 全功能兼容。
+平台入口使用密码认证；未实现 SSH 公钥/SSO/MFA、直接 SFTP/SCP、`ssh host command`、VS Code Remote SSH 所需的 exec、远程端口监听和 Unix socket/X11/ssh-agent 转发，这些请求明确拒绝。不能宣称与 Warpgate 全功能兼容。
 
 “用户只能经平台访问”的网络前提：Agent 主机原有 SSH 等管理入口必须由部署者关闭或限制来源，不向使用者发放直连凭据。这次功能不自动更改机器防火墙。拥有任意 Shell（尤其 sudo）的人仍可能在目标主机建立其他连接；同 UID 身份/文件访问与进程清理边界仍见[终端说明](terminal.md)。
 
@@ -66,3 +94,12 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 `npm run test:ssh:browser` 连接已运行的本地开发实例，凭据参数同终端浏览器测试，验证连接命令复制/指纹、手机布局、真实 SSH Shell、时长更新、网页结束 SSH 会话及回放。截图和结果保存在 `.test-output/ssh-*`。本地验证不等于 CI、外网部署或第三方 SSH 客户端全量兼容验收。
 
 同一 Agent 设备可配置备用 SSH，直连和菜单选择都在新会话创建时优先使用心跳有效、支持终端的 Agent，否则尝试备用 SSH。菜单显示「备用 SSH · 按需连接」；不增加第二个设备条目，现有会话保持原通道，权限和录制仍归属同一设备。配置方法见[双通道配置](device-connections.md)。
+
+`apps/server/test/ssh-forwarding.test.ts` 覆盖真实 SSH 协议、系统 OpenSSH `-J` / `-L`、Agent 通道测试替身、二进制与半关闭、授权撤销、会话失效及目标指纹。`agent/src/tcp_forward.rs` 测试真实 TCP、背压及断连清理。真实 Linux Agent 集成验证可运行：
+
+```bash
+FLEET_AGENT_BIN=/absolute/path/to/new-linux-agent \
+FLEET_AGENT_DOCKER_IMAGE=farhelm-agent-dev:local npm run test:ssh:forwarding
+```
+
+该测试使用独立服务端与临时 Agent 容器，验证系统 OpenSSH 通过真实 Agent 的跳板、端口转发、31 秒空闲等待和撤权断连，结果保存到 `.test-output/ssh-forwarding-e2e.json`。

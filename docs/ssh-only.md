@@ -137,7 +137,7 @@ curl --fail-with-body --silent --show-error --unix-socket "$SOCK" \
 
 启动会检查已有本机管理套接字：运行中拒绝重复启动，异常退出留下的旧套接字可自动恢复；普通文件、符号链接或其他用户的套接字不会被覆盖。恢复 Agent 接入时设置 `FLEET_DEVICE_ACCESS=agent-ssh` 并提供 Agent 的 HTTPS 配置（网页协议可独立选择）；网页是否开启仍由 `FLEET_WEB_ENABLED` 控制。旧 `FLEET_MODE=ssh-only` 是关闭网页的兼容预设，显式的新配置优先。
 
-SSH PTY、设备菜单、权限动态校验和录制使用与完整模式相同的流程。仍不开放 SFTP/SCP、端口转发、任意 SSH exec 或免审计通道。依赖 Agent 的命令任务、健康和网络采集、Agent 升级在本模式不可用。
+SSH PTY、设备菜单、权限动态校验和录制使用与完整模式相同的流程。支持按出口设备授权的 `-J` / `-L` TCP 转发，SSH 目标需允许转发，详见 [SSH 统一入口](ssh-gateway.md#跳板和本地端口转发)。平台入口仍不开放直接 SFTP/SCP 或任意 SSH exec。依赖 Agent 的命令任务、健康和网络采集、Agent 升级在本模式不可用。
 
 ## 验证
 
