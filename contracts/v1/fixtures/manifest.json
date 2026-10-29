@@ -2033,5 +2033,40 @@
     "schema": "tcp-forward-envelope.schema.json",
     "path": "invalid/tcp-invalid-port.json",
     "valid": false
+  },
+  {
+    "path": "valid/device-forwarding-disabled.json",
+    "schema": "device-forwarding.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-forwarding-update.json",
+    "schema": "device-forwarding-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/device-forwarding-audit-detail.json",
+    "schema": "device-forwarding-audit-detail.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/device-forwarding-string.json",
+    "schema": "device-forwarding-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/device-forwarding-missing.json",
+    "schema": "device-forwarding-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/device-forwarding-extra.json",
+    "schema": "device-forwarding-update.schema.json",
+    "valid": false
+  },
+  {
+    "path": "valid/audit-device.forwarding_updated.json",
+    "schema": "audit.schema.json",
+    "valid": true
   }
 ]

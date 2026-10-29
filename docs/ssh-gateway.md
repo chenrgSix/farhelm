@@ -32,6 +32,8 @@ ssh -tt -p 2222 -l admin 127.0.0.1
 
 ## 跳板和本地端口转发
 
+管理员先在「接入配置 → TCP 转发」开启该设备的「允许 TCP 转发」。既有设备和新设备均默认关闭；升级包含此功能的平台后，需要按设备显式开启。开关同时控制 Agent、SSH 和备用 SSH 出口，关闭后立即断开已有及正在建立的转发，不影响普通终端和其他设备。
+
 转发使用 `平台用户名:设备ID`（或唯一设备名）明确指定出口设备。平台账号需拥有该设备的访问范围、`terminal.connect` 和默认连接账号授权；SSH 默认账号为 root 时仍需现有 sudo 授权。只有旧附加账号授权不足以转发。未指定设备的纯 `-N` 连接不会自动选择出口。
 
 直接访问出口设备可达的数据库：
@@ -102,4 +104,6 @@ FLEET_AGENT_BIN=/absolute/path/to/new-linux-agent \
 FLEET_AGENT_DOCKER_IMAGE=farhelm-agent-dev:local npm run test:ssh:forwarding
 ```
 
-该测试使用独立服务端与临时 Agent 容器，验证系统 OpenSSH 通过真实 Agent 的跳板、端口转发、31 秒空闲等待和撤权断连，结果保存到 `.test-output/ssh-forwarding-e2e.json`。
+该测试使用独立服务端与临时 Agent 容器，验证系统 OpenSSH 通过真实 Agent 的跳板、端口转发、31 秒空闲等待、设备开关关闭断连和撤权断连，结果保存到 `.test-output/ssh-forwarding-e2e.json`。
+
+设备转发配置 API（仅管理员）：`GET /api/v1/devices/:id/forwarding` 返回 `v`、`device_id`、`enabled`、`revision`、`updated_at`；`PUT` 提交 `{ "v": 1, "revision": 当前版本, "enabled": true或false }`。版本过期返回 409，修改与审计原子保存，普通用户不能修改开关。

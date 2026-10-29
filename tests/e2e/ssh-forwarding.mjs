@@ -73,9 +73,24 @@ const target = new ssh2.Server({ hostKeys: [targetKey] }, (client) => {
       const channel = accept();
       socket.on("error", () => channel.destroy());
       channel.on("error", () => socket.destroy());
-      socket.on("close", () => channel.destroy());
+      socket.on("close", () => {
+        if (!socket.readableEnded || !socket.writableFinished)
+          channel.destroy();
+      });
       channel.on("close", () => socket.destroy());
-      channel.pipe(socket).pipe(channel);
+      // A TCP close can precede draining the SSH write window. Preserve buffered replies.
+      let outputEnded = false;
+      socket.on("end", () =>
+        channel.write(Buffer.alloc(0), () => {
+          outputEnded = true;
+          channel.eof();
+          if (channel.readableEnded) channel.end();
+        }),
+      );
+      channel.on("end", () => {
+        if (outputEnded) channel.end();
+      });
+      channel.pipe(socket).pipe(channel, { end: false });
     });
   });
 });
@@ -201,6 +216,16 @@ while True:
     "Rust Agent online",
     45000,
   );
+  const initialPolicy = await api("GET", `/devices/${device.id}/forwarding`);
+  assert.equal(initialPolicy.enabled, false);
+  await api("PUT", `/devices/${device.id}/forwarding`, {
+    v: 1,
+    revision: initialPolicy.revision,
+    enabled: true,
+  });
+  steps.push(
+    "device forwarding defaults off and is explicitly enabled by an admin",
+  );
   server.store.seedUser({
     username: "operator",
     password,
@@ -225,7 +250,8 @@ while True:
     config,
     `Host *\n  StrictHostKeyChecking yes\n  UserKnownHostsFile ${known}\n  PreferredAuthentications password\n  PubkeyAuthentication no\n  ServerAliveInterval 2\n  ServerAliveCountMax 3\n`,
   );
-  for (const jump of [false, true]) {
+  for (const mode of ["local", "policy", "scope"]) {
+    const jump = mode !== "local";
     const probe = createServer();
     await new Promise((r) => probe.listen(0, "127.0.0.1", r));
     const port = probe.address().port;
@@ -285,13 +311,34 @@ while True:
         child.exitCode !== null || child.signalCode !== null
           ? Promise.resolve()
           : once(child, "exit", { signal: AbortSignal.timeout(5000) });
-      server.store.db
-        .prepare("UPDATE users SET device_scope='[]' WHERE username='operator'")
-        .run();
+      if (mode === "policy") {
+        const policy = await api("GET", `/devices/${device.id}/forwarding`);
+        await api("PUT", `/devices/${device.id}/forwarding`, {
+          v: 1,
+          revision: policy.revision,
+          enabled: false,
+        });
+      } else {
+        server.store.db
+          .prepare(
+            "UPDATE users SET device_scope='[]' WHERE username='operator'",
+          )
+          .run();
+      }
       await closed;
       steps.push(
-        "device scope revocation terminates the existing ProxyJump connection",
+        mode === "policy"
+          ? "disabling device forwarding terminates the existing ProxyJump connection"
+          : "device scope revocation terminates the existing ProxyJump connection",
       );
+      if (mode === "policy") {
+        const policy = await api("GET", `/devices/${device.id}/forwarding`);
+        await api("PUT", `/devices/${device.id}/forwarding`, {
+          v: 1,
+          revision: policy.revision,
+          enabled: true,
+        });
+      }
     } else {
       const closed =
         child.exitCode !== null || child.signalCode !== null

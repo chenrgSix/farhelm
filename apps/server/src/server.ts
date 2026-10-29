@@ -34,6 +34,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { ConnectionLimits } from "./connection-limits.js";
+import { DeviceForwarding } from "./device-forwarding.js";
 import { Store } from "./store.js";
 import { auditContext, auditText } from "./audit-context.js";
 import { deployment } from "./deployment.js";
@@ -156,6 +157,7 @@ export async function buildServer(config: ServerConfig) {
   const store = new Store(config.dataDir);
   const apiTokens = new ApiTokens(store);
   const connectionLimits = new ConnectionLimits(store);
+  const deviceForwarding = new DeviceForwarding(store);
   const db = store.db;
   const rate = new RateLimiter();
   const connections = new Map<string, Connection>();
@@ -1058,6 +1060,7 @@ export async function buildServer(config: ServerConfig) {
         fail(503, "DEPLOYMENT_APPLYING");
       const user = sshUser(login),
         id = login.deviceId!;
+      deviceForwarding.requireAllowed(id);
       if (upgrades.active(id)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
       const c = connections.get(id);
       const agent =
@@ -1088,6 +1091,9 @@ export async function buildServer(config: ServerConfig) {
     openSsh: (id, host, port, signal) =>
       deviceConnections.forward(id, host, port, signal),
   });
+  deviceForwarding.register(app, admin, availableStorage, () =>
+    forwarding.tick(),
+  );
   let ssh: ReturnType<typeof createSshGateway> | undefined;
   const prepareSsh = () =>
     config.ssh

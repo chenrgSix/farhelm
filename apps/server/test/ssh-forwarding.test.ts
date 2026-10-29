@@ -31,10 +31,11 @@ async function until(fn: () => unknown, label = "condition") {
   }
   throw new Error("Timed out: " + label);
 }
-async function fixture(kind: "ssh" | "agent" = "ssh") {
+async function fixture(kind: "ssh" | "agent" = "ssh", enabled = true) {
   const downstream = new Set<ssh2.Connection>(),
     sockets = new Set<Socket>();
   const requests: { host: string; port: number }[] = [];
+  let holdForwards = false;
   const echo = createServer({ allowHalfOpen: true }, (socket) => {
     sockets.add(socket);
     socket.on("error", () => {});
@@ -57,6 +58,7 @@ async function fixture(kind: "ssh" | "agent" = "ssh") {
     );
     client.on("tcpip", (accept, reject, info) => {
       requests.push({ host: info.destIP, port: info.destPort });
+      if (holdForwards) return;
       const socket = tcpConnect({
         host: info.destIP === "database.internal" ? "127.0.0.1" : info.destIP,
         port: info.destPort,
@@ -70,9 +72,24 @@ async function fixture(kind: "ssh" | "agent" = "ssh") {
         const channel = accept();
         socket.on("error", () => channel.destroy());
         channel.on("error", () => socket.destroy());
-        socket.on("close", () => channel.destroy());
+        socket.on("close", () => {
+          if (!socket.readableEnded || !socket.writableFinished)
+            channel.destroy();
+        });
         channel.on("close", () => socket.destroy());
-        channel.pipe(socket).pipe(channel);
+        // A TCP close can precede draining the SSH write window. Preserve buffered replies.
+        let outputEnded = false;
+        socket.on("end", () =>
+          channel.write(Buffer.alloc(0), () => {
+            outputEnded = true;
+            channel.eof();
+            if (channel.readableEnded) channel.end();
+          }),
+        );
+        channel.on("end", () => {
+          if (outputEnded) channel.end();
+        });
+        channel.pipe(socket).pipe(channel, { end: false });
       });
     });
   });
@@ -108,17 +125,16 @@ async function fixture(kind: "ssh" | "agent" = "ssh") {
   ).json().access_token;
   async function configure(
     fingerprintValue = fingerprint(parsed.getPublicSSH()),
+    deviceId = "device",
   ) {
     const revision = Number(
       server.store.db
-        .prepare(
-          "SELECT revision FROM device_connections WHERE device_id='device'",
-        )
-        .get()?.revision ?? 0,
+        .prepare("SELECT revision FROM device_connections WHERE device_id=?")
+        .get(deviceId)?.revision ?? 0,
     );
     const result = await server.app.inject({
       method: "PUT",
-      url: "/api/v1/devices/device/connection",
+      url: `/api/v1/devices/${deviceId}/connection`,
       headers: { authorization: "Bearer " + auth },
       payload: {
         v: 1,
@@ -135,6 +151,21 @@ async function fixture(kind: "ssh" | "agent" = "ssh") {
     });
     assert.equal(result.statusCode, 200, result.body);
   }
+  async function setForwarding(enabled: boolean, deviceId = "device") {
+    const revision = Number(
+      server.store.db
+        .prepare("SELECT revision FROM device_forwarding WHERE device_id=?")
+        .get(deviceId)?.revision ?? 0,
+    );
+    const result = await server.app.inject({
+      method: "PUT",
+      url: `/api/v1/devices/${deviceId}/forwarding`,
+      headers: { authorization: "Bearer " + auth },
+      payload: { v: 1, revision, enabled },
+    });
+    assert.equal(result.statusCode, 200, result.body);
+  }
+  if (enabled) await setForwarding(true);
   if (kind === "ssh") await configure();
   let agent: WebSocket | undefined;
   const agentSockets = new Map<
@@ -165,6 +196,7 @@ async function fixture(kind: "ssh" | "agent" = "ssh") {
       const current = agentSockets.get(id);
       if (type === "tcp.open") {
         requests.push({ host: body.host, port: body.port });
+        if (holdForwards) return;
         const socket = tcpConnect({
           host: body.host === "database.internal" ? "127.0.0.1" : body.host,
           port: body.port,
@@ -250,6 +282,10 @@ async function fixture(kind: "ssh" | "agent" = "ssh") {
   return {
     ...server,
     configure,
+    setForwarding,
+    holdForwards() {
+      holdForwards = true;
+    },
     requests,
     dataDir,
     echoPort,
@@ -566,6 +602,102 @@ for (const kind of ["ssh", "agent"] as const) {
         const received = Buffer.concat(chunks);
         assert.equal(received.length, data.length);
         assert.ok(received.equals(data));
+      } finally {
+        await f.close();
+      }
+    },
+  );
+}
+
+for (const kind of ["ssh", "agent"] as const) {
+  test(
+    `${kind} device policy denies before dialing, closes live forwards immediately and isolates other devices`,
+    { timeout: 15000 },
+    async () => {
+      const f = await fixture(kind, false);
+      try {
+        const client = await f.connect();
+        const admin = await f.connect("admin:device");
+        await assert.rejects(f.forward(client));
+        await assert.rejects(f.forward(admin));
+        assert.equal(
+          f.requests.length,
+          0,
+          "disabled policy applies even to admins, before any target connection",
+        );
+        f.store.db
+          .prepare(
+            "INSERT INTO devices(id,public_key,name,created_at,connection_kind) VALUES('other','other-key','other-device',1,'ssh')",
+          )
+          .run();
+        await f.configure(undefined, "other");
+        await f.setForwarding(true, "other");
+        const other = await f.forward(await f.connect("admin:other"));
+        await f.setForwarding(true);
+        const channel = await f.forward(client);
+        channel.on("error", () => {});
+        channel.resume();
+        const closed = once(channel, "close");
+        await f.setForwarding(false);
+        assert.equal(
+          f.store.db
+            .prepare(
+              "SELECT count(*) AS n FROM audit WHERE action='ssh.forward_closed' AND device_id='device'",
+            )
+            .get()!.n,
+          1,
+          "API response waits until live forwards have been stopped",
+        );
+        await closed;
+        const requests = f.requests.length;
+        await assert.rejects(f.forward(client));
+        assert.equal(f.requests.length, requests);
+        await roundtrip(other, Buffer.from("other device remains connected"));
+        await f.setForwarding(true);
+        await roundtrip(
+          await f.forward(client),
+          Buffer.from("same authenticated connection after re-enable"),
+        );
+      } finally {
+        await f.close();
+      }
+    },
+  );
+}
+
+for (const kind of ["ssh", "agent"] as const) {
+  test(
+    `${kind} disabling forwarding cancels pending opens before they can be accepted`,
+    { timeout: 15000 },
+    async () => {
+      const f = await fixture(kind);
+      try {
+        const client = await f.connect();
+        f.holdForwards();
+        const rejected = assert.rejects(f.forward(client));
+        await until(
+          () => f.requests.length === 1,
+          "pending forwarding request",
+        );
+        await f.setForwarding(false);
+        const closed = JSON.parse(
+          f.store.db
+            .prepare(
+              "SELECT detail_json FROM audit WHERE action='ssh.forward_closed'",
+            )
+            .get()!.detail_json as string,
+        );
+        assert.equal(closed.opened, false);
+        assert.equal(closed.bytes_sent, 0);
+        await rejected;
+        assert.equal(
+          f.store.db
+            .prepare(
+              "SELECT count(*) AS n FROM audit WHERE action='ssh.forward_opened'",
+            )
+            .get()!.n,
+          0,
+        );
       } finally {
         await f.close();
       }
