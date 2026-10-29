@@ -2,7 +2,7 @@
 
 管理员可在 **API Token** 页面为脚本和 AI 创建独立凭据，配置权限、设备范围和有效期，下载配套 Skill 与 OpenAPI 文档。所有调用继续受用户授权约束并保留审计，详见 [通用 API 与 Skill](docs/api-tokens.md)。
 
-**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前正式版为 **v0.2.15**（Agent v0.2.15）。
+**分散设备，一处掌控。** Linux 设备连接、授权操作、健康检查与执行审计控制台，当前正式版为 **v0.2.16**（Agent v0.2.16）。
 
 Rust/Tokio Agent + TypeScript/Fastify 单体 + Vue 3 + SQLite WAL + 本地输出对象目录。单设备授权 Exec 只有一条持久化任务链，支持可选 SSH 统一入口；不依赖 MQ、Redis、Kubernetes、tlog、auditd 或 EasyTierManager。
 
@@ -75,7 +75,7 @@ npm run dev
 
 「添加设备」的 SSH 和 Agent 接入均为弹窗表单。Agent 可生成一条安装命令，在目标 Linux 执行后自动安装、注册并启动；平台先用 `npm run build:agent:installers` 准备 ARM64 / x86_64 静态安装包。地址、CA、运行账号和 systemd/容器启动说明见 [Agent 一键安装](docs/agent-installation.md)。
 
-设备页「SSH 连接」提供标准客户端命令，使用平台账号和密码连接统一入口；目标设备按配置使用 Agent 通道或 SSH 接入。开发默认入口 `127.0.0.1:2222`；也可用 `ssh -tt -p 2222 -l admin 127.0.0.1` 登录后按编号选设备。功能和部署边界见 [SSH 统一入口](docs/ssh-gateway.md)。
+设备页「SSH 连接」提供标准客户端命令，使用平台账号和密码连接统一入口；目标设备按配置使用 Agent 通道或 SSH 接入。开发默认入口 `127.0.0.1:2222`；也可用 `ssh -tt -p 2222 -l admin 127.0.0.1` 登录后按编号选设备。支持按选中设备作为出口的 `-J` 跳板与 `-L` 本地 TCP 转发，沿用设备范围及普通连接授权；Agent 转发需 0.2.16。功能和部署边界见 [SSH 统一入口](docs/ssh-gateway.md)。
 
 原有「命令任务」保留用于需要超时、幂等重试和独立结果的操作，可输入 argv JSON 数组，例如 `["/usr/bin/uptime"]`。任务模式不自动拼接 Shell。`journalctl` 的可见范围取决于用户配置的系统账号，失败不会自动 sudo 或加组。
 
