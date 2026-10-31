@@ -1,21 +1,35 @@
 import { randomUUID } from "node:crypto";
-import { isIP } from "node:net";
+import type { Socket } from "node:net";
 import { Duplex, Transform } from "node:stream";
 import type { ServerChannel } from "ssh2";
 import { auditContext } from "./audit-context.js";
 import { AgentForward } from "./agent-forward.js";
 import type { Store } from "./store.js";
 import type { SshLogin } from "./ssh.js";
-import { fail, integer, str } from "./util.js";
+import { fail, str } from "./util.js";
+import type { User } from "./types.js";
+import { forwardDestination } from "./tcp-mapping-policy.js";
+
+export type MappingLogin = {
+  user: User;
+  deviceId: string;
+  mapping: { id: string; revision: number; source: string };
+};
+export type ForwardLogin = SshLogin | MappingLogin;
+type ForwardChannel = ServerChannel | Socket;
 
 type Agent = {
   id: string;
   send(type: string, body: Record<string, unknown>): boolean;
 };
-type Route = { backend: "agent" | "ssh"; revision: string; agent?: Agent };
+export type ForwardRoute = {
+  backend: "agent" | "ssh";
+  revision: string;
+  agent?: Agent;
+};
 interface Dependencies {
   store: Store;
-  authorize(login: SshLogin): Route;
+  authorize(login: ForwardLogin): ForwardRoute;
   openSsh(
     deviceId: string,
     host: string,
@@ -25,38 +39,33 @@ interface Dependencies {
 }
 interface Forward {
   id: string;
-  login: SshLogin;
-  route: Route;
+  login: ForwardLogin;
+  route: ForwardRoute;
   stop(reason: string): void;
   validate(): void;
   agent?: AgentForward;
 }
 export function createSshForwarding(d: Dependencies) {
   const active = new Map<string, Forward>();
-  function authorize(login: SshLogin) {
+  function authorize(login: ForwardLogin) {
     if (!login.deviceId) fail(403, "FORWARD_DEVICE_REQUIRED");
     return d.authorize(login);
   }
   return {
     async open(
-      login: SshLogin,
+      login: ForwardLogin,
       host: string,
       port: number,
-      accept: () => ServerChannel,
+      accept: () => ForwardChannel,
       signal: AbortSignal,
     ) {
-      str(host, 1, 253);
-      integer(port, 1, 65535);
-      if (
-        !isIP(host) &&
-        !host
-          .split(".")
-          .every((label) =>
-            /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label),
-          )
-      )
-        fail(400, "INVALID_FORWARD_HOST");
-      let route: Route;
+      forwardDestination(host, port);
+      const mapping = "mapping" in login ? login.mapping : undefined;
+      const group = (value: ForwardLogin) =>
+        "mapping" in value
+          ? "mapping:" + value.mapping.id
+          : "ssh:" + value.sessionHash;
+      let route: ForwardRoute;
       try {
         route = authorize(login);
         const sessions = [...active.values()];
@@ -64,8 +73,7 @@ export function createSshForwarding(d: Dependencies) {
           sessions.length >= 128 ||
           sessions.filter((s) => s.login.deviceId === login.deviceId).length >=
             32 ||
-          sessions.filter((s) => s.login.sessionHash === login.sessionHash)
-            .length >= 16
+          sessions.filter((s) => group(s.login) === group(login)).length >= 16
         )
           fail(429, "FORWARD_LIMIT");
       } catch (error) {
@@ -74,7 +82,11 @@ export function createSshForwarding(d: Dependencies) {
           login.user.id,
           login.deviceId ?? null,
           null,
-          { reason: "SSH_FORWARD_DENIED", method: "SSH", route: "ssh" },
+          {
+            reason: mapping ? "MAPPING_FORWARD_DENIED" : "SSH_FORWARD_DENIED",
+            method: mapping ? "TCP" : "SSH",
+            route: mapping ? "tcp-mapping" : "ssh",
+          },
         );
         throw error;
       }
@@ -82,7 +94,7 @@ export function createSshForwarding(d: Dependencies) {
         controller = new AbortController();
       const context = auditContext.getStore();
       let target: Duplex | undefined,
-        channel: ServerChannel | undefined,
+        channel: ForwardChannel | undefined,
         opened = false;
       const guards: Transform[] = [];
       const expires = Date.now() + 3600000;
@@ -90,13 +102,24 @@ export function createSshForwarding(d: Dependencies) {
         received = 0;
       const audit = (action: string, extra = {}) =>
         auditContext.run(context ?? { source: "system" }, () =>
-          d.store.audit(action, login.user.id, login.deviceId!, null, {
-            forward_id: id,
-            host,
-            port,
-            backend: route.backend,
-            ...extra,
-          }),
+          d.store.audit(
+            mapping
+              ? action.replace("ssh.forward_", "mapping.forward_")
+              : action,
+            login.user.id,
+            login.deviceId!,
+            null,
+            {
+              ...(mapping
+                ? { mapping_id: mapping.id, source_address: mapping.source }
+                : {}),
+              forward_id: id,
+              host,
+              port,
+              backend: route.backend,
+              ...extra,
+            },
+          ),
         );
       const stop = (reason: string) => {
         if (!active.delete(id)) return;
@@ -189,21 +212,26 @@ export function createSshForwarding(d: Dependencies) {
         channel.once("close", () => stop("USER_DISCONNECTED"));
         // Keep EOF independent in each direction (HTTP/database replies may follow client EOF).
         channel.pipe(outgoing).pipe(target);
-        // ssh2 server channels close both directions on .end(). Send EOF only
-        // after buffered writes drain, and defer .end() until client EOF too.
-        let outputEnded = false;
-        incoming.once("end", () => {
-          channel!.write(Buffer.alloc(0), () => {
-            if (!active.has(id)) return;
-            outputEnded = true;
-            channel!.eof();
-            if (channel!.readableEnded) channel!.end();
+        if (mapping) {
+          target.pipe(incoming).pipe(channel);
+        } else {
+          const sshChannel = channel as ServerChannel;
+          // ssh2 server channels close both directions on .end(). Drain writes
+          // before EOF and defer .end() until the client also sends EOF.
+          let outputEnded = false;
+          incoming.once("end", () => {
+            sshChannel.write(Buffer.alloc(0), () => {
+              if (!active.has(id)) return;
+              outputEnded = true;
+              sshChannel.eof();
+              if (sshChannel.readableEnded) sshChannel.end();
+            });
           });
-        });
-        channel.once("end", () => {
-          if (outputEnded) channel!.end();
-        });
-        target.pipe(incoming).pipe(channel, { end: false });
+          sshChannel.once("end", () => {
+            if (outputEnded) sshChannel.end();
+          });
+          target.pipe(incoming).pipe(sshChannel, { end: false });
+        }
       } catch (error) {
         target?.destroy();
         stop("FORWARD_OPEN_FAILED");

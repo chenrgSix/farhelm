@@ -55,7 +55,8 @@ import { registerConnectionAuthorizations } from "./connection-authorizations.js
 import { registerAccessAuthorizations } from "./access-authorizations-api.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
-import { createSshForwarding } from "./ssh-forwarding.js";
+import { createSshForwarding, type ForwardRoute } from "./ssh-forwarding.js";
+import { TcpMappings } from "./tcp-mappings.js";
 import { registerNetworkRoutes } from "./network-routes.js";
 import { registerNetworkProbes } from "./network-probes.js";
 import { registerAgentNetwork } from "./agent-network.js";
@@ -555,6 +556,7 @@ export async function buildServer(config: ServerConfig) {
     changed: () => {
       terminals.tick();
       forwarding.tick();
+      tcpMappings.tick();
     },
   });
   function syncDir(path: string) {
@@ -952,6 +954,7 @@ export async function buildServer(config: ServerConfig) {
     changed: () => {
       terminals.tick();
       forwarding.tick();
+      tcpMappings.tick();
     },
     availableStorage,
   });
@@ -964,6 +967,7 @@ export async function buildServer(config: ServerConfig) {
     changed: () => {
       terminals.tick();
       forwarding.tick();
+      tcpMappings.tick();
     },
   });
   app.get("/healthz", async () => ({
@@ -1053,47 +1057,89 @@ export async function buildServer(config: ServerConfig) {
       fail(403, "SSH_TARGET_DENIED");
     return user;
   }
+  function forwardingRoute(user: User, id: string): ForwardRoute {
+    if (requireDevice(id).revoked_at || !inScope(user, id))
+      fail(403, "SSH_TARGET_DENIED");
+    if (config.deploymentControl?.terminalsBlocked())
+      fail(503, "DEPLOYMENT_APPLYING");
+    deviceForwarding.requireAllowed(id);
+    if (upgrades.active(id)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
+    const c = connections.get(id);
+    const agent =
+      deviceConnections.kind(id) === "agent" &&
+      c?.ready &&
+      c.tcpForward &&
+      live(c) &&
+      Date.now() - c.lastHeartbeat <= heartbeatTimeout &&
+      networkRoutes.allowed(id);
+    const backend = agent ? "agent" : "ssh";
+    connectionAuthorizations.requireDefault(user, id, backend);
+    if (agent)
+      return {
+        backend,
+        revision: String(networkRoutes.current(id).revision),
+        agent: {
+          id: c.healthSession,
+          send: (type, body) => send(c, type, body),
+        },
+      };
+    if (!deviceConnections.canSsh(id))
+      fail(
+        409,
+        c?.ready ? "FORWARD_NOT_SUPPORTED_UPDATE_AGENT" : "DEVICE_OFFLINE",
+      );
+    return { backend, revision: deviceConnections.forwardRevision(id) };
+  }
   const forwarding = createSshForwarding({
     store,
     authorize(login) {
-      if (config.deploymentControl?.terminalsBlocked())
-        fail(503, "DEPLOYMENT_APPLYING");
-      const user = sshUser(login),
-        id = login.deviceId!;
-      deviceForwarding.requireAllowed(id);
-      if (upgrades.active(id)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
-      const c = connections.get(id);
-      const agent =
-        deviceConnections.kind(id) === "agent" &&
-        c?.ready &&
-        c.tcpForward &&
-        live(c) &&
-        Date.now() - c.lastHeartbeat <= heartbeatTimeout &&
-        networkRoutes.allowed(id);
-      const backend = agent ? "agent" : "ssh";
-      connectionAuthorizations.requireDefault(user, id, backend);
-      if (agent)
-        return {
-          backend,
-          revision: String(networkRoutes.current(id).revision),
-          agent: {
-            id: c.healthSession,
-            send: (type, body) => send(c, type, body),
-          },
-        };
-      if (!deviceConnections.canSsh(id))
-        fail(
-          409,
-          c?.ready ? "FORWARD_NOT_SUPPORTED_UPDATE_AGENT" : "DEVICE_OFFLINE",
+      if ("mapping" in login) {
+        const { mapping, user } = tcpMappings.authorize(
+          login.mapping.id,
+          login.mapping.revision,
+          login.mapping.source,
         );
-      return { backend, revision: deviceConnections.forwardRevision(id) };
+        if (mapping.device_id !== login.deviceId || user.id !== login.user.id)
+          fail(403, "MAPPING_IDENTITY_CHANGED");
+        return forwardingRoute(user, mapping.device_id);
+      }
+      return forwardingRoute(sshUser(login), login.deviceId!);
     },
     openSsh: (id, host, port, signal) =>
       deviceConnections.forward(id, host, port, signal),
   });
-  deviceForwarding.register(app, admin, availableStorage, () =>
-    forwarding.tick(),
-  );
+  const tcpMappings = new TcpMappings({
+    store,
+    admin,
+    availableStorage,
+    permission(mapping) {
+      if (config.deploymentControl?.terminalsBlocked())
+        fail(503, "DEPLOYMENT_APPLYING");
+      const row = db
+        .prepare("SELECT * FROM users WHERE id=? AND enabled=1")
+        .get(mapping.owner_id);
+      if (!row) fail(403, "MAPPING_OWNER_DISABLED");
+      const user = store.user(row);
+      if (user.role !== "admin" || user.must_change_password)
+        fail(403, "MAPPING_OWNER_DENIED");
+      if (requireDevice(mapping.device_id).revoked_at)
+        fail(403, "DEVICE_REVOKED");
+      deviceForwarding.requireAllowed(mapping.device_id);
+      connectionAuthorizations.requireDefault(
+        user,
+        mapping.device_id,
+        deviceConnections.kind(mapping.device_id),
+      );
+      return user;
+    },
+    forward: (login, host, port, socket, signal) =>
+      forwarding.open(login, host, port, () => socket, signal),
+  });
+  tcpMappings.register(app);
+  deviceForwarding.register(app, admin, availableStorage, () => {
+    forwarding.tick();
+    tcpMappings.tick();
+  });
   let ssh: ReturnType<typeof createSshGateway> | undefined;
   const prepareSsh = () =>
     config.ssh
@@ -2357,6 +2403,7 @@ export async function buildServer(config: ServerConfig) {
       ++ticks;
       terminals.tick();
       forwarding.tick();
+      tcpMappings.tick();
       settings.sync.flush();
       caSync.flush();
       terminalPrivilege.flush();
@@ -2375,6 +2422,7 @@ export async function buildServer(config: ServerConfig) {
     } catch {
       terminals.close();
       forwarding.close();
+      tcpMappings.stopAll("STORAGE_UNAVAILABLE");
       for (const c of connections.values())
         c.socket.close(1011, "Storage unavailable");
     }
@@ -2385,6 +2433,7 @@ export async function buildServer(config: ServerConfig) {
     await disks.close();
     terminals.close();
     forwarding.close();
+    await tcpMappings.close();
     await ssh?.close();
     await deviceConnections.close();
     for (const c of connections.values()) c.socket.terminate();

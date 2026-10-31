@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/tcp-mapping-list.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "mappings": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "tcp-mapping.schema.json"
+      }
+    }
+  },
+  "required": [
+    "v",
+    "mappings"
+  ]
+}

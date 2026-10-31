@@ -226,6 +226,56 @@ while True:
   steps.push(
     "device forwarding defaults off and is explicitly enabled by an admin",
   );
+  const mappingProbe = createServer();
+  await new Promise((resolve) => mappingProbe.listen(0, "127.0.0.1", resolve));
+  const mappingPort = mappingProbe.address().port;
+  await new Promise((resolve) => mappingProbe.close(resolve));
+  const mappingConfig = {
+    v: 1,
+    name: "raw Agent mapping",
+    enabled: true,
+    listen_host: "127.0.0.1",
+    listen_port: mappingPort,
+    target_host: "127.0.0.1",
+    target_port: 14333,
+    source_cidrs: ["127.0.0.1/32"],
+  };
+  let mapping = (
+    await api("POST", `/devices/${device.id}/tcp-mappings`, mappingConfig)
+  ).mapping;
+  await roundtrip(mappingPort);
+  const mapped = connect({ host: "127.0.0.1", port: mappingPort });
+  mapped.on("error", () => {});
+  mapped.resume();
+  await once(mapped, "connect");
+  await until(
+    () =>
+      server.store.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM audit WHERE action='mapping.forward_opened'",
+        )
+        .get().n === 2,
+    "mapped connection opened",
+  );
+  const mapClosed = once(mapped, "close", {
+    signal: AbortSignal.timeout(5000),
+  });
+  mapping = (
+    await api("PUT", `/devices/${device.id}/tcp-mappings/${mapping.id}`, {
+      ...mappingConfig,
+      enabled: false,
+      revision: mapping.revision,
+    })
+  ).mapping;
+  await mapClosed;
+  assert.equal(mapping.status, "disabled");
+  await api("DELETE", `/devices/${device.id}/tcp-mappings/${mapping.id}`, {
+    v: 1,
+    revision: mapping.revision,
+  });
+  steps.push(
+    "web-configured raw TCP mapping through real Linux Agent, 512 KiB binary, half-close and disable disconnect; no SSH client login",
+  );
   server.store.seedUser({
     username: "operator",
     password,

@@ -2068,5 +2068,85 @@
     "path": "valid/audit-device.forwarding_updated.json",
     "schema": "audit.schema.json",
     "valid": true
+  },
+  {
+    "path": "valid/tcp-mapping-create.json",
+    "schema": "tcp-mapping-create.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/tcp-mapping-update.json",
+    "schema": "tcp-mapping-update.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/tcp-mapping.json",
+    "schema": "tcp-mapping.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/tcp-mapping-response.json",
+    "schema": "tcp-mapping-response.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/tcp-mapping-list.json",
+    "schema": "tcp-mapping-list.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/tcp-mapping-audit-detail.json",
+    "schema": "tcp-mapping-audit-detail.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-mapping.created.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-mapping.updated.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-mapping.deleted.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-mapping.connection_denied.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-mapping.forward_opened.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "valid/audit-mapping.forward_closed.json",
+    "schema": "audit.schema.json",
+    "valid": true
+  },
+  {
+    "path": "invalid/tcp-mapping-empty-sources.json",
+    "schema": "tcp-mapping-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/tcp-mapping-low-port.json",
+    "schema": "tcp-mapping-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/tcp-mapping-enabled-string.json",
+    "schema": "tcp-mapping-create.schema.json",
+    "valid": false
+  },
+  {
+    "path": "invalid/tcp-mapping-unknown.json",
+    "schema": "tcp-mapping-create.schema.json",
+    "valid": false
   }
 ]

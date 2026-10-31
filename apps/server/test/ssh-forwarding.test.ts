@@ -281,6 +281,20 @@ async function fixture(kind: "ssh" | "agent" = "ssh", enabled = true) {
   }
   return {
     ...server,
+    async mappingApi(
+      method: "GET" | "POST" | "PUT" | "DELETE",
+      suffix = "",
+      payload?: any,
+    ) {
+      const result = await server.app.inject({
+        method,
+        url: "/api/v1/devices/device/tcp-mappings" + suffix,
+        headers: { authorization: "Bearer " + auth },
+        payload,
+      });
+      assert.equal(result.statusCode, 200, result.body);
+      return result.json();
+    },
     configure,
     setForwarding,
     holdForwards() {
@@ -699,6 +713,135 @@ for (const kind of ["ssh", "agent"] as const) {
           0,
         );
       } finally {
+        await f.close();
+      }
+    },
+  );
+}
+
+for (const kind of ["ssh", "agent"] as const) {
+  test(
+    `${kind} web mapping forwards raw TCP, checks sources, revokes active connections and closes its listener`,
+    { timeout: 15000 },
+    async () => {
+      const f = await fixture(kind);
+      const clients: Socket[] = [];
+      try {
+        const probe = createServer();
+        await new Promise<void>((resolve) =>
+          probe.listen(0, "127.0.0.1", resolve),
+        );
+        const port = (probe.address() as any).port;
+        await new Promise<void>((resolve) => probe.close(() => resolve()));
+        const config = {
+          v: 1,
+          name: "mapped db",
+          enabled: true,
+          listen_host: "127.0.0.1",
+          listen_port: port,
+          target_host: "database.internal",
+          target_port: f.echoPort,
+          source_cidrs: ["127.0.0.1/32"],
+        };
+        let mapping = (await f.mappingApi("POST", "", config)).mapping;
+        const connect = async () => {
+          const socket = tcpConnect({
+            host: "127.0.0.1",
+            port,
+            allowHalfOpen: false,
+          });
+          clients.push(socket);
+          socket.on("error", () => {});
+          await once(socket, "connect");
+          return socket;
+        };
+        await roundtrip(await connect(), randomBytes(512 * 1024));
+        const channel = await connect();
+        channel.resume();
+        await until(() => f.requests.length === 2);
+        const closed = once(channel, "close");
+        mapping = (
+          await f.mappingApi("PUT", "/" + mapping.id, {
+            ...config,
+            revision: mapping.revision,
+            source_cidrs: ["192.0.2.1"],
+          })
+        ).mapping;
+        await closed;
+        const denied = await connect();
+        denied.resume();
+        await once(denied, "close");
+        assert.equal(
+          f.requests.length,
+          2,
+          "denied source never reaches backend",
+        );
+        assert.ok(
+          f.store.db
+            .prepare(
+              "SELECT 1 FROM audit WHERE action='mapping.connection_denied'",
+            )
+            .get(),
+        );
+        mapping = (
+          await f.mappingApi("PUT", "/" + mapping.id, {
+            ...config,
+            revision: mapping.revision,
+          })
+        ).mapping;
+        const running = await connect();
+        running.resume();
+        await until(() => f.requests.length === 3);
+        const ended = once(running, "close");
+        await f.setForwarding(false);
+        await ended;
+        const view = (await f.mappingApi("GET")).mappings[0];
+        assert.equal(view.status, "error");
+        assert.equal(view.error, "DEVICE_FORWARDING_DISABLED");
+        await assert.rejects(connect(), /ECONNREFUSED/);
+        const audits = f.store.db
+          .prepare(
+            "SELECT detail_json FROM audit WHERE action='mapping.forward_opened'",
+          )
+          .all();
+        assert.equal(audits.length, 3);
+        assert.equal(
+          JSON.parse(audits[0]!.detail_json as string).backend,
+          kind,
+        );
+        assert.equal(
+          JSON.parse(audits[0]!.detail_json as string).source_address,
+          "127.0.0.1",
+        );
+        await f.setForwarding(true);
+        mapping = (
+          await f.mappingApi("PUT", "/" + mapping.id, {
+            ...config,
+            revision: mapping.revision,
+          })
+        ).mapping;
+        f.holdForwards();
+        const pending = await connect();
+        pending.resume();
+        await until(() => f.requests.length === 4, "pending mapped connection");
+        const cancelled = once(pending, "close");
+        f.store.db
+          .prepare("UPDATE users SET enabled=0 WHERE username='admin'")
+          .run();
+        await cancelled;
+        await assert.rejects(connect(), /ECONNREFUSED/);
+        const pendingAudit = f.store.db
+          .prepare(
+            "SELECT detail_json FROM audit WHERE action='mapping.forward_closed' ORDER BY id DESC LIMIT 1",
+          )
+          .get()!;
+        assert.equal(
+          JSON.parse(pendingAudit.detail_json as string).opened,
+          false,
+          "disabled owner cancels pending mapping and listening port",
+        );
+      } finally {
+        for (const socket of clients) socket.destroy();
         await f.close();
       }
     },

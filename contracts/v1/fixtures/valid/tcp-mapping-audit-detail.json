@@ -1,0 +1,14 @@
+{
+  "mapping_id": "00000000-0000-4000-8000-000000000002",
+  "revision": 1,
+  "owner_id": "admin",
+  "name": "\u6570\u636e\u5e93",
+  "enabled": false,
+  "listen_host": "192.168.1.5",
+  "listen_port": 11433,
+  "target_host": "192.168.0.4",
+  "target_port": 1433,
+  "source_cidrs": [
+    "192.168.1.20/32"
+  ]
+}

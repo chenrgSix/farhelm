@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import DeviceTerminalLimit from "./DeviceTerminalLimit.vue";
 import DeviceForwarding from "./DeviceForwarding.vue";
+import DeviceTcpMappings from "./DeviceTcpMappings.vue";
 import AgentTerminalPrivilege from "./AgentTerminalPrivilege.vue";
 import { api } from "../api/client";
 import type { Device, DeviceConnection } from "../api/types";
@@ -14,9 +15,9 @@ const props = withDefaults(
   { agentEnabled: true },
 );
 const emit = defineEmits<{ close: []; changed: [] }>();
-const tab = ref<"endpoint" | "account" | "terminal-limit" | "forwarding">(
-  props.initialTab ?? "endpoint",
-);
+const tab = ref<
+  "endpoint" | "account" | "terminal-limit" | "forwarding" | "mappings"
+>(props.initialTab ?? "endpoint");
 const kind = props.device?.connection_kind ?? (props.device ? "agent" : "ssh");
 const sshEnabled = ref(kind === "ssh" || !props.agentEnabled);
 const deviceId = ref(props.device?.id ?? "");
@@ -240,7 +241,7 @@ async function testConnection() {
           <h2 id="connection-heading">
             {{
               props.device
-                ? `${tab === "account" ? "默认登录账号" : tab === "terminal-limit" ? "终端限额" : tab === "forwarding" ? "TCP 转发" : "接入配置"} · ${props.device.name}`
+                ? `${tab === "account" ? "默认登录账号" : tab === "terminal-limit" ? "终端限额" : tab === "forwarding" ? "TCP 转发" : tab === "mappings" ? "端口映射" : "接入配置"} · ${props.device.name}`
                 : "添加 SSH 设备"
             }}
           </h2>
@@ -297,6 +298,13 @@ async function testConnection() {
           >
             TCP 转发
           </button>
+          <button
+            type="button"
+            :class="['button', tab === 'mappings' ? 'primary' : 'secondary']"
+            @click="tab = 'mappings'"
+          >
+            端口映射
+          </button>
         </nav>
         <p v-if="tab === 'account' && kind === 'agent'" class="field-hint">
           默认身份是 Agent 的运行账号，平台不改变该进程身份。备用 SSH
@@ -318,6 +326,11 @@ async function testConnection() {
         />
         <DeviceForwarding
           v-if="deviceId && tab === 'forwarding'"
+          :device-id="deviceId"
+          @changed="emit('changed')"
+        />
+        <DeviceTcpMappings
+          v-if="deviceId && tab === 'mappings'"
           :device-id="deviceId"
           @changed="emit('changed')"
         />
