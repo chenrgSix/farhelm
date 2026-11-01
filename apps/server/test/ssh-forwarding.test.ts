@@ -852,7 +852,7 @@ for (const kind of ["ssh", "agent"] as const) {
         mapping = (
           await f.mappingApi("PUT", "/" + mapping.id, {
             ...config,
-            revision: mapping.revision,
+            revision: view.revision,
           })
         ).mapping;
         f.holdForwards();

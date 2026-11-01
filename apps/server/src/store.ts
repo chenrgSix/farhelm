@@ -430,6 +430,25 @@ export class Store {
         "utf8",
       ),
     );
+    if (
+      !this.db
+        .prepare(
+          "SELECT 1 FROM pragma_table_info('tcp_mappings') WHERE name='suspended_reason'",
+        )
+        .get()
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL(
+              "../migrations/045_mapping_suspension.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

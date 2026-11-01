@@ -16,7 +16,7 @@ import {
   sourceAllowed,
   type MappingConfig,
 } from "./tcp-mapping-policy.js";
-import { fail, integer, keys, object, str, version } from "./util.js";
+import { ApiError, fail, integer, keys, object, str, version } from "./util.js";
 
 export type TcpMapping = MappingConfig & {
   id: string;
@@ -53,7 +53,7 @@ export class TcpMappings {
   private errors = new Map<string, string>();
   private cache = new Map<
     string,
-    { mapping: TcpMapping; sources: BlockList }
+    { mapping: TcpMapping; sources: BlockList; suspension: string | null }
   >();
   private queue: Promise<unknown> = Promise.resolve();
   private closing = false;
@@ -87,6 +87,7 @@ export class TcpMappings {
     this.cache.set(mapping.id, {
       mapping,
       sources: sourcePolicy(config.source_cidrs),
+      suspension: row.suspended_reason,
     });
     return mapping;
   }
@@ -104,7 +105,21 @@ export class TcpMappings {
       (revision !== undefined && mapping.revision !== revision)
     )
       fail(403, "MAPPING_DISABLED_OR_CHANGED");
-    const user = this.d.permission(mapping);
+    const suspension = this.cache.get(id)!.suspension;
+    if (suspension) fail(403, suspension);
+    let user: User;
+    try {
+      user = this.d.permission(mapping);
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode === 403) {
+        this.d.store.db
+          .prepare(
+            "UPDATE tcp_mappings SET suspended_reason=?,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND suspended_reason IS NULL",
+          )
+          .run(error.code, Date.now(), id, mapping.revision);
+      }
+      throw error;
+    }
     if (
       source !== undefined &&
       !sourceAllowed(this.cache.get(id)!.sources, source)
@@ -122,7 +137,8 @@ export class TcpMappings {
           ? "listening"
           : "error",
       error: mapping.enabled
-        ? (this.errors.get(mapping.id) ??
+        ? (this.cache.get(mapping.id)?.suspension ??
+          this.errors.get(mapping.id) ??
           (runtime?.active ? null : "MAPPING_NOT_LISTENING"))
         : null,
       connections: runtime?.sockets.size ?? 0,
@@ -155,6 +171,24 @@ export class TcpMappings {
       } catch (error) {
         this.errors.set(runtime.mapping.id, code(error));
         this.stop(runtime);
+      }
+    }
+  }
+  permissionsChanged() {
+    this.tick();
+    // Include mappings that had already stopped (for example, after a bind failure).
+    for (const row of this.d.store.db
+      .prepare(
+        "SELECT id FROM tcp_mappings WHERE suspended_reason IS NULL AND json_extract(config_json,'$.enabled')=1",
+      )
+      .all()) {
+      const id = String(row.id);
+      if (!this.live.has(id)) {
+        try {
+          this.authorize(id);
+        } catch (error) {
+          this.errors.set(id, code(error));
+        }
       }
     }
   }
@@ -379,7 +413,7 @@ export class TcpMappings {
               fail(409, "MAPPING_CHANGED_RELOAD");
             this.d.store.db
               .prepare(
-                "INSERT INTO tcp_mappings(id,device_id,owner_id,config_json,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json,revision=excluded.revision,updated_at=excluded.updated_at",
+                "INSERT INTO tcp_mappings(id,device_id,owner_id,config_json,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json,revision=excluded.revision,updated_at=excluded.updated_at,suspended_reason=NULL",
               )
               .run(
                 id,

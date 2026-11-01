@@ -43,9 +43,10 @@ const messages: Record<string, string> = {
   MAPPING_BIND_IP_REQUIRED: "监听地址须为平台可绑定的 IPv4 或 IPv6 地址。",
   INVALID_FORWARD_HOST: "请填写有效的目标 IP 或域名。",
   MAPPING_LIMIT: "映射数量已达上限（每设备 16 条，全平台 128 条）。",
-  MAPPING_OWNER_DISABLED: "创建此映射的账号已停用，映射已停止。",
-  MAPPING_OWNER_DENIED: "创建账号已失去管理员权限或需修改密码，映射已停止。",
-  DEVICE_FORWARDING_DISABLED: "请先在「TCP 转发」中允许本设备转发。",
+  MAPPING_OWNER_DISABLED: "创建账号曾被停用。恢复账号权限后，请重新保存映射。",
+  MAPPING_OWNER_DENIED:
+    "创建账号权限曾失效。恢复管理员权限并完成密码修改后，请重新保存映射。",
+  DEVICE_FORWARDING_DISABLED: "请确认「TCP 转发」已开启，再编辑并保存此映射。",
   DEVICE_REVOKED: "设备已撤销，映射已停止。",
 };
 const statusLabel = {

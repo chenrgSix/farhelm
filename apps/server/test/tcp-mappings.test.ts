@@ -1,10 +1,12 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
+import { once } from "node:events";
 import { buildServer } from "../src/server.js";
 import { sourcePolicy, sourceAllowed } from "../src/tcp-mapping-policy.js";
 import { assertValid } from "../../../tests/contracts/validate.mjs";
@@ -54,6 +56,39 @@ test("source allowlist checks IPv4, IPv6, mapped IPv4 and exact CIDR boundaries"
     Array(65).fill("::1"),
   ])
     assert.throws(() => sourcePolicy(input));
+});
+test("upgrade recovers interrupted mappings without suspending ones explicitly saved later", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`
+      CREATE TABLE device_forwarding (device_id TEXT, enabled INTEGER, updated_at INTEGER);
+      CREATE TABLE tcp_mappings (id TEXT, device_id TEXT, config_json TEXT, revision INTEGER, updated_at INTEGER) STRICT;
+      CREATE TABLE audit (id INTEGER PRIMARY KEY, device_id TEXT, action TEXT, detail_json TEXT);
+      INSERT INTO tcp_mappings VALUES ('old','A','{"enabled":true}',1,1),('resaved','A','{"enabled":true}',2,1),('other','B','{"enabled":true}',1,1);
+      INSERT INTO audit VALUES (1,'A','mapping.created','{"mapping_id":"old"}'),(2,'A','device.forwarding_updated','{"enabled":false}'),(3,'A','device.forwarding_updated','{"enabled":true}'),(4,'A','mapping.updated','{"mapping_id":"resaved"}');
+    `);
+    db.exec(
+      readFileSync(
+        new URL("../migrations/045_mapping_suspension.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    const rows = db
+      .prepare(
+        "SELECT id,revision,suspended_reason FROM tcp_mappings ORDER BY id",
+      )
+      .all();
+    assert.deepEqual(
+      rows.map((r) => [r.id, r.revision, r.suspended_reason]),
+      [
+        ["old", 2, "DEVICE_FORWARDING_DISABLED"],
+        ["other", 1, null],
+        ["resaved", 2, null],
+      ],
+    );
+  } finally {
+    db.close();
+  }
 });
 test(
   "web mappings enforce admin, device switch, strict input, revisions, atomic audit, listener conflicts and restart recovery",
@@ -222,12 +257,45 @@ test(
       )
         await new Promise((r) => setTimeout(r, 10));
       assert.deepEqual((await api("GET", path)).body.mappings[0], saved);
+      const switchPath = "/devices/one/forwarding";
+      await api("PUT", switchPath, { v: 1, revision: 1, enabled: false });
+      await api("PUT", switchPath, { v: 1, revision: 2, enabled: true });
+      const suspended = (await api("GET", path)).body.mappings[0];
+      assert.equal(suspended.error, "DEVICE_FORWARDING_DISABLED");
+      assert.ok(suspended.revision > saved.revision);
+      await s.close();
+      s = await buildServer(config);
+      await s.app.listen({ host: "127.0.0.1", port: 0 });
+      assert.deepEqual((await api("GET", path)).body.mappings[0], suspended);
+      await assert.rejects(
+        once(connect(port, "127.0.0.1"), "connect"),
+        /ECONNREFUSED/,
+      );
+      assert.equal(
+        (
+          await api("PUT", item, {
+            ...body,
+            enabled: true,
+            revision: saved.revision,
+          })
+        ).status,
+        409,
+      );
+      const resumed = (
+        await api("PUT", item, {
+          ...body,
+          enabled: true,
+          revision: suspended.revision,
+        })
+      ).body.mapping;
+      assert.equal(resumed.status, "listening");
       assert.equal(
         (await api("DELETE", item, { v: 1, revision: 1 })).status,
         409,
       );
       assert.equal(
-        (await api("DELETE", item, { v: 1, revision: saved.revision })).status,
+        (await api("DELETE", item, { v: 1, revision: resumed.revision }))
+          .status,
         200,
       );
       assert.deepEqual((await api("GET", path)).body.mappings, []);

@@ -956,7 +956,7 @@ export async function buildServer(config: ServerConfig) {
     changed: () => {
       terminals.tick();
       forwarding.tick();
-      tcpMappings.tick();
+      tcpMappings.permissionsChanged();
     },
     availableStorage,
   });
@@ -969,7 +969,7 @@ export async function buildServer(config: ServerConfig) {
     changed: () => {
       terminals.tick();
       forwarding.tick();
-      tcpMappings.tick();
+      tcpMappings.permissionsChanged();
     },
   });
   app.get("/healthz", async () => ({
@@ -1141,7 +1141,7 @@ export async function buildServer(config: ServerConfig) {
   tcpMappings.register(app);
   deviceForwarding.register(app, admin, availableStorage, () => {
     forwarding.tick();
-    tcpMappings.tick();
+    tcpMappings.permissionsChanged();
   });
   let ssh: ReturnType<typeof createSshGateway> | undefined;
   const prepareSsh = () =>
@@ -1624,6 +1624,8 @@ export async function buildServer(config: ServerConfig) {
       store.audit("device.revoked", user.id, id, null);
     });
     terminals.revoke(id);
+    forwarding.tick();
+    tcpMappings.permissionsChanged();
     connections.get(id)?.socket.close(4003, "Device revoked");
     connections.delete(id);
     return { v: 1, ok: true };
