@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import { readFileSync } from "node:fs";
 import ActorIdentity from "../src/components/ActorIdentity.vue";
+import AuditActor from "../src/components/AuditActor.vue";
 import AuditDetails from "../src/components/AuditDetails.vue";
 import HistoryFilters from "../src/components/HistoryFilters.vue";
 import { emptyHistoryFilters } from "../src/composables/useHistoryList";
@@ -53,6 +54,44 @@ it("shows a readable account name, with full identity retained for inspection an
   expect(missing.text()).toContain("未知账号");
   expect(missing.text()).toContain("deleted-id");
   missing.unmount();
+});
+it("separates mapping clients from the mapping creator and still identifies SSH actors", () => {
+  for (const action of [
+    "mapping.forward_opened",
+    "mapping.forward_closed",
+    "mapping.connection_denied",
+    "authorization.denied",
+  ]) {
+    const row = {
+      ...entry,
+      action,
+      actor_id: null,
+      actor_username: null,
+      detail: {
+        route: "tcp-mapping",
+        source_address: "192.0.2.8",
+        owner_username: "admin",
+      },
+    };
+    const actor = mount(AuditActor, { props: { entry: row } });
+    expect(actor.text()).toContain("客户端身份未认证");
+    expect(actor.text()).toContain("映射创建人：admin");
+    expect(actor.text()).toContain("来源 IP：192.0.2.8");
+    actor.unmount();
+  }
+  const ssh = mount(AuditActor, {
+    props: {
+      entry: {
+        ...entry,
+        action: "ssh.forward_opened",
+        context: { source: "ssh" },
+      },
+    },
+  });
+  expect(ssh.text()).toContain("operator");
+  expect(ssh.text()).toContain("SSH 入口");
+  expect(ssh.text()).not.toContain("身份未认证");
+  ssh.unmount();
 });
 it("summarizes commands and results without claiming asynchronous requests succeeded", () => {
   expect(auditSummary(entry)).toContain("echo");

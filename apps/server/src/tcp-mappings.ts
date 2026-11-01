@@ -192,6 +192,26 @@ export class TcpMappings {
       }
     }
   }
+  private denied(runtime: Runtime, source: string, error: unknown) {
+    // Bound unauthenticated rejection logging; do not let scans fill audit storage.
+    if (Date.now() - runtime.lastDenied >= 1000) {
+      runtime.lastDenied = Date.now();
+      try {
+        this.d.store.auditMappingClient(
+          "mapping.connection_denied",
+          runtime.mapping.owner_id,
+          runtime.mapping.device_id,
+          {
+            mapping_id: runtime.mapping.id,
+            source_address: source,
+            reason: code(error),
+          },
+        );
+      } catch {
+        /* already closed */
+      }
+    }
+  }
   private accept(runtime: Runtime, socket: Socket) {
     socket.on("error", () => {});
     if (
@@ -230,28 +250,17 @@ export class TcpMappings {
             socket,
             controller.signal,
           )
-          .catch(() => socket.destroy());
+          .catch((error) => {
+            socket.destroy();
+            if (
+              error instanceof ApiError &&
+              error.code === "MAPPING_FORWARD_DENIED"
+            )
+              this.denied(runtime, source, error);
+          });
       } catch (error) {
         socket.destroy();
-        // Bound unauthenticated rejection logging; do not let scans fill audit storage.
-        if (Date.now() - runtime.lastDenied >= 1000) {
-          runtime.lastDenied = Date.now();
-          try {
-            this.d.store.audit(
-              "mapping.connection_denied",
-              runtime.mapping.owner_id,
-              runtime.mapping.device_id,
-              null,
-              {
-                mapping_id: runtime.mapping.id,
-                source_address: source,
-                reason: code(error),
-              },
-            );
-          } catch {
-            /* already closed */
-          }
-        }
+        this.denied(runtime, source, error);
       }
     });
   }

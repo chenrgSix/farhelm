@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AuditEntry } from "../api/types";
-import { auditFields, auditSummary } from "../audit";
+import { auditFields, auditSummary, mappingClient } from "../audit";
 defineProps<{ entry: AuditEntry }>();
 </script>
 <template>
@@ -16,7 +16,7 @@ defineProps<{ entry: AuditEntry }>();
           {{ entry.context.api_token_name }} · {{ entry.context.api_token_id }}
         </dd></template
       >
-      <template v-if="entry.actor_id"
+      <template v-if="entry.actor_id && !mappingClient(entry)"
         ><dt>操作人 ID</dt>
         <dd>{{ entry.actor_id }}</dd></template
       >

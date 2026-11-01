@@ -1,7 +1,7 @@
 {
   "id": 1,
   "at": 1,
-  "actor_id": "admin",
+  "actor_id": null,
   "device_id": "device-1",
   "task_id": null,
   "action": "mapping.forward_closed",
@@ -15,6 +15,8 @@
     "reason": "USER_DISCONNECTED",
     "opened": true,
     "bytes_sent": 100,
-    "bytes_received": 100
+    "bytes_received": 100,
+    "owner_id": "admin",
+    "owner_username": "admin"
   }
 }

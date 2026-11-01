@@ -1,13 +1,15 @@
 {
   "id": 1,
   "at": 1,
-  "actor_id": "admin",
+  "actor_id": null,
   "device_id": "device-1",
   "task_id": null,
   "action": "mapping.connection_denied",
   "detail": {
     "mapping_id": "00000000-0000-4000-8000-000000000002",
     "source_address": "192.168.1.21",
-    "reason": "MAPPING_SOURCE_DENIED"
+    "reason": "MAPPING_SOURCE_DENIED",
+    "owner_id": "admin",
+    "owner_username": "admin"
   }
 }

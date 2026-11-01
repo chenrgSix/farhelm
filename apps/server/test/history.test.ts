@@ -144,6 +144,70 @@ async function fixture() {
   };
 }
 
+test("legacy mapping clients keep their creator snapshot without appearing in that user's activity", async () => {
+  const f = await fixture();
+  try {
+    const id = String(
+      f.db.prepare("SELECT id FROM users WHERE username='admin'").get()!.id,
+    );
+    const detail = {
+      mapping_id: "00000000-0000-4000-8000-000000000002",
+      source_address: "192.0.2.8",
+      reason: "MAPPING_SOURCE_DENIED",
+    };
+    f.store.audit("mapping.connection_denied", id, "visible", null, detail);
+    f.store.audit("authorization.denied", id, "visible", null, {
+      method: "TCP",
+      route: "tcp-mapping",
+      reason: "MAPPING_FORWARD_DENIED",
+    });
+    f.store.auditMappingClient(
+      "mapping.connection_denied",
+      id,
+      "visible",
+      detail,
+    );
+    f.db
+      .prepare("UPDATE users SET username='renamed-admin' WHERE id=?")
+      .run(id);
+    for (const action of [
+      "mapping.connection_denied",
+      "authorization.denied",
+    ]) {
+      const result = (
+        await f.get("/audit?action=" + action + "&device_id=visible")
+      ).body;
+      assertValid("audit-response", result);
+      const clients = result.audit.filter((r: any) => r.detail.owner_id === id);
+      assert.equal(
+        clients.length,
+        action === "mapping.connection_denied" ? 2 : 1,
+      );
+      for (const r of clients) {
+        assert.equal(r.actor_id, null);
+        assert.equal(r.actor_username, null);
+        assert.equal(r.detail.owner_username, "admin");
+      }
+      const actors = (
+        await f.get("/audit?action=" + action + "&actor_id=" + id)
+      ).body.audit;
+      assert.ok(
+        actors.every((r: any) => !clients.some((c: any) => c.id === r.id)),
+      );
+    }
+    assert.equal(
+      f.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM audit WHERE actor_id=? AND action='mapping.connection_denied'",
+        )
+        .get(id)!.n,
+      1,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("single-device commands require <=7 days, enforce ownership/scope, literal fuzzy search and stable bounded pagination", async () => {
   const f = await fixture();
   try {

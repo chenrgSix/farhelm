@@ -836,10 +836,30 @@ for (const kind of ["ssh", "agent"] as const) {
         await assert.rejects(connect(), /ECONNREFUSED/);
         const audits = f.store.db
           .prepare(
-            "SELECT detail_json FROM audit WHERE action='mapping.forward_opened'",
+            "SELECT actor_id,actor_username,detail_json FROM audit WHERE action='mapping.forward_opened'",
           )
           .all();
         assert.equal(audits.length, 3);
+        for (const row of audits) {
+          assert.equal(row.actor_id, null);
+          assert.equal(row.actor_username, null);
+          const detail = JSON.parse(row.detail_json as string);
+          assert.equal(detail.owner_id, mapping.owner_id);
+          assert.equal(detail.owner_username, "admin");
+        }
+        for (const action of [
+          "mapping.forward_closed",
+          "mapping.connection_denied",
+        ]) {
+          const row = f.store.db
+            .prepare("SELECT actor_id,detail_json FROM audit WHERE action=?")
+            .get(action)!;
+          assert.equal(row.actor_id, null);
+          assert.equal(
+            JSON.parse(row.detail_json as string).owner_id,
+            mapping.owner_id,
+          );
+        }
         assert.equal(
           JSON.parse(audits[0]!.detail_json as string).backend,
           kind,

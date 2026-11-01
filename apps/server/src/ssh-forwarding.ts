@@ -78,15 +78,17 @@ export function createSshForwarding(d: Dependencies) {
         )
           fail(429, "FORWARD_LIMIT");
       } catch (error) {
+        // The raw listener records unauthenticated denials with its source and rate limit.
+        if (mapping) fail(403, "MAPPING_FORWARD_DENIED");
         d.store.audit(
           "authorization.denied",
           login.user.id,
           login.deviceId ?? null,
           null,
           {
-            reason: mapping ? "MAPPING_FORWARD_DENIED" : "SSH_FORWARD_DENIED",
-            method: mapping ? "TCP" : "SSH",
-            route: mapping ? "tcp-mapping" : "ssh",
+            reason: "SSH_FORWARD_DENIED",
+            method: "SSH",
+            route: "ssh",
           },
         );
         throw error;
@@ -102,26 +104,28 @@ export function createSshForwarding(d: Dependencies) {
       let sent = 0,
         received = 0;
       const audit = (action: string, extra = {}) =>
-        auditContext.run(context ?? { source: "system" }, () =>
-          d.store.audit(
-            mapping
-              ? action.replace("ssh.forward_", "mapping.forward_")
-              : action,
-            login.user.id,
-            login.deviceId!,
-            null,
-            {
-              ...(mapping
-                ? { mapping_id: mapping.id, source_address: mapping.source }
-                : {}),
-              forward_id: id,
-              host,
-              port,
-              backend: route.backend,
-              ...extra,
-            },
-          ),
-        );
+        auditContext.run(context ?? { source: "system" }, () => {
+          const detail = {
+            forward_id: id,
+            host,
+            port,
+            backend: route.backend,
+            ...extra,
+          };
+          if (mapping)
+            d.store.auditMappingClient(
+              action.replace("ssh.forward_", "mapping.forward_"),
+              login.user.id,
+              login.deviceId!,
+              {
+                ...detail,
+                mapping_id: mapping.id,
+                source_address: mapping.source,
+              },
+            );
+          else
+            d.store.audit(action, login.user.id, login.deviceId!, null, detail);
+        });
       const stop = (reason: string) => {
         if (!active.delete(id)) return;
         clearTimeout(timer);

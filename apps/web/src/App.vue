@@ -52,8 +52,9 @@ import StatusBadge from "./components/StatusBadge.vue";
 import ExecForm from "./components/ExecForm.vue";
 import TaskDetail from "./components/TaskDetail.vue";
 import ActorIdentity from "./components/ActorIdentity.vue";
+import AuditActor from "./components/AuditActor.vue";
 import AuditDetails from "./components/AuditDetails.vue";
-import { auditActionLabels, auditOutcome, auditSource } from "./audit";
+import { auditActionLabels, auditOutcome } from "./audit";
 import NetworkRoutePanel from "./components/NetworkRoutePanel.vue";
 import NetworkSettingsPanel from "./components/NetworkSettingsPanel.vue";
 import { routeDescription, routeReasons } from "./network-route";
@@ -1941,17 +1942,7 @@ onBeforeUnmount(() => {
                           }}</small>
                         </td>
                         <td class="small">
-                          <ActorIdentity
-                            :id="entry.actor_id"
-                            :username="entry.actor_username"
-                          /><small class="muted block">{{
-                            auditSource(entry)
-                          }}</small
-                          ><small
-                            v-if="entry.context?.remote_address"
-                            class="muted mono block"
-                            >{{ entry.context.remote_address }}</small
-                          >
+                          <AuditActor :entry="entry" />
                         </td>
                         <td class="small">
                           <strong>{{

@@ -95,6 +95,9 @@ export const auditActionLabels: Record<string, string> = {
   "user.password_change_failed": "本人改密验证失败",
 };
 const labels: Record<string, string> = {
+  owner_username: "映射创建人账号",
+  mapping_id: "映射 ID",
+  source_address: "客户端来源 IP",
   forward_id: "转发连接 ID",
   bytes_sent: "发送字节数",
   bytes_received: "接收字节数",
@@ -385,6 +388,7 @@ export function auditOutcome(entry: AuditEntry): string {
   return "已记录";
 }
 export function auditSource(entry: AuditEntry) {
+  if (mappingClient(entry)) return "网页端口映射";
   if (!entry.context) return "历史记录未采集来源";
   return {
     http: "网页 / API",
@@ -393,4 +397,25 @@ export function auditSource(entry: AuditEntry) {
     agent: "Agent 上报",
     system: "后台事件",
   }[entry.context.source];
+}
+export function mappingClient(entry: AuditEntry) {
+  const detail = object(entry.detail);
+  if (
+    ![
+      "mapping.forward_opened",
+      "mapping.forward_closed",
+      "mapping.connection_denied",
+    ].includes(entry.action) &&
+    !(entry.action === "authorization.denied" && detail.route === "tcp-mapping")
+  )
+    return null;
+  return {
+    owner:
+      detail.owner_username ||
+      entry.actor_username ||
+      detail.owner_id ||
+      entry.actor_id ||
+      "未记录",
+    source: detail.source_address || entry.context?.remote_address || "未记录",
+  };
 }

@@ -1,7 +1,7 @@
 {
   "id": 1,
   "at": 1,
-  "actor_id": "admin",
+  "actor_id": null,
   "device_id": "device-1",
   "task_id": null,
   "action": "mapping.forward_opened",
@@ -11,6 +11,8 @@
     "forward_id": "00000000-0000-4000-8000-000000000002",
     "host": "192.168.0.4",
     "port": 1433,
-    "backend": "agent"
+    "backend": "agent",
+    "owner_id": "admin",
+    "owner_username": "admin"
   }
 }

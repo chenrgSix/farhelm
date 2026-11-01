@@ -104,12 +104,24 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "owner_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "owner_username": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
         }
       },
       "required": [
         "mapping_id",
         "source_address",
-        "reason"
+        "reason",
+        "owner_id",
+        "owner_username"
       ]
     },
     "opened": {
@@ -142,6 +154,16 @@
             "agent",
             "ssh"
           ]
+        },
+        "owner_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "owner_username": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
         }
       },
       "required": [
@@ -150,7 +172,9 @@
         "forward_id",
         "host",
         "port",
-        "backend"
+        "backend",
+        "owner_id",
+        "owner_username"
       ]
     },
     "closed": {
@@ -201,6 +225,16 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991
+        },
+        "owner_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "owner_username": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
         }
       },
       "required": [
@@ -213,7 +247,41 @@
         "reason",
         "opened",
         "bytes_sent",
-        "bytes_received"
+        "bytes_received",
+        "owner_id",
+        "owner_username"
+      ]
+    },
+    "legacyDenial": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "TCP"
+        },
+        "route": {
+          "const": "tcp-mapping"
+        },
+        "reason": {
+          "const": "MAPPING_FORWARD_DENIED"
+        },
+        "owner_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "owner_username": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "method",
+        "route",
+        "reason",
+        "owner_id",
+        "owner_username"
       ]
     }
   },

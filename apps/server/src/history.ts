@@ -192,7 +192,12 @@ export function historyPage(
         cursor.id,
       );
   }
-  const table = kind === "sessions" ? "terminal_sessions" : kind;
+  const table =
+    kind === "sessions"
+      ? "terminal_sessions"
+      : kind === "audit"
+        ? "audit_history"
+        : kind;
   const order = kind === "audit" ? "r.id DESC" : "r.created_at DESC,r.id DESC";
   const rows = db
     .prepare(

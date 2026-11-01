@@ -454,6 +454,15 @@ export class Store {
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",
       )
       .run(randomUUID());
+    this.db.exec(
+      readFileSync(
+        new URL(
+          "../migrations/046_mapping_audit_identity.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
     this.instance = (
       this.db
         .prepare("SELECT value FROM meta WHERE key='server_instance'")
@@ -533,6 +542,21 @@ export class Store {
         targetName,
         JSON.stringify(auditContext.getStore() ?? { source: "system" }),
       );
+  }
+  auditMappingClient(
+    action: string,
+    ownerId: string,
+    deviceId: string,
+    detail: Record<string, unknown>,
+  ) {
+    const owner = this.db
+      .prepare("SELECT username FROM users WHERE id=?")
+      .get(ownerId);
+    this.audit(action, null, deviceId, null, {
+      ...detail,
+      owner_id: ownerId,
+      owner_username: owner?.username ?? null,
+    });
   }
   seedUser(input: {
     username: string;
