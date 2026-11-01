@@ -4,7 +4,13 @@ import { randomBytes, generateKeyPairSync } from "node:crypto";
 import { createServer, connect } from "node:net";
 import { once } from "node:events";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -185,6 +191,7 @@ try {
   writeFileSync(
     join(temp, "echo.py"),
     `import socket, threading
+from pathlib import Path
 server = socket.socket()
 server.bind(("127.0.0.1", 14333))
 server.listen(32)
@@ -195,6 +202,7 @@ stalled = socket.socket()
 stalled.bind(("127.0.0.1", 14335))
 stalled.listen(0)
 filler = socket.create_connection(stalled.getsockname())
+Path("/state/targets-ready").touch()
 def handle(client):
     with client:
         data = bytearray()
@@ -254,9 +262,12 @@ while True:
       device = (await api("GET", "/devices")).devices.find(
         (d) => d.name === "forward-e2e",
       );
-      return device?.control_online;
+      return (
+        device?.control_online &&
+        existsSync(join(temp, "agent", "targets-ready"))
+      );
     },
-    "Rust Agent online",
+    "Rust Agent online and TCP targets ready",
     45000,
   );
   const initialPolicy = await api("GET", `/devices/${device.id}/forwarding`);
