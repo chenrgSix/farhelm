@@ -3,10 +3,10 @@ import type { Socket } from "node:net";
 import { Duplex, Transform } from "node:stream";
 import type { ServerChannel } from "ssh2";
 import { auditContext } from "./audit-context.js";
-import { AgentForward } from "./agent-forward.js";
+import { AgentForward, type AgentForwardPacer } from "./agent-forward.js";
 import type { Store } from "./store.js";
 import type { SshLogin } from "./ssh.js";
-import { fail, str } from "./util.js";
+import { fail } from "./util.js";
 import type { User } from "./types.js";
 import { forwardDestination } from "./tcp-mapping-policy.js";
 
@@ -20,6 +20,7 @@ type ForwardChannel = ServerChannel | Socket;
 
 type Agent = {
   id: string;
+  pacer: AgentForwardPacer;
   send(type: string, body: Record<string, unknown>): boolean;
 };
 export type ForwardRoute = {
@@ -161,7 +162,11 @@ export function createSshForwarding(d: Dependencies) {
       try {
         if (signal.aborted) throw new Error("FORWARD_CANCELLED");
         if (route.backend === "agent") {
-          const stream = new AgentForward(id, route.agent!.send);
+          const stream = new AgentForward(
+            id,
+            route.agent!.send,
+            route.agent!.pacer,
+          );
           entry.agent = stream;
           target = stream;
           controller.signal.addEventListener("abort", () => stream.destroy(), {
@@ -244,21 +249,23 @@ export function createSshForwarding(d: Dependencies) {
       type: string,
       body: Record<string, any>,
     ) {
-      const id = str(body.forward_id, 1, 128),
-        entry = active.get(id);
+      if (typeof body.forward_id !== "string" || body.forward_id.length > 128)
+        return false;
+      const entry = active.get(body.forward_id);
       if (
         !entry ||
         entry.login.deviceId !== deviceId ||
         entry.route.agent?.id !== connectionId
       )
-        return;
+        return false;
       try {
         entry.validate();
       } catch {
         entry.stop("AUTHORIZATION_EXPIRED");
-        return;
+        return true;
       }
       entry.agent?.receive(type, body);
+      return true;
     },
     tick() {
       for (const entry of active.values()) {

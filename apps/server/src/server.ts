@@ -56,6 +56,7 @@ import { registerAccessAuthorizations } from "./access-authorizations-api.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
 import { createSshGateway, type SshLogin } from "./ssh.js";
 import { createSshForwarding, type ForwardRoute } from "./ssh-forwarding.js";
+import { AgentForwardPacer } from "./agent-forward.js";
 import { TcpMappings } from "./tcp-mappings.js";
 import { registerNetworkRoutes } from "./network-routes.js";
 import { registerNetworkProbes } from "./network-probes.js";
@@ -123,6 +124,7 @@ interface Connection {
   route: boolean;
   upgrade?: UpgradeInfo;
   healthSession: string;
+  forwardPacer: AgentForwardPacer;
 }
 const MAX_OBJECT = 1048576;
 const MAX_FRAME = 65536;
@@ -1080,6 +1082,7 @@ export async function buildServer(config: ServerConfig) {
         revision: String(networkRoutes.current(id).revision),
         agent: {
           id: c.healthSession,
+          pacer: c.forwardPacer,
           send: (type, body) => send(c, type, body),
         },
       };
@@ -2141,6 +2144,7 @@ export async function buildServer(config: ServerConfig) {
         networkProbes: false,
         route: false,
         healthSession: randomUUID(),
+        forwardPacer: new AgentForwardPacer(),
       };
       const old = connections.get(auth.id);
       if (old) {
@@ -2170,12 +2174,16 @@ export async function buildServer(config: ServerConfig) {
           keys(env, ["v", "type", "body"]);
           version(env);
           const b = object(env.body);
-          rate.check(
-            (/^(terminal|tcp)\./.test(String(env.type))
-              ? "terminal-output:"
-              : "ws:") + c.deviceId,
-            /^(terminal|tcp)\./.test(String(env.type)) ? 12000 : 1200,
-          );
+          if (env.type !== "tcp.data" && env.type !== "tcp.ack") {
+            const terminal = String(env.type).startsWith("terminal.");
+            const tcp = String(env.type).startsWith("tcp.");
+            const bucket = tcp
+              ? "tcp-control:"
+              : terminal
+                ? "terminal-output:"
+                : "ws:";
+            rate.check(bucket + c.deviceId, terminal || tcp ? 12000 : 1200);
+          }
           if (env.type === "agent.hello" || env.type === "agent.heartbeat") {
             keys(b, [
               "agent_version",
@@ -2312,7 +2320,10 @@ export async function buildServer(config: ServerConfig) {
             health.receive(c.deviceId, b);
           } else if (String(env.type).startsWith("tcp.")) {
             if (!c.ready || !c.tcpForward) fail(400, "FORWARD_HELLO_REQUIRED");
-            forwarding.receive(c.deviceId, c.healthSession, env.type, b);
+            // Known channels share the Agent pacer. Bound unsolicited traffic
+            // separately so bulk database transfers cannot exhaust the control budget.
+            if (!forwarding.receive(c.deviceId, c.healthSession, env.type, b))
+              rate.check("tcp-stale:" + c.deviceId, 12000);
           } else if (String(env.type).startsWith("terminal.")) {
             if (!c.ready) fail(400, "HELLO_REQUIRED");
             terminals.receive(c.deviceId, env.type, b);

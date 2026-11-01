@@ -3,6 +3,40 @@ import { integer, keys, str } from "./util.js";
 
 const CHUNK = 8192;
 type Send = (type: string, body: Record<string, unknown>) => boolean;
+// Shared by all forwards on one Agent connection. Reserve in arrival order;
+// 200 frames/s with a short burst keeps small queries responsive.
+export class AgentForwardPacer {
+  private next = -Infinity;
+  private queue = new Set<() => void>();
+  private timer?: NodeJS.Timeout;
+  schedule(frame: () => void) {
+    this.queue.add(frame);
+    if (!this.timer) this.drain();
+  }
+  cancel(frame: () => void) {
+    this.queue.delete(frame);
+    if (!this.queue.size) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+  }
+  private drain() {
+    this.timer = undefined;
+    for (const frame of this.queue) {
+      const now = performance.now();
+      if (this.next > now) {
+        this.timer = setTimeout(
+          () => this.drain(),
+          Math.ceil(this.next - now),
+        ).unref();
+        break;
+      }
+      this.next = Math.max(now - 155, this.next) + 5;
+      this.queue.delete(frame);
+      frame();
+    }
+  }
+}
 // One acknowledged chunk in each direction bounds memory independently of TCP speed.
 export class AgentForward extends Duplex {
   readonly ready: Promise<void>;
@@ -15,9 +49,11 @@ export class AgentForward extends Duplex {
   private received = 0;
   private readAck = 0;
   private ended = false;
+  private delayed = new Map<string, () => void>();
   constructor(
     readonly id: string,
     private sendFrame: Send,
+    private pacer: AgentForwardPacer,
   ) {
     super({ allowHalfOpen: true, highWaterMark: 16384 });
     this.ready = new Promise((resolve, reject) => {
@@ -60,6 +96,8 @@ export class AgentForward extends Duplex {
     error: Error | null,
     callback: (error: Error | null) => void,
   ) {
+    for (const frame of this.delayed.values()) this.pacer.cancel(frame);
+    this.delayed.clear();
     this.sendFrame("tcp.close", { forward_id: this.id });
     this.rejectReady(error ?? new Error("AGENT_DISCONNECTED"));
     const done = this.writeDone;
@@ -69,6 +107,24 @@ export class AgentForward extends Duplex {
   }
   receive(type: string, body: Record<string, any>) {
     if (this.destroyed) return;
+    if (type === "tcp.data" || type === "tcp.ack") {
+      // The wire protocol permits only one outstanding frame per direction.
+      // Delay its processing (and hence its credit), never the shared WebSocket.
+      if (this.delayed.has(type)) {
+        this.destroy(new Error("INVALID_FORWARD_SEQUENCE"));
+        return;
+      }
+      const frame = () => {
+        this.delayed.delete(type);
+        if (!this.destroyed) this.processFrame(type, body);
+      };
+      this.delayed.set(type, frame);
+      this.pacer.schedule(frame);
+      return;
+    }
+    this.processFrame(type, body);
+  }
+  private processFrame(type: string, body: Record<string, any>) {
     try {
       if (type === "tcp.opened") {
         keys(body, ["forward_id"]);

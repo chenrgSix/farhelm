@@ -329,6 +329,41 @@ async function roundtrip(stream: ClientChannel | Socket, data: Buffer) {
   await end;
   assert.deepEqual(Buffer.concat(chunks), data);
 }
+test(
+  "busy Agent transfer leaves other SSH connections usable while its frames are paced",
+  { timeout: 15000 },
+  async () => {
+    const f = await fixture("agent");
+    try {
+      const first = await f.forward(await f.connect());
+      const second = await f.forward(await f.connect("admin:device"));
+      // Reproduce the shared-budget failure without a minute-long bulk transfer.
+      const late = JSON.stringify({
+        v: 1,
+        type: "terminal.closed",
+        body: { session_id: "finished" },
+      });
+      for (let i = 0; i < 11900; i++) f.agent!.send(late);
+      let finished = false;
+      const large = roundtrip(first, Buffer.alloc(2 * 1024 * 1024, 42)).then(
+        () => {
+          finished = true;
+        },
+      );
+      await new Promise((r) => setTimeout(r, 100));
+      await roundtrip(second, Buffer.from("independent query"));
+      assert.equal(
+        finished,
+        false,
+        "another account can finish while the bulk transfer is active",
+      );
+      await large;
+      assert.equal(f.agent?.readyState, WebSocket.OPEN);
+    } finally {
+      await f.close();
+    }
+  },
+);
 for (const kind of ["ssh", "agent"] as const) {
   test(
     `${kind} forwarding carries binary data with half-close, audits metadata and enforces device grants`,

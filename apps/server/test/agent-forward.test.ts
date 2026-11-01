@@ -1,13 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { AgentForward } from "../src/agent-forward.js";
+import { AgentForward, AgentForwardPacer } from "../src/agent-forward.js";
 async function fixture() {
   const frames: { type: string; body: Record<string, unknown> }[] = [];
-  const stream = new AgentForward("id", (type, body) => {
-    frames.push({ type, body });
-    return true;
-  });
+  const stream = new AgentForward(
+    "id",
+    (type, body) => {
+      frames.push({ type, body });
+      return true;
+    },
+    new AgentForwardPacer(),
+  );
   stream.receive("tcp.opened", { forward_id: "id" });
   await stream.ready;
   return { stream, frames };
