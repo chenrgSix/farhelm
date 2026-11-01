@@ -3,7 +3,7 @@ use anyhow::{ensure, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, io, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -96,10 +96,10 @@ impl Forwards {
                     run(&open, input, acknowledgements, &output),
                 )
                 .await;
-                let reason = if matches!(result, Ok(Ok(()))) {
-                    "EOF"
-                } else {
-                    "TCP_FORWARD_FAILED"
+                let reason = match result {
+                    Ok(Ok(())) => "EOF",
+                    Ok(Err(reason)) => reason,
+                    Err(_) => "FORWARD_EXPIRED",
                 };
                 let _ = output
                     .send((
@@ -170,15 +170,32 @@ impl Drop for Forwards {
 }
 async fn run(
     open: &Open,
-    mut input: mpsc::Receiver<Write>,
-    mut acks: mpsc::Receiver<u64>,
+    input: mpsc::Receiver<Write>,
+    acks: mpsc::Receiver<u64>,
     output: &mpsc::Sender<Output>,
-) -> Result<()> {
+) -> Result<(), &'static str> {
     let stream = tokio::time::timeout(
         Duration::from_secs(8),
         TcpStream::connect((open.host.as_str(), open.port)),
     )
-    .await??;
+    .await
+    .map_err(|_| "TARGET_CONNECT_TIMEOUT")?
+    .map_err(|error| match error.kind() {
+        io::ErrorKind::ConnectionRefused => "TARGET_CONNECT_REFUSED",
+        io::ErrorKind::TimedOut => "TARGET_CONNECT_TIMEOUT",
+        _ => "TARGET_CONNECT_FAILED",
+    })?;
+    relay(stream, open, input, acks, output)
+        .await
+        .map_err(|_| "FORWARD_IO_ERROR")
+}
+async fn relay(
+    stream: TcpStream,
+    open: &Open,
+    mut input: mpsc::Receiver<Write>,
+    mut acks: mpsc::Receiver<u64>,
+    output: &mpsc::Sender<Output>,
+) -> Result<()> {
     stream.set_nodelay(true)?;
     let (mut reader, mut writer) = stream.into_split();
     output
@@ -234,6 +251,30 @@ async fn run(
 mod tests {
     use super::*;
     use tokio::net::TcpListener;
+    #[tokio::test]
+    async fn reports_target_refusal_before_opening_a_channel() {
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = reserved.local_addr().unwrap().port();
+        drop(reserved);
+        let (output, mut events) = mpsc::channel(8);
+        let mut forwards = Forwards::new(output);
+        let id = uuid::Uuid::new_v4().to_string();
+        forwards
+            .receive(
+                "tcp.open",
+                json!({"forward_id":id,"host":"127.0.0.1","port":port}),
+            )
+            .unwrap();
+        let (kind, body) = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(kind, "tcp.closed");
+        assert_eq!(
+            body,
+            json!({"forward_id":id,"reason":"TARGET_CONNECT_REFUSED"})
+        );
+    }
     #[tokio::test]
     async fn binary_forwarding_backpressure_half_close_and_cleanup() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
