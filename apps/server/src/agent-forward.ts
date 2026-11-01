@@ -1,7 +1,15 @@
 import { Duplex } from "node:stream";
-import { integer, keys, str } from "./util.js";
+import { ApiError, integer, keys, str } from "./util.js";
 
 const CHUNK = 8192;
+const agentCloseReasons = new Set([
+  "TARGET_CONNECT_TIMEOUT",
+  "TARGET_CONNECT_REFUSED",
+  "TARGET_CONNECT_FAILED",
+  "FORWARD_LIMIT",
+  "FORWARD_EXPIRED",
+  "FORWARD_IO_ERROR",
+]);
 type Send = (type: string, body: Record<string, unknown>) => boolean;
 // Shared by all forwards on one Agent connection. Reserve in arrival order;
 // 200 frames/s with a short burst keeps small queries responsive.
@@ -134,8 +142,17 @@ export class AgentForward extends Duplex {
       } else if (type === "tcp.closed") {
         keys(body, ["forward_id", "reason"]);
         str(body.reason, 1, 128);
-        if (body.reason !== "EOF" || !this.ended)
-          this.destroy(new Error("AGENT_FORWARD_CLOSED"));
+        if (body.reason !== "EOF" || !this.ended) {
+          const fallback = this.opened
+            ? "FORWARD_IO_ERROR"
+            : "FORWARD_OPEN_FAILED";
+          this.destroy(
+            new ApiError(
+              502,
+              agentCloseReasons.has(body.reason) ? body.reason : fallback,
+            ),
+          );
+        }
       } else {
         if (!this.opened) throw new Error("FORWARD_NOT_READY");
         if (type === "tcp.data") {

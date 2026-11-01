@@ -2,6 +2,29 @@ import { createHash, createPrivateKey } from "node:crypto";
 import { DISK_COMMAND } from "./disk-usage.js";
 import { terminalShell } from "./terminal-shell.js";
 import ssh2, { type ClientChannel, type ConnectConfig } from "ssh2";
+import { ApiError } from "./util.js";
+
+function channelFailure(error: Error & { reason?: number }) {
+  // SSH_OPEN_CONNECT_FAILED alone does not distinguish refusal from timeout.
+  // OpenSSH also sends the socket error as a description. Never log that text.
+  switch (error.reason) {
+    case 1:
+      return "SSH_FORWARD_PROHIBITED";
+    case 2: {
+      const detail = error.message
+        .replace(/^\(SSH\) Channel open failure: /, "")
+        .toLowerCase();
+      if (detail === "connection refused") return "TARGET_CONNECT_REFUSED";
+      if (detail === "connection timed out" || detail === "operation timed out")
+        return "TARGET_CONNECT_TIMEOUT";
+      return "TARGET_CONNECT_FAILED";
+    }
+    case 4:
+      return "SSH_CHANNEL_RESOURCE_SHORTAGE";
+    default:
+      return "SSH_FORWARD_FAILED";
+  }
+}
 
 export type SshTargetConfig = {
   host: string;
@@ -247,11 +270,13 @@ export class SshTargets {
     host: string,
     port: number,
     signal: AbortSignal,
+    timeoutMs = 10000,
   ): Promise<ClientChannel> {
     return new Promise((resolve, reject) => {
       const client = this.client();
       let stream: ClientChannel | undefined;
-      let settled = false,
+      let requested = false,
+        settled = false,
         mismatch = false;
       const finish = (reason: string) => {
         clearTimeout(timer);
@@ -260,11 +285,14 @@ export class SshTargets {
         this.destroy(client);
         if (!settled) {
           settled = true;
-          reject(new Error(reason));
+          reject(new ApiError(502, reason));
         }
       };
       const abort = () => finish("FORWARD_CANCELLED");
-      const timer = setTimeout(() => finish("SSH_CONNECT_TIMEOUT"), 10000);
+      const timer = setTimeout(
+        () => finish(requested ? "SSH_FORWARD_TIMEOUT" : "SSH_CONNECT_TIMEOUT"),
+        timeoutMs,
+      );
       signal.addEventListener("abort", abort, { once: true });
       client.on("error", (error: any) =>
         finish(
@@ -272,19 +300,22 @@ export class SshTargets {
             ? "SSH_HOST_KEY_MISMATCH"
             : error.level === "client-authentication"
               ? "SSH_AUTH_FAILED"
-              : "SSH_CONNECT_FAILED",
+              : error.level === "client-timeout"
+                ? "SSH_CONNECT_TIMEOUT"
+                : "SSH_CONNECT_FAILED",
         ),
       );
       client.on("close", () => finish("SSH_TARGET_DISCONNECTED"));
       client.on("ready", () => {
         if (settled) return;
+        requested = true;
         client.forwardOut("127.0.0.1", 0, host, port, (error, channel) => {
           if (settled) {
             channel?.destroy();
             return;
           }
           if (error) {
-            finish("SSH_FORWARD_FAILED");
+            finish(channelFailure(error));
             return;
           }
           stream = channel;

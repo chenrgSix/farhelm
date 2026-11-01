@@ -409,6 +409,7 @@ export function registerDeviceConnections(
       return `${saved(id)?.revision ?? 0}:${d.routes.current(id).revision}`;
     },
     async forward(id: string, host: string, port: number, signal: AbortSignal) {
+      const deadline = Date.now() + 10000;
       const revision = saved(id)?.revision,
         selected = routeTargets(id);
       for (let i = 0; i < selected.targets.length; i++) {
@@ -419,6 +420,7 @@ export function registerDeviceConnections(
             host,
             port,
             signal,
+            Math.max(1, deadline - Date.now()),
           );
           if (
             signal.aborted ||
@@ -433,6 +435,7 @@ export function registerDeviceConnections(
         } catch (error) {
           if (
             signal.aborted ||
+            Date.now() >= deadline ||
             i + 1 === selected.targets.length ||
             !canFallback(error instanceof Error ? error.message : "")
           )

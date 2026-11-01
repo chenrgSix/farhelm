@@ -52,6 +52,20 @@ test("Agent TCP reader withholds acknowledgements at its buffer limit", async ()
     stream.destroy();
   }
 });
+test("old or unknown Agent failure strings never become detailed audit reasons", async () => {
+  for (const [reported, expected] of [
+    ["TARGET_CONNECT_TIMEOUT", "TARGET_CONNECT_TIMEOUT"],
+    ["TARGET_CONNECT_REFUSED", "TARGET_CONNECT_REFUSED"],
+    ["FORWARD_LIMIT", "FORWARD_LIMIT"],
+    ["TCP_FORWARD_FAILED", "FORWARD_OPEN_FAILED"],
+    ["private upstream error", "FORWARD_OPEN_FAILED"],
+  ] as const) {
+    const stream = new AgentForward("id", () => true, new AgentForwardPacer());
+    const failed = assert.rejects(stream.ready, { message: expected });
+    stream.receive("tcp.closed", { forward_id: "id", reason: reported });
+    await failed;
+  }
+});
 test("Agent TCP rejects duplicate sequences and invalid data without affecting other streams", async () => {
   for (const body of [
     { seq: 2, data: "AA==" },

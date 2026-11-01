@@ -93,6 +93,32 @@ it("separates mapping clients from the mapping creator and still identifies SSH 
   expect(ssh.text()).not.toContain("身份未认证");
   ssh.unmount();
 });
+it("shows distinct forwarding failure reasons for both SSH and raw mapping events", () => {
+  for (const action of ["ssh.forward_closed", "mapping.forward_closed"]) {
+    const denied = {
+      ...entry,
+      action,
+      detail: { opened: false, reason: "TARGET_CONNECT_REFUSED" },
+    };
+    expect(auditOutcome(denied)).toBe("建立失败");
+    expect(auditSummary(denied)).toContain("拒绝");
+    expect(
+      auditSummary({ ...denied, detail: { reason: "TARGET_CONNECT_TIMEOUT" } }),
+    ).toContain("超时");
+  }
+  expect(
+    auditSummary({ ...entry, detail: { reason: "FORWARD_LIMIT" } }),
+  ).toContain("并发");
+  expect(
+    auditSummary({
+      ...entry,
+      detail: { reason: "DEVICE_FORWARDING_DISABLED" },
+    }),
+  ).toContain("未开启");
+  expect(
+    auditSummary({ ...entry, detail: { reason: "TARGET_ACCOUNT_DENIED" } }),
+  ).toContain("无权");
+});
 it("summarizes commands and results without claiming asynchronous requests succeeded", () => {
   expect(auditSummary(entry)).toContain("echo");
   expect(auditSummary(entry)).toContain("/tmp");

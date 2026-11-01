@@ -100,13 +100,13 @@ export class TcpMappings {
   }
   authorize(id: string, revision?: number, source?: string) {
     const mapping = this.current(id);
+    const suspension = this.cache.get(id)!.suspension;
+    if (suspension) fail(403, suspension);
     if (
       !mapping.enabled ||
       (revision !== undefined && mapping.revision !== revision)
     )
       fail(403, "MAPPING_DISABLED_OR_CHANGED");
-    const suspension = this.cache.get(id)!.suspension;
-    if (suspension) fail(403, suspension);
     let user: User;
     try {
       user = this.d.permission(mapping);
@@ -192,7 +192,7 @@ export class TcpMappings {
       }
     }
   }
-  private denied(runtime: Runtime, source: string, error: unknown) {
+  private denied(runtime: Runtime, source: string, reason: string) {
     // Bound unauthenticated rejection logging; do not let scans fill audit storage.
     if (Date.now() - runtime.lastDenied >= 1000) {
       runtime.lastDenied = Date.now();
@@ -204,7 +204,7 @@ export class TcpMappings {
           {
             mapping_id: runtime.mapping.id,
             source_address: source,
-            reason: code(error),
+            reason,
           },
         );
       } catch {
@@ -252,15 +252,16 @@ export class TcpMappings {
           )
           .catch((error) => {
             socket.destroy();
-            if (
-              error instanceof ApiError &&
-              error.code === "MAPPING_FORWARD_DENIED"
-            )
-              this.denied(runtime, source, error);
+            if (error instanceof ApiError)
+              this.denied(runtime, source, error.code);
           });
       } catch (error) {
         socket.destroy();
-        this.denied(runtime, source, error);
+        this.denied(
+          runtime,
+          source,
+          error instanceof ApiError ? error.code : "MAPPING_FAILED",
+        );
       }
     });
   }
@@ -274,6 +275,14 @@ export class TcpMappings {
       lastDenied: 0,
     };
     server.maxConnections = 16;
+    // Node drops excess sockets before emitting "connection".
+    server.on("drop", (peer) => {
+      if (!runtime.active || this.closing) return;
+      const source = peer?.remoteAddress ?? "";
+      auditContext.run({ source: "system", remote_address: source }, () =>
+        this.denied(runtime, source, "FORWARD_LIMIT"),
+      );
+    });
     server.on("connection", (socket) => this.accept(runtime, socket));
     try {
       await new Promise<void>((resolve, reject) => {

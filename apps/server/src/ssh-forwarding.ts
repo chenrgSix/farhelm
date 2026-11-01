@@ -6,7 +6,7 @@ import { auditContext } from "./audit-context.js";
 import { AgentForward, type AgentForwardPacer } from "./agent-forward.js";
 import type { Store } from "./store.js";
 import type { SshLogin } from "./ssh.js";
-import { fail } from "./util.js";
+import { ApiError, fail } from "./util.js";
 import type { User } from "./types.js";
 import { forwardDestination } from "./tcp-mapping-policy.js";
 
@@ -46,6 +46,11 @@ interface Forward {
   validate(): void;
   agent?: AgentForward;
 }
+// Only locally classified codes are safe to persist; transport exceptions may
+// contain remote messages or credentials.
+function reasonCode(error: unknown, fallback: string) {
+  return error instanceof ApiError ? error.code : fallback;
+}
 export function createSshForwarding(d: Dependencies) {
   const active = new Map<string, Forward>();
   function authorize(login: ForwardLogin) {
@@ -60,7 +65,6 @@ export function createSshForwarding(d: Dependencies) {
       accept: () => ForwardChannel,
       signal: AbortSignal,
     ) {
-      forwardDestination(host, port);
       const mapping = "mapping" in login ? login.mapping : undefined;
       const group = (value: ForwardLogin) =>
         "mapping" in value
@@ -68,6 +72,7 @@ export function createSshForwarding(d: Dependencies) {
           : "ssh:" + value.sessionHash;
       let route: ForwardRoute;
       try {
+        forwardDestination(host, port);
         route = authorize(login);
         const sessions = [...active.values()];
         if (
@@ -79,14 +84,17 @@ export function createSshForwarding(d: Dependencies) {
           fail(429, "FORWARD_LIMIT");
       } catch (error) {
         // The raw listener records unauthenticated denials with its source and rate limit.
-        if (mapping) fail(403, "MAPPING_FORWARD_DENIED");
+        if (mapping) {
+          if (error instanceof ApiError) throw error;
+          fail(403, "MAPPING_FORWARD_DENIED");
+        }
         d.store.audit(
           "authorization.denied",
           login.user.id,
           login.deviceId ?? null,
           null,
           {
-            reason: "SSH_FORWARD_DENIED",
+            reason: reasonCode(error, "SSH_FORWARD_DENIED"),
             method: "SSH",
             route: "ssh",
           },
@@ -156,10 +164,12 @@ export function createSshForwarding(d: Dependencies) {
           fail(403, "FORWARD_ROUTE_CHANGED");
       };
       const abort = () => stop("USER_DISCONNECTED");
-      const timer = setTimeout(
-        () => stop("FORWARD_CONNECT_TIMEOUT"),
-        10000,
-      ).unref();
+      // SSH devices enforce their own deadline across route candidates and
+      // distinguish the SSH handshake from waiting for the target channel.
+      const timer =
+        route.backend === "agent"
+          ? setTimeout(() => stop("FORWARD_CONNECT_TIMEOUT"), 10000).unref()
+          : undefined;
       const entry: Forward = { id, login, route, stop, validate };
       active.set(id, entry);
       signal.addEventListener("abort", abort, { once: true });
@@ -177,7 +187,7 @@ export function createSshForwarding(d: Dependencies) {
             once: true,
           });
           if (!route.agent!.send("tcp.open", { forward_id: id, host, port }))
-            stream.destroy(new Error("AGENT_DISCONNECTED"));
+            stream.destroy(new ApiError(502, "AGENT_DISCONNECTED"));
           await stream.ready;
         } else
           target = await d.openSsh(
@@ -201,8 +211,8 @@ export function createSshForwarding(d: Dependencies) {
                 if (outbound) sent += data.length;
                 else received += data.length;
                 callback(null, data);
-              } catch {
-                stop("AUTHORIZATION_EXPIRED");
+              } catch (error) {
+                stop(reasonCode(error, "AUTHORIZATION_EXPIRED"));
                 callback(new Error("AUTHORIZATION_EXPIRED"));
               }
             },
@@ -211,7 +221,9 @@ export function createSshForwarding(d: Dependencies) {
           incoming = guard(false);
         guards.push(outgoing, incoming);
         for (const stream of [target, channel, outgoing, incoming]) {
-          stream.on("error", () => stop("FORWARD_IO_ERROR"));
+          stream.on("error", (error) =>
+            stop(reasonCode(error, "FORWARD_IO_ERROR")),
+          );
         }
         target.once("close", () => {
           // A clean upstream EOF may precede draining the client's SSH window.
@@ -243,8 +255,10 @@ export function createSshForwarding(d: Dependencies) {
         }
       } catch (error) {
         target?.destroy();
-        stop("FORWARD_OPEN_FAILED");
-        throw error;
+        const reason = reasonCode(error, "FORWARD_OPEN_FAILED");
+        stop(reason);
+        // Admission failures use ApiError; this failure already has a closed event.
+        throw new Error(reason);
       }
     },
     receive(
@@ -264,8 +278,8 @@ export function createSshForwarding(d: Dependencies) {
         return false;
       try {
         entry.validate();
-      } catch {
-        entry.stop("AUTHORIZATION_EXPIRED");
+      } catch (error) {
+        entry.stop(reasonCode(error, "AUTHORIZATION_EXPIRED"));
         return true;
       }
       entry.agent?.receive(type, body);
@@ -275,8 +289,8 @@ export function createSshForwarding(d: Dependencies) {
       for (const entry of active.values()) {
         try {
           entry.validate();
-        } catch {
-          entry.stop("AUTHORIZATION_EXPIRED");
+        } catch (error) {
+          entry.stop(reasonCode(error, "AUTHORIZATION_EXPIRED"));
         }
       }
     },

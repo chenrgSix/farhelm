@@ -139,6 +139,42 @@ async function roundtrip(port) {
   assert.ok(Buffer.concat(chunks).equals(data));
   socket.destroy();
 }
+async function freePort() {
+  const probe = createServer();
+  await new Promise((r) => probe.listen(0, "127.0.0.1", r));
+  const { port } = probe.address();
+  await new Promise((r) => probe.close(r));
+  return port;
+}
+const failures = [
+  { port: 14334, reason: "TARGET_CONNECT_REFUSED" },
+  { port: 14335, reason: "TARGET_CONNECT_TIMEOUT" },
+];
+async function checkFailure(localPort, kind, failure) {
+  const socket = connect(localPort, "127.0.0.1");
+  socket.on("error", () => {});
+  socket.resume();
+  try {
+    let event;
+    await until(
+      () => {
+        event = server.store.db
+          .prepare(
+            "SELECT actor_username,detail_json FROM audit WHERE action=? AND json_extract(detail_json,'$.port')=? ORDER BY id DESC LIMIT 1",
+          )
+          .get(kind + ".forward_closed", failure.port);
+        return event;
+      },
+      kind + " " + failure.reason,
+    );
+    const detail = JSON.parse(event.detail_json);
+    assert.equal(detail.reason, failure.reason);
+    assert.equal(detail.opened, false);
+    assert.equal(event.actor_username, kind === "ssh" ? "operator" : null);
+  } finally {
+    socket.destroy();
+  }
+}
 try {
   admin = (await api("POST", "/login", { username: "admin", password }))
     .access_token;
@@ -152,6 +188,13 @@ try {
 server = socket.socket()
 server.bind(("127.0.0.1", 14333))
 server.listen(32)
+# A bound but non-listening socket refuses connections. A full backlog drops SYNs.
+refused = socket.socket()
+refused.bind(("127.0.0.1", 14334))
+stalled = socket.socket()
+stalled.bind(("127.0.0.1", 14335))
+stalled.listen(0)
+filler = socket.create_connection(stalled.getsockname())
 def handle(client):
     with client:
         data = bytearray()
@@ -226,10 +269,7 @@ while True:
   steps.push(
     "device forwarding defaults off and is explicitly enabled by an admin",
   );
-  const mappingProbe = createServer();
-  await new Promise((resolve) => mappingProbe.listen(0, "127.0.0.1", resolve));
-  const mappingPort = mappingProbe.address().port;
-  await new Promise((resolve) => mappingProbe.close(resolve));
+  const mappingPort = await freePort();
   const mappingConfig = {
     v: 1,
     name: "raw Agent mapping",
@@ -276,6 +316,21 @@ while True:
   steps.push(
     "web-configured raw TCP mapping through real Linux Agent, 512 KiB binary, half-close and disable disconnect; no SSH client login",
   );
+  for (const failure of failures) {
+    const path = `/devices/${device.id}/tcp-mappings`;
+    const { mapping: testMapping } = await api("POST", path, {
+      ...mappingConfig,
+      target_port: failure.port,
+    });
+    await checkFailure(mappingPort, "mapping", failure);
+    await api("DELETE", path + "/" + testMapping.id, {
+      v: 1,
+      revision: testMapping.revision,
+    });
+  }
+  steps.push(
+    "web mappings distinguish target TCP refusal and timeout in the audit",
+  );
   server.store.seedUser({
     username: "operator",
     password,
@@ -302,10 +357,7 @@ while True:
   );
   for (const mode of ["local", "policy", "scope"]) {
     const jump = mode !== "local";
-    const probe = createServer();
-    await new Promise((r) => probe.listen(0, "127.0.0.1", r));
-    const port = probe.address().port;
-    await new Promise((r) => probe.close(r));
+    const port = await freePort();
     const args = [
       "-F",
       config,
@@ -315,6 +367,14 @@ while True:
       "-L",
       `127.0.0.1:${port}:127.0.0.1:${jump ? echo.address().port : 14333}`,
     ];
+    const failurePorts = [];
+    if (!jump) {
+      for (const failure of failures) {
+        const localPort = await freePort();
+        failurePorts.push(localPort);
+        args.push("-L", `127.0.0.1:${localPort}:127.0.0.1:${failure.port}`);
+      }
+    }
     if (jump)
       args.push(
         "-J",
@@ -348,6 +408,13 @@ while True:
       assert.equal(child.exitCode, null, log);
     }
     await roundtrip(port);
+    if (!jump) {
+      for (const [i, failure] of failures.entries())
+        await checkFailure(failurePorts[i], "ssh", failure);
+      steps.push(
+        "OpenSSH -L distinguishes target TCP refusal and timeout in the audit",
+      );
+    }
     console.log(
       jump ? "ProxyJump roundtrip passed" : "Agent loopback roundtrip passed",
     );

@@ -223,6 +223,31 @@ const values: Record<string, string> = {
   SERVER_RESTART: "服务端重启",
   AGENT_DISCONNECTED: "Agent 断连",
   AUTHORIZATION_EXPIRED: "登录或权限已失效",
+  SSH_FORWARD_DENIED: "SSH 转发未获准（未记录具体原因）",
+  MAPPING_FORWARD_DENIED: "映射转发未获准（未记录具体原因）",
+  SSH_TARGET_DENIED: "目标设备不存在或账号无权连接",
+  EXEC_ROLE_REQUIRED: "账号没有终端连接权限",
+  TARGET_ACCOUNT_DENIED: "账号无权使用设备的默认连接账号",
+  SUDO_PERMISSION_REQUIRED: "缺少目标账号所需的 sudo 授权",
+  DEVICE_FORWARDING_DISABLED: "设备未开启 TCP 转发",
+  FORWARD_LIMIT: "转发并发连接数已达上限",
+  USER_CONNECTION_LIMIT: "账号并发连接数已达上限",
+  FORWARD_DEVICE_REQUIRED: "未选择转发设备",
+  MAPPING_SOURCE_DENIED: "来源 IP 不在映射白名单内",
+  MAPPING_OWNER_DENIED: "映射创建人的管理员权限或密码状态不允许转发",
+  MAPPING_OWNER_DISABLED: "映射创建人账号已停用",
+  TARGET_CONNECT_REFUSED: "目标地址拒绝了设备发起的 TCP 连接",
+  TARGET_CONNECT_TIMEOUT: "设备连接目标地址超时",
+  TARGET_CONNECT_FAILED: "设备未能连接目标地址，未取得更具体原因",
+  SSH_FORWARD_PROHIBITED: "设备的 SSH 服务禁止端口转发",
+  SSH_CHANNEL_RESOURCE_SHORTAGE: "设备的 SSH 服务没有可用通道资源",
+  SSH_FORWARD_TIMEOUT: "已连到设备，等待 SSH 转发到目标地址超时",
+  SSH_CONNECT_TIMEOUT: "平台连接设备 SSH 服务超时",
+  SSH_CONNECT_FAILED: "平台无法连接设备 SSH 服务",
+  SSH_AUTH_FAILED: "平台登录设备 SSH 服务失败",
+  SSH_HOST_KEY_MISMATCH: "设备 SSH 主机指纹不匹配",
+  FORWARD_CONNECT_TIMEOUT: "等待设备建立转发超时",
+  FORWARD_OPEN_FAILED: "转发建立失败，未取得更具体原因",
   BROWSER_DISCONNECTED: "网页连接断开",
   allow: "允许",
   deny: "明确禁止",
@@ -359,9 +384,15 @@ export function auditOutcome(entry: AuditEntry): string {
   if (typeof status === "string") return format("status", status);
   if (
     entry.action.endsWith("failed") ||
-    entry.action === "authorization.denied"
+    entry.action === "authorization.denied" ||
+    entry.action === "mapping.connection_denied"
   )
     return "失败 / 拒绝";
+  if (
+    entry.action === "ssh.forward_closed" ||
+    entry.action === "mapping.forward_closed"
+  )
+    return detail.opened === false ? "建立失败" : "已断开";
   if (entry.action === "deployment.rolled_back") return "已回滚";
   if (entry.action === "user.login") return "登录成功";
   if (entry.action === "user.logout") return "当前登录会话已撤销";

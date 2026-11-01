@@ -329,6 +329,13 @@ async function roundtrip(stream: ClientChannel | Socket, data: Buffer) {
   await end;
   assert.deepEqual(Buffer.concat(chunks), data);
 }
+function lastReason(f: Awaited<ReturnType<typeof fixture>>, action: string) {
+  return f.store.db
+    .prepare(
+      "SELECT json_extract(detail_json,'$.reason') AS reason FROM audit WHERE action=? ORDER BY id DESC LIMIT 1",
+    )
+    .get(action)?.reason;
+}
 test(
   "busy Agent transfer leaves other SSH connections usable while its frames are paced",
   { timeout: 15000 },
@@ -431,6 +438,10 @@ for (const kind of ["ssh", "agent"] as const) {
           .run();
         await ended;
         await assert.rejects(f.forward(client));
+        assert.equal(
+          lastReason(f, "authorization.denied"),
+          "TARGET_ACCOUNT_DENIED",
+        );
         const admin = await f.connect("admin:device"),
           active = await f.forward(admin);
         active.on("error", () => {});
@@ -579,6 +590,7 @@ for (const kind of ["ssh", "agent"] as const) {
         }
         await assert.rejects(f.forward(client));
         assert.equal(f.requests.length, 16);
+        assert.equal(lastReason(f, "authorization.denied"), "FORWARD_LIMIT");
         const closed = once(channels[0]!, "close");
         channels[0]!.destroy();
         await closed;
@@ -607,6 +619,57 @@ for (const kind of ["ssh", "agent"] as const) {
   );
 }
 test(
+  "the raw listener audits its seventeenth socket as a concurrency refusal",
+  { timeout: 15000 },
+  async () => {
+    const f = await fixture("ssh");
+    const sockets: Socket[] = [];
+    try {
+      const probe = createServer();
+      await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
+      const port = (probe.address() as { port: number }).port;
+      await new Promise<void>((r) => probe.close(() => r()));
+      await f.mappingApi("POST", "", {
+        v: 1,
+        name: "limit",
+        enabled: true,
+        listen_host: "127.0.0.1",
+        listen_port: port,
+        target_host: "database.internal",
+        target_port: f.echoPort,
+        source_cidrs: ["127.0.0.1"],
+      });
+      for (let i = 0; i < 16; i++) {
+        const socket = tcpConnect(port, "127.0.0.1");
+        sockets.push(socket);
+        socket.on("error", () => {});
+        await once(socket, "connect");
+      }
+      await until(() => f.requests.length === 16);
+      const extra = tcpConnect(port, "127.0.0.1");
+      sockets.push(extra);
+      extra.on("error", () => {});
+      extra.resume();
+      await once(extra, "close");
+      assert.equal(lastReason(f, "mapping.connection_denied"), "FORWARD_LIMIT");
+      assert.equal(f.requests.length, 16);
+      const denied = f.store.db
+        .prepare(
+          "SELECT actor_id,detail_json FROM audit WHERE action='mapping.connection_denied'",
+        )
+        .get()!;
+      assert.equal(denied.actor_id, null);
+      assert.equal(
+        JSON.parse(String(denied.detail_json)).source_address,
+        "127.0.0.1",
+      );
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await f.close();
+    }
+  },
+);
+test(
   "failed and unauditable forwarding never accepts a channel and releases pending resources",
   { timeout: 15000 },
   async () => {
@@ -618,6 +681,11 @@ test(
       const unavailable = (probe.address() as any).port;
       await new Promise<void>((r) => probe.close(() => r()));
       await assert.rejects(f.forward(client, "127.0.0.1", unavailable));
+      // The ssh2 fixture's bare reject sends SSH_OPEN_CONNECT_FAILED without a description.
+      assert.equal(
+        lastReason(f, "ssh.forward_closed"),
+        "TARGET_CONNECT_FAILED",
+      );
       const audit = f.store.audit.bind(f.store);
       f.store.audit = (action, ...args) => {
         if (action === "ssh.forward_opened") throw new Error("storage failed");
@@ -669,6 +737,10 @@ for (const kind of ["ssh", "agent"] as const) {
         const admin = await f.connect("admin:device");
         await assert.rejects(f.forward(client));
         await assert.rejects(f.forward(admin));
+        assert.equal(
+          lastReason(f, "authorization.denied"),
+          "DEVICE_FORWARDING_DISABLED",
+        );
         assert.equal(
           f.requests.length,
           0,
@@ -737,6 +809,7 @@ for (const kind of ["ssh", "agent"] as const) {
             .get()!.detail_json as string,
         );
         assert.equal(closed.opened, false);
+        assert.equal(closed.reason, "DEVICE_FORWARDING_DISABLED");
         assert.equal(closed.bytes_sent, 0);
         await rejected;
         assert.equal(
