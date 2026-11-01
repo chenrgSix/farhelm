@@ -8,10 +8,10 @@
 
 支持使用 systemd 的现代 glibc Linux，x86_64 / ARM64，建议 Debian 12+ / Ubuntu 22.04+。安装器自动准备必要命令、下载并校验 Node.js 24.21.0，使用普通 `farhelm` 用户构建前后端，配置 systemd 并执行健康检查。需要下载 GitHub 源码、Node.js 和 npm 依赖；不修改系统默认 Node，不需要预先安装 npm 或 Rust。
 
-当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.17，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
+当前 GitHub 仓库公开。复制下面的一条命令安装 v0.2.18，将 IP 改成自己的；命令已带 `--web-http`，直接启用 HTTP 网页和 HTTPS Agent：
 
 ```bash
-( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.17/install.sh -o "$installer" && bash "$installer" --ref v0.2.17 --host 10.10.0.10 --web-http )
+( installer="$(mktemp)" && trap 'rm -f "$installer"' EXIT && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/chenrgSix/farhelm/v0.2.18/install.sh -o "$installer" && bash "$installer" --ref v0.2.18 --host 10.10.0.10 --web-http )
 ```
 
 不加 `--web-http` 时网页默认 HTTPS。私有仓库部署仍可先执行 `gh auth login`，通过 GitHub CLI 下载对应版本安装脚本。脚本在提权前读取当前用户的 gh 凭据，通过临时 0600 文件传给安装过程；不把访问令牌放进命令参数、服务配置或日志。也支持 `GH_TOKEN` / `GITHUB_TOKEN` / `--token-file`。私有仓库不支持匿名 curl 安装；不会为部署而修改仓库可见性。
@@ -60,7 +60,7 @@ sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 
 ```bash
 # 也可下载 Release 源码包后进入解压目录
-git clone --branch v0.2.17 https://github.com/chenrgSix/farhelm.git
+git clone --branch v0.2.18 https://github.com/chenrgSix/farhelm.git
 cd farhelm/deploy
 cp compose.env.example .env
 ```
@@ -158,7 +158,7 @@ FLEET_WEB_PROTOCOL=http
 
 ## 已有部署迁移
 
-v0.2.17 先升级平台，再上传对应架构的 Agent 二进制及同名 JSON 清单完成 Agent 升级。升级后所有设备的 TCP 转发默认关闭。要继续使用 SSH 转发或[网页端口映射](tcp-mappings.md)，请按需在设备「接入配置 → TCP 转发」中开启。Agent 出口需要 0.2.16 或更新版本，SSH 出口要求目标 sshd 允许 TCP 转发。网页映射须配置来源 IP/CIDR，并在防火墙及容器部署中放行所需端口。升级前结束活跃终端、停服备份完整数据目录，并保留 CA、SSH 主机密钥、凭据加密密钥及 Agent 完整状态目录。平台迁移仅执行一次，按原 sudo 权限、终端权限、设备范围和普通连接授权的交集保留用户在对应设备的 sudo 权限；保留原角色来源。可在「访问控制 → 设备访问授权」调整个人／用户组／角色授权，个人禁止优先。新设备、新用户默认无 sudo，删除迁移规则不会在重启时恢复。
+v0.2.18 先升级平台，再上传对应架构的 Agent 二进制及同名 JSON 清单完成 Agent 升级。从 v0.2.17 升级时会保留设备转发开关；因撤权或关闭转发而暂停的映射须由管理员重新保存。来自 v0.2.16 或更早版本的设备默认关闭转发。要继续使用 SSH 转发或[网页端口映射](tcp-mappings.md)，请按需在设备「接入配置 → TCP 转发」中开启。Agent 出口需要 0.2.16 或更新版本；要区分目标 TCP 拒绝与超时，平台和 Agent 均需升级到 0.2.18。SSH 出口要求目标 sshd 允许 TCP 转发。网页映射须配置来源 IP/CIDR，并在防火墙及容器部署中放行所需端口。升级前结束活跃终端、停服备份完整数据目录，并保留 CA、SSH 主机密钥、凭据加密密钥及 Agent 完整状态目录。平台迁移仅执行一次，按原 sudo 权限、终端权限、设备范围和普通连接授权的交集保留用户在对应设备的 sudo 权限；保留原角色来源。可在「访问控制 → 设备访问授权」调整个人／用户组／角色授权，个人禁止优先。新设备、新用户默认无 sudo，删除迁移规则不会在重启时恢复。
 
 本版要求 Agent 支持每会话 sudo 限制；旧 Agent 无法落实时明确要求升级，不自动降级放行。纯 SSH／备用 SSH 的受限终端需要 Linux `/usr/bin/setpriv` 与 `/proc` 校验；无法确认限制时拒绝连接。普通 Agent 会话不受备用 SSH 的 root 身份配置影响，实际走 root SSH 时必须有该设备的 sudo 授权。设备提权开关仍是上限，已获授权会话保留密码代填、手工认证和免密 sudo；不修改 sudoers 或网络配置。共享 Linux UID 的终端进程限制不等于完整安全隔离，详见[授权边界](access-control.md#sudo-迁移与执行边界)。
 

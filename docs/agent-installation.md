@@ -25,7 +25,7 @@
 
 ## 平台准备
 
-优先从 [GitHub Release](https://github.com/chenrgSix/farhelm/releases) 下载对应架构的二进制及 JSON 清单，上传到「Agent 升级 → 升级包管理」。本次平台和 Agent 发布包均为 v0.2.17。使用 SSH 转发或网页端口映射时，管理员需在设备上开启「允许 TCP 转发」。Agent 作为出口时支持 0.2.16 及更新版本。请先升级平台，再升级本次 Agent 安装包，以支持每会话 sudo 授权限制及可配置的终端容量。旧 Agent 不能落实限制时会要求升级。sudo 密码代填还需该用户在设备上的 sudo 授权、设备终端提权开关及原有 Linux sudo 权限。
+优先从 [GitHub Release](https://github.com/chenrgSix/farhelm/releases) 下载对应架构的二进制及 JSON 清单，上传到「Agent 升级 → 升级包管理」。本次平台和 Agent 发布包均为 v0.2.18。使用 SSH 转发或网页端口映射时，管理员需在设备上开启「允许 TCP 转发」。0.2.16 及更新版本支持 Agent 转发。要在审计中区分设备连接目标时的 TCP 拒绝与超时，请将平台和 Agent 都升级到 0.2.18。请先升级平台，再升级本次 Agent 安装包，以支持每会话 sudo 授权限制及可配置的终端容量。旧 Agent 不能落实限制时会要求升级。sudo 密码代填还需该用户在设备上的 sudo 授权、设备终端提权开关及原有 Linux sudo 权限。
 
 需要自行构建时，生成两种架构的静态 Linux 安装包（需要 Docker，可在原生架构或 Docker 支持的仿真架构构建）：
 
