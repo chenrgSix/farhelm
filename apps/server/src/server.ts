@@ -36,6 +36,8 @@ import { join, isAbsolute, resolve, extname } from "node:path";
 import { ConnectionLimits } from "./connection-limits.js";
 import {
   registerDeviceScripts,
+  requireScriptIdle,
+  ScriptBusyError,
   SCRIPT_TIMEOUT_MS,
   SCRIPT_OUTPUT_LIMIT,
   type DeviceScript,
@@ -428,7 +430,13 @@ export async function buildServer(config: ServerConfig) {
       }
     }
     if (err instanceof ApiError)
-      return reply.code(err.statusCode).send({ v: 1, error: err.code });
+      return reply.code(err.statusCode).send({
+        v: 1,
+        error: err.code,
+        ...(err instanceof ScriptBusyError
+          ? { active_run: err.activeRun }
+          : {}),
+      });
     if (err.statusCode && err.statusCode < 500)
       return reply
         .code(err.statusCode)
@@ -1870,71 +1878,72 @@ export async function buildServer(config: ServerConfig) {
         ttl_seconds: ttl,
       }),
     );
-    const existing = db
-      .prepare("SELECT * FROM idempotency WHERE actor_id=? AND key=?")
-      .get(user.id, key) as any;
-    if (existing) {
-      if (existing.request_hash !== requestHash)
-        fail(409, "IDEMPOTENCY_CONFLICT");
-      const row = store.task(existing.task_id);
-      return { v: 1, task_id: row.id, status: row.status };
-    }
     const sshScript = script && d.connection_kind === "ssh";
-    const allowRoot = !!sshScript && deviceSudo(db, user, deviceId).allowed;
-    if (
-      sshScript &&
-      connectionAuthorizations.defaultNeedsSudo(user, deviceId, "ssh") &&
-      !allowRoot
-    )
-      fail(403, "SUDO_PERMISSION_REQUIRED");
-    if (sshScript && !deviceConnections.canSsh(deviceId))
-      fail(409, "SSH_NOT_CONFIGURED");
-    if (script && !sshScript) {
-      if (!agentEnabled) fail(409, "AGENT_ACCESS_DISABLED");
-      const agent = connections.get(deviceId);
+    // BEGIN IMMEDIATE serializes the idempotency check, per-button lock and task insert.
+    const submission = store.transaction(() => {
+      const existing = db
+        .prepare("SELECT * FROM idempotency WHERE actor_id=? AND key=?")
+        .get(user.id, key) as any;
+      if (existing) {
+        if (existing.request_hash !== requestHash)
+          fail(409, "IDEMPOTENCY_CONFLICT");
+        return { id: existing.task_id as string };
+      }
+      if (script) requireScriptIdle(store, deviceId, script.id);
+      const allowRoot = !!sshScript && deviceSudo(db, user, deviceId).allowed;
       if (
-        !agent?.ready ||
-        !live(agent) ||
-        Date.now() - agent.lastHeartbeat > heartbeatTimeout ||
-        !networkRoutes.allowed(deviceId)
+        sshScript &&
+        connectionAuthorizations.defaultNeedsSudo(user, deviceId, "ssh") &&
+        !allowRoot
       )
-        fail(409, "DEVICE_OFFLINE");
-    }
-    if (sshScript && sshScriptRuns.size >= 32) fail(429, "SCRIPT_SSH_LIMIT");
-    if (upgrades.active(deviceId)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
-    availableStorage();
-    const pending = (
-      db
-        .prepare(
-          "SELECT count(*) AS n FROM tasks WHERE device_id=? AND status NOT IN ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','EXPIRED','UNKNOWN')",
+        fail(403, "SUDO_PERMISSION_REQUIRED");
+      if (sshScript && !deviceConnections.canSsh(deviceId))
+        fail(409, "SSH_NOT_CONFIGURED");
+      if (script && !sshScript) {
+        if (!agentEnabled) fail(409, "AGENT_ACCESS_DISABLED");
+        const agent = connections.get(deviceId);
+        if (
+          !agent?.ready ||
+          !live(agent) ||
+          Date.now() - agent.lastHeartbeat > heartbeatTimeout ||
+          !networkRoutes.allowed(deviceId)
         )
-        .get(deviceId) as any
-    ).n;
-    if (pending >= 100) fail(429, "DEVICE_QUEUE_FULL");
-    const now = Date.now();
-    const immutable = {
-      task_id: randomUUID(),
-      device_id: deviceId,
-      actor_id: user.id,
-      action: "exec" as const,
-      argv,
-      cwd,
-      created_at: now,
-      expires_at: now + ttl * 1000,
-      timeout_ms: timeout,
-      max_output_bytes: maxOutput,
-    };
-    const task: Task = {
-      ...immutable,
-      payload_hash: hash(canonical(immutable)),
-    };
-    if (
-      Buffer.byteLength(
-        JSON.stringify({ v: 1, type: "task.assign", body: task }),
-      ) > MAX_FRAME
-    )
-      fail(400, "TASK_FRAME_TOO_LARGE");
-    store.transaction(() => {
+          fail(409, "DEVICE_OFFLINE");
+      }
+      if (sshScript && sshScriptRuns.size >= 32) fail(429, "SCRIPT_SSH_LIMIT");
+      if (upgrades.active(deviceId)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
+      availableStorage();
+      const pending = (
+        db
+          .prepare(
+            "SELECT count(*) AS n FROM tasks WHERE device_id=? AND status NOT IN ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','EXPIRED','UNKNOWN')",
+          )
+          .get(deviceId) as any
+      ).n;
+      if (pending >= 100) fail(429, "DEVICE_QUEUE_FULL");
+      const now = Date.now();
+      const immutable = {
+        task_id: randomUUID(),
+        device_id: deviceId,
+        actor_id: user.id,
+        action: "exec" as const,
+        argv,
+        cwd,
+        created_at: now,
+        expires_at: now + ttl * 1000,
+        timeout_ms: timeout,
+        max_output_bytes: maxOutput,
+      };
+      const task: Task = {
+        ...immutable,
+        payload_hash: hash(canonical(immutable)),
+      };
+      if (
+        Buffer.byteLength(
+          JSON.stringify({ v: 1, type: "task.assign", body: task }),
+        ) > MAX_FRAME
+      )
+        fail(400, "TASK_FRAME_TOO_LARGE");
       db.prepare(
         "INSERT INTO tasks(id,device_id,actor_id,task_json,payload_hash,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
       ).run(
@@ -1977,13 +1986,16 @@ export async function buildServer(config: ServerConfig) {
           authorized: true,
           payload_hash: task.payload_hash,
         });
+      return { id: task.task_id, task, allowRoot };
     });
-    if (sshScript) launchSsh(task, script, allowRoot);
-    else dispatch(deviceId);
+    if (submission.task) {
+      if (sshScript) launchSsh(submission.task, script, submission.allowRoot);
+      else dispatch(deviceId);
+    }
     return {
       v: 1,
-      task_id: task.task_id,
-      status: store.task(task.task_id).status,
+      task_id: submission.id,
+      status: store.task(submission.id).status,
     };
   }
   app.get("/api/v1/tasks", async (req) => {

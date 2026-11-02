@@ -112,6 +112,22 @@
       "required": [
         "payload"
       ]
+    },
+    "stopConfirmed": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "script_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "confirmed_stopped": {
+          "const": true
+        }
+      },
+      "required": [
+        "script_id",
+        "confirmed_stopped"
+      ]
     }
   },
   "anyOf": [
@@ -129,6 +145,9 @@
     },
     {
       "$ref": "device-script-audit-detail.schema.json#/$defs/finished"
+    },
+    {
+      "$ref": "device-script-audit-detail.schema.json#/$defs/stopConfirmed"
     }
   ]
 }

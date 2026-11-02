@@ -3,7 +3,16 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Store } from "./store.js";
 import type { User } from "./types.js";
 import { hasPermission } from "./permissions.js";
-import { fail, hash, integer, keys, object, str, version } from "./util.js";
+import {
+  ApiError,
+  fail,
+  hash,
+  integer,
+  keys,
+  object,
+  str,
+  version,
+} from "./util.js";
 
 export const SCRIPT_TIMEOUT_MS = 60000;
 export const SCRIPT_OUTPUT_LIMIT = 262144;
@@ -14,6 +23,23 @@ export interface DeviceScript {
   revision: number;
   name: string;
   script: string;
+}
+export class ScriptBusyError extends ApiError {
+  constructor(readonly activeRun: Record<string, unknown>) {
+    super(409, "SCRIPT_BUSY");
+  }
+}
+export function requireScriptIdle(
+  store: Store,
+  deviceId: string,
+  scriptId: string,
+) {
+  const blocking = store.db
+    .prepare(
+      "SELECT * FROM device_script_activity WHERE device_id=? AND script_id=? ORDER BY created_at,task_id LIMIT 1",
+    )
+    .get(deviceId, scriptId);
+  if (blocking) throw new ScriptBusyError(blocking);
 }
 export function registerDeviceScripts(
   app: FastifyInstance,
@@ -66,12 +92,27 @@ export function registerDeviceScripts(
       .get(row.id, row.device_id);
     if (current?.revision !== row.revision) fail(409, "SCRIPT_CHANGED");
   }
-  app.get(path, async (req) => {
+  function viewer(req: FastifyRequest) {
     const user = d.reader(req),
-      id = device(req, user);
-    const canManage = hasPermission(user, "scripts.manage");
+      id = device(req, user),
+      canManage = hasPermission(user, "scripts.manage");
     if (!canManage && !hasPermission(user, "scripts.run"))
       fail(403, "SCRIPT_ACCESS_DENIED");
+    return { user, id, canManage };
+  }
+  function activity(id: string) {
+    return db
+      .prepare(
+        "SELECT * FROM device_script_activity WHERE device_id=? ORDER BY created_at,task_id",
+      )
+      .all(id);
+  }
+  app.get(path + "/activity", async (req) => ({
+    v: 1,
+    activity: activity(viewer(req).id),
+  }));
+  app.get(path, async (req) => {
+    const { user, id, canManage } = viewer(req);
     const scripts = db
       .prepare(
         canManage
@@ -86,7 +127,7 @@ export function registerDeviceScripts(
           )
           .all(id, user.id)
       : [];
-    return { v: 1, scripts, runs };
+    return { v: 1, scripts, runs, activity: activity(id) };
   });
   function save(req: FastifyRequest, editing: boolean) {
     const user = manager(req),
@@ -158,12 +199,43 @@ export function registerDeviceScripts(
       const row = find(req, id);
       if (row.revision !== integer(b.revision, 1, Number.MAX_SAFE_INTEGER))
         fail(409, "SCRIPT_CHANGED");
+      requireScriptIdle(d.store, id, row.id);
       db.prepare("DELETE FROM device_scripts WHERE id=?").run(row.id);
       d.store.audit("script.deleted", user.id, id, null, {
         script_id: row.id,
         name: row.name,
         revision: row.revision,
       });
+      return { v: 1 };
+    });
+  });
+  app.post(item + "/runs/:taskId/confirm-stopped", async (req) => {
+    const user = manager(req),
+      id = device(req, user),
+      b = object(req.body);
+    version(b);
+    keys(b, ["v"]);
+    const taskId = str((req.params as any).taskId, 1, 128);
+    d.availableStorage();
+    return d.store.transaction(() => {
+      const script = find(req, id);
+      const task = db
+        .prepare(
+          "SELECT t.status FROM tasks t JOIN device_script_tasks s ON s.task_id=t.id WHERE t.id=? AND t.device_id=? AND s.script_id=?",
+        )
+        .get(taskId, id, script.id);
+      if (!task) fail(404, "TASK_NOT_FOUND");
+      if (task.status !== "UNKNOWN") fail(409, "SCRIPT_REVIEW_NOT_ALLOWED");
+      const inserted = db
+        .prepare(
+          "INSERT INTO device_script_reviews(task_id) VALUES(?) ON CONFLICT(task_id) DO NOTHING",
+        )
+        .run(taskId);
+      if (inserted.changes)
+        d.store.audit("script.stop_confirmed", user.id, id, taskId, {
+          script_id: script.id,
+          confirmed_stopped: true,
+        });
       return { v: 1 };
     });
   });

@@ -16,6 +16,14 @@ interface Button {
   revision: number;
   script?: string;
 }
+interface ActiveRun {
+  script_id: string;
+  task_id: string;
+  actor_username: string;
+  status: Task["status"];
+  created_at: number;
+  backend: "agent" | "ssh";
+}
 interface Recent {
   id: string;
   name: string;
@@ -32,6 +40,56 @@ const canRun = computed(() =>
 );
 const buttons = ref<Button[]>([]),
   runs = ref<Recent[]>([]);
+const activeRuns = ref<ActiveRun[]>([]);
+const activityKnown = ref(false),
+  activityError = ref("");
+const byScript = computed(() => {
+  const groups = new Map<string, ActiveRun[]>();
+  for (const run of activeRuns.value) {
+    const group = groups.get(run.script_id);
+    if (group) group.push(run);
+    else groups.set(run.script_id, [run]);
+  }
+  return groups;
+});
+let activityVersion = 0,
+  pollTimer: ReturnType<typeof setInterval> | undefined,
+  polling = false;
+function setActivity(version: number, rows: ActiveRun[]) {
+  if (disposed || version !== activityVersion) return;
+  if (!Array.isArray(rows)) {
+    activityKnown.value = false;
+    activityError.value = "服务端未提供脚本执行状态，请刷新或检查服务端版本。";
+    return;
+  }
+  activeRuns.value = rows;
+  activityKnown.value = true;
+  activityError.value = "";
+}
+async function refreshActivity() {
+  const version = ++activityVersion;
+  try {
+    const result = await api.request<{ activity: ActiveRun[] }>(
+      base + "/activity",
+    );
+    setActivity(version, result.activity);
+  } catch (e) {
+    if (disposed || version !== activityVersion) return;
+    if (e instanceof ApiError && [401, 403].includes(e.status))
+      activeRuns.value = [];
+    activityKnown.value = false;
+    activityError.value = "无法确认执行状态，恢复连接后可再次运行。";
+  }
+}
+async function pollActivity() {
+  if (document.hidden || polling || disposed) return;
+  polling = true;
+  try {
+    await refreshActivity();
+  } finally {
+    polling = false;
+  }
+}
 const draft = ref<Button>(),
   task = ref<Task>(),
   selected = ref(""),
@@ -61,13 +119,16 @@ function clearAfterReview() {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "操作失败");
 async function load() {
+  const version = ++activityVersion;
   const value = await api.request<{
     scripts: Button[];
     runs: Recent[];
+    activity: ActiveRun[];
   }>(base);
   if (disposed) return;
   buttons.value = value.scripts;
   runs.value = value.runs;
+  setActivity(version, value.activity);
 }
 async function refresh() {
   error.value = "";
@@ -116,6 +177,34 @@ async function change(remove = false) {
     busy.value = false;
   }
 }
+async function confirmStopped(run: ActiveRun) {
+  if (busy.value || !canManage.value || run.status !== "UNKNOWN") return;
+  if (
+    !window.confirm(
+      `已在设备上核实 ${run.actor_username} 的任务 ${run.task_id} 确实停止？解除后允许再次运行。`,
+    )
+  )
+    return;
+  busy.value = true;
+  error.value = notice.value = "";
+  try {
+    await api.request(
+      base +
+        "/" +
+        encodeURIComponent(run.script_id) +
+        "/runs/" +
+        encodeURIComponent(run.task_id) +
+        "/confirm-stopped",
+      { method: "POST", body: { v: 1 } },
+    );
+    notice.value = "已记录停止确认。";
+  } catch (e) {
+    error.value = message(e);
+  } finally {
+    await refreshActivity();
+    busy.value = false;
+  }
+}
 function closeResult() {
   ++generation;
   clearTimeout(timer);
@@ -140,7 +229,13 @@ async function inspect(id: string) {
   }
 }
 async function run(row: Button) {
-  if (!canRun.value || busy.value || (retry.value && retry.value.id !== row.id))
+  if (
+    !canRun.value ||
+    !activityKnown.value ||
+    byScript.value.has(row.id) ||
+    busy.value ||
+    (retry.value && retry.value.id !== row.id)
+  )
     return;
   const previous = retry.value;
   if (
@@ -174,6 +269,7 @@ async function run(row: Button) {
   } catch (e) {
     if (e instanceof ApiError && e.status > 0 && e.status < 500) remember();
     error.value = message(e);
+    if (e instanceof ApiError && e.status === 409) await refreshActivity();
   } finally {
     busy.value = false;
   }
@@ -193,9 +289,13 @@ onMounted(() => {
     /* No recoverable attempt in this tab. */
   }
   void refresh();
+  pollTimer = setInterval(pollActivity, 2000);
+  document.addEventListener("visibilitychange", pollActivity);
 });
 onBeforeUnmount(() => {
   disposed = true;
+  clearInterval(pollTimer);
+  document.removeEventListener("visibilitychange", pollActivity);
   closeResult();
 });
 </script>
@@ -232,6 +332,9 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </header>
+    <p v-if="activityError" class="notice warning" role="status">
+      {{ activityError }}
+    </p>
     <p v-if="error" role="alert" class="notice danger">{{ error }}</p>
     <p v-if="notice" role="status" class="notice neutral">{{ notice }}</p>
     <p v-if="canRun && retry && !busy" class="notice warning">
@@ -248,7 +351,12 @@ onBeforeUnmount(() => {
         <button
           v-if="canRun"
           class="button secondary"
-          :disabled="busy || (!!retry && retry.id !== row.id)"
+          :disabled="
+            !activityKnown ||
+            byScript.has(row.id) ||
+            busy ||
+            (!!retry && retry.id !== row.id)
+          "
           @click="run(row)"
         >
           {{ retry?.id === row.id ? "重试 · " : "" }}{{ row.name }}
@@ -263,6 +371,35 @@ onBeforeUnmount(() => {
         >
           配置
         </button>
+        <div
+          v-for="active in byScript.get(row.id)"
+          :key="active.task_id"
+          class="script-activity"
+          role="status"
+        >
+          <strong
+            >{{ active.actor_username }} ·
+            {{
+              active.status === "UNKNOWN"
+                ? "结果待核对，已锁定"
+                : statusLabels[active.status]
+            }}</strong
+          >
+          <small
+            >{{ active.backend === "ssh" ? "SSH" : "Agent" }} · 提交于
+            {{ formatTime(active.created_at) }}</small
+          >
+          <small class="mono">任务 {{ active.task_id }}</small>
+          <button
+            v-if="canManage && active.status === 'UNKNOWN'"
+            type="button"
+            class="text-button"
+            :disabled="busy"
+            @click="confirmStopped(active)"
+          >
+            已核实停止，解除占用
+          </button>
+        </div>
       </li>
     </ul>
     <form v-if="canManage && draft" class="editor" @submit.prevent="change()">
@@ -369,6 +506,17 @@ onBeforeUnmount(() => {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+.script-activity {
+  flex-basis: 100%;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.script-activity strong {
+  color: var(--navy);
 }
 .editor {
   margin: 16px 0;

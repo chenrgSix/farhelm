@@ -128,8 +128,14 @@ export class ApiClient {
       )
         this.onUnauthorized?.();
       let reason = "";
+      let blockingActor = "";
       try {
         const body = await response.json();
+        if (
+          body.error === "SCRIPT_BUSY" &&
+          typeof body.active_run?.actor_username === "string"
+        )
+          blockingActor = body.active_run.actor_username;
         reason =
           typeof body.error === "string"
             ? body.error
@@ -144,6 +150,10 @@ export class ApiClient {
           "请先在网页完成首次密码修改，再使用平台功能或 SSH 入口。",
         DEPLOYMENT_REVISION_CONFLICT:
           "运行设置已被其他管理员修改，请刷新后重新编辑。",
+        SCRIPT_BUSY: blockingActor
+          ? `此操作已被 ${blockingActor} 的任务占用，请查看按钮上的执行信息。`
+          : "此操作正在执行或等待核对。",
+        SCRIPT_REVIEW_NOT_ALLOWED: "只能解除结果待核对的任务，请刷新执行状态。",
         SCRIPT_CHANGED: "按钮配置已改变，请刷新操作台再试。",
         SCRIPT_MANAGE_DENIED: "当前账号没有这台设备的操作台配置权限。",
         SCRIPT_ACCESS_DENIED: "当前账号没有此按钮的执行权限。",

@@ -4,6 +4,7 @@ import { formatTime, statusLabels } from "./model";
 export const auditActionLabels: Record<string, string> = {
   "script.submitted": "提交设备操作",
   "script.started": "脚本开始执行",
+  "script.stop_confirmed": "核实脚本已停止并解除占用",
   "script.finished": "脚本执行结束",
   "script.created": "配置操作按钮",
   "script.updated": "修改操作按钮",
@@ -151,6 +152,7 @@ const labels: Record<string, string> = {
   stream: "输出流",
   size: "字节数",
   sha256: "SHA-256",
+  confirmed_stopped: "已核实停止",
   script_id: "操作按钮 ID",
   script_hash: "脚本校验值",
   payload_hash: "任务校验值",

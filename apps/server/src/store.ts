@@ -478,6 +478,12 @@ export class Store {
         "utf8",
       ),
     );
+    this.db.exec(
+      readFileSync(
+        new URL("../migrations/049_script_activity.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     this.instance = (
       this.db
         .prepare("SELECT value FROM meta WHERE key='server_instance'")

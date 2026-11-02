@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import ssh2 from "ssh2";
-import type { AddressInfo } from "node:net";
+import { createServer, type Socket, type AddressInfo } from "node:net";
 import { SshTargets, fingerprint } from "../src/ssh-target.js";
 import { randomUUID, generateKeyPairSync } from "node:crypto";
+import { assertValid } from "../../../tests/contracts/validate.mjs";
 import { buildServer } from "../src/server.js";
 
 function scriptClient(
@@ -53,6 +54,24 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
   };
   let app = await buildServer(config);
   const { request, login } = scriptClient(app, password);
+  // Hold SSH negotiation to keep the reservation live until both accounts have tried.
+  let hold = true;
+  const sockets = new Set<Socket>();
+  const target = createServer((socket) => {
+    if (!hold) {
+      socket.destroy();
+      return;
+    }
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+  async function waitForFailure(id: string) {
+    const until = Date.now() + 8000;
+    while (app.store.task(id).status === "RUNNING" && Date.now() < until)
+      await new Promise((r) => setTimeout(r, 20));
+    assert.equal(app.store.task(id).status, "FAILED");
+  }
   try {
     const admin = await login("admin");
     const d = await request("POST", "/ssh-devices", admin, {
@@ -60,7 +79,7 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
       name: "测试 SSH",
       ssh: {
         host: "127.0.0.1",
-        port: 1,
+        port: (target.address() as AddressInfo).port,
         username: "nobody",
         fingerprint: "SHA256:" + "A".repeat(43),
         auth_method: "password",
@@ -163,6 +182,91 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
     const task = runs[0]!.json().task_id;
     assert.equal(task, runs[1]!.json().task_id);
     assert.equal((await request("GET", "/tasks/" + task, bob)).statusCode, 403);
+    const blocked = await request("POST", run, bob, { v: 1, revision: 1 }, key);
+    assert.equal(blocked.statusCode, 409);
+    const active = blocked.json().active_run;
+    assert.equal(blocked.json().error, "SCRIPT_BUSY");
+    assert.equal(active.task_id, task);
+    assert.equal(active.actor_username, "alice");
+    assert.equal(active.status, "RUNNING");
+    assert.equal(active.backend, "ssh");
+    assert.deepEqual(
+      Object.keys(active).sort(),
+      [
+        "actor_username",
+        "backend",
+        "created_at",
+        "device_id",
+        "script_id",
+        "status",
+        "task_id",
+      ].sort(),
+    );
+    assert.deepEqual(
+      (await request("GET", base + "/activity", bob)).json().activity,
+      [active],
+    );
+    assert.deepEqual((await request("GET", base, bob)).json().activity, [
+      active,
+    ]);
+    assert.equal(
+      (await request("GET", base + "/activity", outsider)).statusCode,
+      403,
+    );
+    assert.equal(
+      (await request("GET", base + "/activity", reader)).statusCode,
+      403,
+    );
+    assert.equal(
+      (await request("DELETE", item, admin, { v: 1, revision: 1 })).json()
+        .error,
+      "SCRIPT_BUSY",
+    );
+    assert.equal(
+      (
+        await request(
+          "POST",
+          item + "/runs/" + task + "/confirm-stopped",
+          admin,
+          { v: 1 },
+        )
+      ).json().error,
+      "SCRIPT_REVIEW_NOT_ALLOWED",
+    );
+    const secondary = (
+      await request("POST", base, admin, {
+        v: 1,
+        name: "独立按钮",
+        script: "true",
+      })
+    ).json().id;
+    const competing = await Promise.all(
+      [alice, bob].map((token) =>
+        request(
+          "POST",
+          base + "/" + secondary + "/run",
+          token,
+          { v: 1, revision: 1 },
+          randomUUID(),
+        ),
+      ),
+    );
+    assert.deepEqual(competing.map((res) => res.statusCode).sort(), [200, 409]);
+    const secondaryTask = competing
+      .find((res) => res.statusCode === 200)!
+      .json().task_id;
+    assert.equal(
+      competing.find((res) => res.statusCode === 409)!.json().active_run
+        .task_id,
+      secondaryTask,
+    );
+    hold = false;
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([waitForFailure(task), waitForFailure(secondaryTask)]);
+    assert.equal(
+      (await request("GET", base + "/activity", bob)).json().activity.length,
+      0,
+    );
     const other = await request("POST", run, bob, { v: 1, revision: 1 }, key);
     assert.equal(other.statusCode, 200, other.body);
     assert.notEqual(other.json().task_id, task);
@@ -182,23 +286,13 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
       (await request("DELETE", item, admin, { v: 1, revision: 1 })).statusCode,
       409,
     );
+    await waitForFailure(other.json().task_id);
     assert.equal(
-      (await request("DELETE", item, admin, { v: 1, revision: 2 })).statusCode,
-      200,
-    );
-    assert.equal(
-      (await request("POST", run, bob, { v: 1, revision: 2 }, "removed"))
-        .statusCode,
-      404,
-    );
-    assert.equal(
-      (await request("GET", base, alice)).json().runs[0].name,
+      (await request("GET", base, alice))
+        .json()
+        .runs.find((r: { id: string }) => r.id === task).name,
       "检查状态",
     );
-    const until = Date.now() + 8000;
-    while (app.store.task(task).status === "RUNNING" && Date.now() < until)
-      await new Promise((r) => setTimeout(r, 20));
-    assert.equal(app.store.task(task).status, "FAILED");
     assert.equal(
       JSON.parse(app.store.task(task).result_json).reason,
       "SSH_CONNECT_FAILED",
@@ -209,7 +303,7 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
           "SELECT count(*) AS n FROM audit WHERE action='script.submitted'",
         )
         .get()?.n,
-      2,
+      3,
     );
     // A crash after dispatch must never replay a remote SSH script.
     await app.close();
@@ -224,8 +318,70 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
       JSON.parse(app.store.task(task).result_json).reason,
       "SSH_SERVER_RESTARTED",
     );
+    const recovered = scriptClient(app, password);
+    const freshAdmin = await recovered.login("admin"),
+      freshBob = await recovered.login("bob");
+    const retry = () =>
+      recovered.request(
+        "POST",
+        run,
+        freshBob,
+        { v: 1, revision: 2 },
+        "after-review",
+      );
+    assert.equal((await retry()).json().active_run.status, "UNKNOWN");
+    const confirm = (actor: string) =>
+      recovered.request(
+        "POST",
+        item + "/runs/" + task + "/confirm-stopped",
+        actor,
+        { v: 1 },
+      );
+    assert.equal((await confirm(freshBob)).statusCode, 403);
+    assert.equal((await confirm(freshAdmin)).statusCode, 200);
+    hold = true;
+    const next = await retry();
+    assert.equal(next.statusCode, 200, next.body);
+    assert.equal((await confirm(freshAdmin)).statusCode, 200);
+    assert.deepEqual(
+      (await recovered.request("GET", base + "/activity", freshBob))
+        .json()
+        .activity.map((r: { task_id: string }) => r.task_id),
+      [next.json().task_id],
+    );
+    const reviewed = (await recovered.request("GET", "/audit", freshAdmin))
+      .json()
+      .audit.find(
+        (r: { action: string }) => r.action === "script.stop_confirmed",
+      );
+    assertValid("audit", reviewed);
+    assert.equal(reviewed.actor_username, "admin");
+    assert.equal(reviewed.task_id, task);
+    hold = false;
+    for (const socket of sockets) socket.destroy();
+    assert.equal(app.store.task(task).status, "UNKNOWN");
+    assert.equal(
+      app.store.db
+        .prepare(
+          "SELECT count(*) AS n FROM audit WHERE action='script.stop_confirmed' AND task_id=?",
+        )
+        .get(task)?.n,
+      1,
+    );
+    await waitForFailure((await retry()).json().task_id);
+    assert.equal(
+      (
+        await recovered.request("DELETE", item, freshAdmin, {
+          v: 1,
+          revision: 2,
+        })
+      ).statusCode,
+      200,
+    );
   } finally {
     await app.close();
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((r) => target.close(() => r()));
     rmSync(dir, { force: true, recursive: true });
   }
 });
