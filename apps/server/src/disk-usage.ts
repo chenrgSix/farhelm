@@ -69,9 +69,17 @@ export function parseDiskUsage(text: string): DiskUsage {
     const source = fields[0]!;
     if (seen.has(source)) continue;
     seen.add(source);
-    const [total, used, available] = fields
+    const [total, used, reportedAvailable] = fields
       .slice(2, 5)
       .map((v) => Number(v) * 1024) as [number, number, number];
+    // df -k rounds each column up independently. Correct only a one-KiB rounding excess.
+    const remaining = total - used;
+    const available =
+      remaining >= 0 &&
+      reportedAvailable <= total &&
+      reportedAvailable - remaining === 1024
+        ? remaining
+        : reportedAvailable;
     validateDiskUsage({
       total_bytes: total,
       used_bytes: used,

@@ -154,6 +154,31 @@ test("disk totals exclude duplicate, virtual and remote filesystems and reject i
   );
 });
 
+test("df rounding is corrected per filesystem, without relaxing validation of reported totals", () => {
+  const rounded = readFileSync(
+    new URL("../../../tests/fixtures/disk-usage-rounded.txt", import.meta.url),
+    "utf8",
+  );
+  assert.deepEqual(parseDiskUsage(rounded), {
+    total_bytes: 258194 * 1024,
+    used_bytes: 6274 * 1024,
+    available_bytes: 251910 * 1024,
+    filesystem_count: 2,
+  });
+  for (const fields of ["100 80 22", "100 101 0", "100 0 101"])
+    assert.throws(() =>
+      parseDiskUsage(`header\n/dev/sda vfat ${fields} 80% /`),
+    );
+  assert.throws(() =>
+    validateDiskUsage({
+      total_bytes: 100 * 1024,
+      used_bytes: 80 * 1024,
+      available_bytes: 21 * 1024,
+      filesystem_count: 1,
+    }),
+  );
+});
+
 test("viewing cache is passive; concurrent viewers share one sample, enforce scope after waiting and reuse persisted results", async () => {
   const f = fixture();
   try {

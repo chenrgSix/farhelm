@@ -1,0 +1,3 @@
+Filesystem Type 1024-blocks Used Available Capacity Mounted on
+/dev/sda1 vfat 258094 6194 251901 3% /boot/efi
+/dev/sda2 ext4 100 80 10 89% /

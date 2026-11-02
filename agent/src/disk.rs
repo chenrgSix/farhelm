@@ -65,10 +65,15 @@ pub fn parse(text: &str) -> Result<Usage> {
                 .context("disk size overflow")
         };
         let (total, used, available) = (number(fields[2])?, number(fields[3])?, number(fields[4])?);
+        // df -k rounds each column up independently. The sum may exceed total by one KiB.
         ensure!(
-            total > 0 && used.checked_add(available).is_some_and(|v| v <= total),
+            total > 0
+                && used <= total
+                && available <= total
+                && available.saturating_sub(total - used) <= 1024,
             "invalid disk capacity"
         );
+        let available = available.min(total - used);
         result.total_bytes = result
             .total_bytes
             .checked_add(total)
@@ -116,6 +121,22 @@ pub async fn collect() -> Result<Usage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn corrects_one_kib_rounding_per_filesystem_but_rejects_invalid_counts() {
+        let text = include_str!("../../tests/fixtures/disk-usage-rounded.txt");
+        assert_eq!(
+            parse(text).unwrap(),
+            Usage {
+                total_bytes: 258194 * 1024,
+                used_bytes: 6274 * 1024,
+                available_bytes: 251910 * 1024,
+                filesystem_count: 2,
+            }
+        );
+        for fields in ["100 80 22", "100 101 0", "100 0 101"] {
+            assert!(parse(&format!("header\n/dev/sda vfat {fields} 80% /")).is_err());
+        }
+    }
     #[test]
     fn aggregates_persistent_filesystems_without_duplicate_or_memory_mounts() {
         let text = include_str!("../../tests/fixtures/disk-usage.txt");
