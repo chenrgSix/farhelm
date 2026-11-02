@@ -4,6 +4,10 @@ import DeviceDetail from "../src/components/DeviceDetail.vue";
 import { api } from "../src/api/client";
 import * as clipboard from "../src/clipboard";
 import type { Device, DeviceDisk, User } from "../src/api/types";
+// Disk-detail tests isolate the workbench, which loads its own API resource.
+vi.mock("../src/components/DeviceWorkbench.vue", () => ({
+  default: { render: () => null },
+}));
 const device: Device = {
   id: "device",
   name: "测试服务器",

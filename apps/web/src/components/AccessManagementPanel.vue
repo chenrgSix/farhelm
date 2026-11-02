@@ -178,7 +178,11 @@ function permissionChanged() {
   const selected = new Set(draft.value.permissions);
   if (selected.size) selected.add("devices.read");
   if (!selected.has("terminal.connect")) selected.delete("terminal.sudo");
-  if (selected.has("tasks.execute") || selected.has("tasks.read_all"))
+  if (
+    selected.has("scripts.run") ||
+    selected.has("tasks.execute") ||
+    selected.has("tasks.read_all")
+  )
     selected.add("tasks.read");
   if (selected.has("audit.read_all")) selected.add("audit.read");
   if (selected.has("recordings.read_all")) selected.add("recordings.read");
@@ -681,7 +685,8 @@ onBeforeUnmount(() => {
                       (permission.id === 'devices.read' &&
                         draft.permissions.some((p) => p !== 'devices.read')) ||
                       (permission.id === 'tasks.read' &&
-                        (draft.permissions.includes('tasks.execute') ||
+                        (draft.permissions.includes('scripts.run') ||
+                          draft.permissions.includes('tasks.execute') ||
                           draft.permissions.includes('tasks.read_all'))) ||
                       (permission.id === 'audit.read' &&
                         draft.permissions.includes('audit.read_all')) ||

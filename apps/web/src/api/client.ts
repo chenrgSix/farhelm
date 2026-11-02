@@ -144,6 +144,12 @@ export class ApiClient {
           "请先在网页完成首次密码修改，再使用平台功能或 SSH 入口。",
         DEPLOYMENT_REVISION_CONFLICT:
           "运行设置已被其他管理员修改，请刷新后重新编辑。",
+        SCRIPT_CHANGED: "按钮配置已改变，请刷新操作台再试。",
+        SCRIPT_ACCESS_DENIED: "当前账号没有此按钮的执行权限。",
+        SCRIPT_NAME_EXISTS: "本设备已经有同名按钮。",
+        INVALID_DEVICE_SCRIPT: "请填写按钮名称和脚本，脚本最多 8192 字节。",
+        SCRIPT_LIMIT: "每台设备最多配置 64 个操作按钮。",
+        SCRIPT_SSH_LIMIT: "SSH 脚本正在执行的数量已达上限。",
         DEPLOYMENT_ACTIVE_TASKS: "有尚未结束的命令任务，请等待完成后再切换。",
         DEPLOYMENT_ACTIVE_TERMINALS:
           "有活跃终端，请先正常退出终端，再刷新并应用设置。",

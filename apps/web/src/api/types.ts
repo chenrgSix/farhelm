@@ -349,6 +349,7 @@ export type Permission =
   | "tasks.read"
   | "tasks.read_all"
   | "tasks.execute"
+  | "scripts.run"
   | "recordings.read"
   | "recordings.read_all"
   | "audit.read"

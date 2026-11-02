@@ -11,7 +11,12 @@ import {
   terminalStates,
 } from "../model";
 import StatusBadge from "./StatusBadge.vue";
-const props = defineProps<{ task: Task; user: User }>();
+const props = defineProps<{
+  task: Task;
+  user: User;
+  compact?: boolean;
+  operationName?: string;
+}>();
 const emit = defineEmits<{ refresh: []; close: [] }>();
 const cancelBusy = ref(false);
 const cancelRequested = ref(false);
@@ -70,9 +75,12 @@ async function readOutput(stream: "stdout" | "stderr") {
     const bytes = await api.output(
       `/tasks/${encodeURIComponent(props.task.task_id)}/output/${stream}`,
     );
-    const hash = Array.from(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-      (b) => b.toString(16).padStart(2, "0"),
+    // A LAN deployment over plain HTTP may not expose SubtleCrypto.
+    const digest = crypto.subtle
+      ? new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
+      : (await import("@noble/hashes/sha2.js")).sha256(bytes);
+    const hash = Array.from(digest, (b) =>
+      b.toString(16).padStart(2, "0"),
     ).join("");
     if (hash !== artifact.sha256 || bytes.length !== artifact.size)
       throw new Error(
@@ -93,7 +101,10 @@ async function readOutput(stream: "stdout" | "stderr") {
     <div class="panel-heading">
       <div>
         <div class="eyebrow">EXECUTION RECORD</div>
-        <h2 id="task-title">任务详情 <StatusBadge :status="task.status" /></h2>
+        <h2 id="task-title">
+          {{ compact ? operationName || "执行结果" : "任务详情" }}
+          <StatusBadge :status="task.status" />
+        </h2>
       </div>
       <button
         class="icon-button"
@@ -107,10 +118,16 @@ async function readOutput(stream: "stdout" | "stderr") {
       <strong>执行结果不确定</strong
       ><br />原命令可能已生效，禁止盲目重跑。请核对设备与原始证据后再决定是否创建新任务
     </div>
-    <div v-if="task.result?.cleanup === 'unconfirmed'" class="notice warning">
+    <div
+      v-if="
+        task.result?.cleanup === 'unconfirmed' &&
+        (!compact || task.status === 'UNKNOWN')
+      "
+      class="notice warning"
+    >
       无法确认全部进程清理。即使控制连接恢复，也不能据此认为命令或后代进程已停止
     </div>
-    <dl class="detail-grid">
+    <dl v-if="!compact" class="detail-grid">
       <dt>任务 ID</dt>
       <dd class="mono">{{ task.task_id }}</dd>
       <dt>设备 ID</dt>
@@ -163,7 +180,10 @@ async function readOutput(stream: "stdout" | "stderr") {
     <div v-if="task.result?.audit_complete === false" class="notice danger">
       审计记录不完整。已捕获输出不代表全部输出，请核对以下原因与清理状态
     </div>
-    <dl v-if="task.result" class="detail-grid compact">
+    <p v-if="compact && task.result?.reason" class="field-hint">
+      结束原因 · {{ task.result.reason }}
+    </p>
+    <dl v-if="task.result && !compact" class="detail-grid compact">
       <dt>开始时间</dt>
       <dd>{{ formatTime(task.result.started_at) }}</dd>
       <dt>结束原因</dt>
@@ -186,7 +206,11 @@ async function readOutput(stream: "stdout" | "stderr") {
       class="output-section"
     >
       <div class="output-heading">
-        <h3 class="mono">{{ stream }}</h3>
+        <h3>
+          {{
+            compact ? (stream === "stdout" ? "标准输出" : "错误输出") : stream
+          }}
+        </h3>
         <span class="muted small">{{
           task.result?.[stream]?.size != null
             ? formatBytes(task.result[stream]!.size)
@@ -216,7 +240,7 @@ async function readOutput(stream: "stdout" | "stderr") {
       输出按纯文本展示；控制字符转义，无效 UTF-8
       使用替代字符。每次读取都会记录审计
     </p>
-    <div v-if="task.events?.length" class="timeline">
+    <div v-if="!compact && task.events?.length" class="timeline">
       <h3>持久化事件</h3>
       <div v-for="event in task.events" :key="event.event_id">
         <span class="mono">#{{ event.seq }}</span

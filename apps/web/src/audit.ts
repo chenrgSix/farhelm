@@ -2,6 +2,12 @@ import type { AuditEntry } from "./api/types";
 import { formatTime, statusLabels } from "./model";
 
 export const auditActionLabels: Record<string, string> = {
+  "script.submitted": "提交设备操作",
+  "script.started": "脚本开始执行",
+  "script.finished": "脚本执行结束",
+  "script.created": "配置操作按钮",
+  "script.updated": "修改操作按钮",
+  "script.deleted": "删除操作按钮",
   "device.disk_requested": "请求磁盘采集",
   "device.disk_collected": "磁盘采集完成",
   "device.disk_failed": "磁盘采集失败",
@@ -145,6 +151,8 @@ const labels: Record<string, string> = {
   stream: "输出流",
   size: "字节数",
   sha256: "SHA-256",
+  script_id: "操作按钮 ID",
+  script_hash: "脚本校验值",
   payload_hash: "任务校验值",
   event_id: "事件 ID",
   seq: "事件序号",
@@ -267,6 +275,7 @@ const values: Record<string, string> = {
   "tasks.read": "查看本人任务",
   "tasks.read_all": "查看他人任务",
   "tasks.execute": "执行命令",
+  "scripts.run": "运行设备操作台",
   "recordings.read": "查看本人会话与录制",
   "recordings.read_all": "查看他人会话与录制",
   "audit.read": "查看本人操作审计",
@@ -406,6 +415,7 @@ export function auditOutcome(entry: AuditEntry): string {
     entry.action === "settings.connections_updated"
   )
     return "已保存";
+  if (entry.action === "script.submitted") return "已提交";
   if (entry.action === "task.created") return "已创建";
   if (entry.action.endsWith("requested")) return "已请求";
   if (entry.action === "terminal.created") return "等待连接";
@@ -414,7 +424,8 @@ export function auditOutcome(entry: AuditEntry): string {
       ? "已结束"
       : "已中断";
   if (entry.action === "terminal.opened") return "已连接";
-  if (entry.action === "task.started") return "执行中";
+  if (entry.action === "task.started" || entry.action === "script.started")
+    return "执行中";
   if (entry.action === "task.accepted") return "已接收";
   return "已记录";
 }

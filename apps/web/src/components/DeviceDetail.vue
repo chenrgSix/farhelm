@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import DeviceWorkbench from "./DeviceWorkbench.vue";
 import { api } from "../api/client";
 import type { Device, DeviceDisk, User } from "../api/types";
-import { formatTime } from "../model";
+import { formatTime, hasPermission } from "../model";
 import { diskBytes, diskPercent } from "../disk";
 import { copyText } from "../clipboard";
 import { routeHash } from "../navigation";
@@ -164,6 +165,11 @@ onBeforeUnmount(() => {
     <div v-if="$slots.actions" class="detail-actions" aria-label="设备快捷操作">
       <slot name="actions" />
     </div>
+    <DeviceWorkbench
+      v-if="!device.revoked_at && hasPermission(user, 'scripts.run', device.id)"
+      :device="device"
+      :user="user"
+    />
     <div class="detail-grid">
       <section class="panel disk-card" aria-label="磁盘总占用">
         <header class="panel-heading">
