@@ -21,6 +21,7 @@
               "tasks.read",
               "tasks.read_all",
               "tasks.execute",
+              "scripts.run",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
@@ -42,7 +43,7 @@
         },
         "required": ["id", "label", "description"]
       },
-      "maxItems": 12
+      "maxItems": 13
     },
     "users": {
       "type": "array",
@@ -113,6 +114,7 @@
                 "tasks.read",
                 "tasks.read_all",
                 "tasks.execute",
+                "scripts.run",
                 "recordings.read",
                 "recordings.read_all",
                 "audit.read",
@@ -122,7 +124,7 @@
               ]
             },
             "uniqueItems": true,
-            "maxItems": 12
+            "maxItems": 13
           },
           "effective_device_scope": {
             "anyOf": [
@@ -199,6 +201,7 @@
                 "tasks.read",
                 "tasks.read_all",
                 "tasks.execute",
+                "scripts.run",
                 "recordings.read",
                 "recordings.read_all",
                 "audit.read",
@@ -208,7 +211,7 @@
               ]
             },
             "uniqueItems": true,
-            "maxItems": 12
+            "maxItems": 13
           },
           "builtin": {
             "type": "boolean"
@@ -416,6 +419,7 @@
               "tasks.read",
               "tasks.read_all",
               "tasks.execute",
+              "scripts.run",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
@@ -425,7 +429,7 @@
             ]
           },
           "uniqueItems": true,
-          "maxItems": 12
+          "maxItems": 13
         },
         "effective_device_scope": {
           "anyOf": [
@@ -498,6 +502,7 @@
               "tasks.read",
               "tasks.read_all",
               "tasks.execute",
+              "scripts.run",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
@@ -507,7 +512,7 @@
             ]
           },
           "uniqueItems": true,
-          "maxItems": 12
+          "maxItems": 13
         },
         "builtin": {
           "type": "boolean"

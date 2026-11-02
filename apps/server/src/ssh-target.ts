@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey } from "node:crypto";
 import { DISK_COMMAND } from "./disk-usage.js";
-import { terminalShell } from "./terminal-shell.js";
+import { SCRIPT_TIMEOUT_MS, SCRIPT_OUTPUT_LIMIT } from "./device-scripts.js";
+import { terminalShell, quoteShellArgument } from "./terminal-shell.js";
 import ssh2, { type ClientChannel, type ConnectConfig } from "ssh2";
 import { ApiError } from "./util.js";
 
@@ -264,6 +265,122 @@ export class SshTargets {
         finish("SSH_CONNECT_FAILED");
       }
     });
+  }
+  // Only send script bytes after the host key, login and fresh authorization
+  // have succeeded. After that point a disconnect has an unknown outcome.
+  runScript(
+    config: SshTargetConfig,
+    script: string,
+    signal: AbortSignal,
+    allowRoot: boolean,
+    beforeSend: () => void,
+  ) {
+    return new Promise<{ stdout: Buffer; stderr: Buffer; code: number }>(
+      (resolve, reject) => {
+        const client = this.client();
+        let done = false,
+          submitted = false,
+          mismatch = false,
+          bytes = 0;
+        const stdout: Buffer[] = [],
+          stderr: Buffer[] = [];
+        const finish = (error?: string, code?: number) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          signal.removeEventListener("abort", abort);
+          this.destroy(client);
+          if (error) reject(new Error(error));
+          else
+            resolve({
+              stdout: Buffer.concat(stdout),
+              stderr: Buffer.concat(stderr),
+              code: code!,
+            });
+        };
+        const abort = () =>
+          finish(submitted ? "SSH_SCRIPT_INTERRUPTED" : "SSH_SCRIPT_CANCELLED");
+        const timer = setTimeout(
+          () =>
+            finish(submitted ? "SSH_SCRIPT_TIMEOUT" : "SSH_CONNECT_TIMEOUT"),
+          SCRIPT_TIMEOUT_MS,
+        );
+        signal.addEventListener("abort", abort, { once: true });
+        client.on("error", (e: any) =>
+          finish(
+            submitted
+              ? "SSH_SCRIPT_INTERRUPTED"
+              : mismatch
+                ? "SSH_HOST_KEY_MISMATCH"
+                : e.level === "client-authentication"
+                  ? "SSH_AUTH_FAILED"
+                  : "SSH_CONNECT_FAILED",
+          ),
+        );
+        client.on("close", () =>
+          finish(submitted ? "SSH_SCRIPT_INTERRUPTED" : "SSH_CONNECT_FAILED"),
+        );
+        client.on("ready", () => {
+          if (done) return;
+          const command =
+            (allowRoot
+              ? ""
+              : 'uid=$(/usr/bin/id -u) && [ "$uid" -gt 0 ] || exit 126; ') +
+            "cd /tmp && exec /usr/bin/setpriv --no-new-privs -- /bin/sh -s";
+          client.exec(command, (err, channel) => {
+            if (done) {
+              channel?.destroy();
+              return;
+            }
+            if (err) {
+              finish("SSH_SCRIPT_EXEC_DENIED");
+              return;
+            }
+            const collect = (chunks: Buffer[], data: Buffer) => {
+              bytes += data.length;
+              if (bytes > SCRIPT_OUTPUT_LIMIT)
+                finish("SSH_SCRIPT_OUTPUT_LIMIT");
+              else if (!done) chunks.push(data);
+            };
+            channel.on("data", (b: Buffer) => collect(stdout, b));
+            channel.stderr.on("data", (b: Buffer) => collect(stderr, b));
+            channel.on("error", () => finish("SSH_SCRIPT_INTERRUPTED"));
+            channel.on("close", (code: number | null) =>
+              typeof code === "number"
+                ? finish(undefined, code)
+                : finish("SSH_SCRIPT_INTERRUPTED"),
+            );
+            try {
+              beforeSend();
+              submitted = true;
+              channel.end(
+                "exec /bin/sh -c " +
+                  quoteShellArgument(script) +
+                  " </dev/null\n",
+              );
+            } catch (error) {
+              finish(
+                submitted ? "SSH_SCRIPT_INTERRUPTED" : (error as Error).message,
+              );
+            }
+          });
+        });
+        if (signal.aborted) {
+          abort();
+          return;
+        }
+        try {
+          this.connect(
+            client,
+            this.connectConfig(config, () => {
+              mismatch = true;
+            }),
+          );
+        } catch {
+          finish("SSH_CONNECT_FAILED");
+        }
+      },
+    );
   }
   forward(
     config: SshTargetConfig,

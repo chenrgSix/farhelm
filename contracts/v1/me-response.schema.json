@@ -43,6 +43,7 @@
           "tasks.read",
           "tasks.read_all",
           "tasks.execute",
+          "scripts.run",
           "recordings.read",
           "recordings.read_all",
           "audit.read",
@@ -52,7 +53,7 @@
         ]
       },
       "uniqueItems": true,
-      "maxItems": 12
+      "maxItems": 13
     },
     "role_ids": {
       "type": "array",

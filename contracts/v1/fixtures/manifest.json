@@ -1,5 +1,10 @@
 [
   {
+    "path": "valid/device-script-audit-detail.json",
+    "schema": "device-script-audit-detail.schema.json",
+    "valid": true
+  },
+  {
     "path": "valid/challenge-enroll.json",
     "schema": "challenge-request.schema.json",
     "valid": true

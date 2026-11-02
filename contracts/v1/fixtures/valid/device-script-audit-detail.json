@@ -1,0 +1,7 @@
+{
+  "script_id": "f9835717-ab55-4aad-ad36-6485c48fe640",
+  "name": "检查服务",
+  "revision": 1,
+  "backend": "ssh",
+  "payload_hash": "6787f87edbf5b48960ee67cf19987e7d7022be552457c2bb1df1373065ebfc41"
+}

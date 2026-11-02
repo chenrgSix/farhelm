@@ -128,6 +128,12 @@
         "device.disk_schedule_updated",
         "device.terminal_limit_updated",
         "device.forwarding_updated",
+        "script.created",
+        "script.updated",
+        "script.deleted",
+        "script.submitted",
+        "script.started",
+        "script.finished",
         "mapping.created",
         "mapping.updated",
         "mapping.deleted",
@@ -140,6 +146,7 @@
     },
     "detail": {
       "anyOf": [
+        {"$ref":"device-script-audit-detail.schema.json"},
         {"$ref":"tcp-mapping-audit-detail.schema.json"},
         {"$ref":"tcp-mapping-audit-detail.schema.json#/$defs/legacyDenial"},
         {"$ref":"device-forwarding-audit-detail.schema.json"},
@@ -769,6 +776,7 @@
                       "tasks.read",
                       "tasks.read_all",
                       "tasks.execute",
+                      "scripts.run",
                       "recordings.read",
                       "recordings.read_all",
                       "audit.read",
@@ -778,7 +786,7 @@
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 12
+                  "maxItems": 13
                 },
                 "member_ids": {
                   "type": "array",
@@ -2585,6 +2593,7 @@
                         "tasks.read",
                         "tasks.read_all",
                         "tasks.execute",
+                        "scripts.run",
                         "recordings.read",
                         "recordings.read_all",
                         "audit.read",
@@ -2594,7 +2603,7 @@
                       ]
                     },
                     "uniqueItems": true,
-                    "maxItems": 12
+                    "maxItems": 13
                   },
                   "member_ids": {
                     "type": "array",
@@ -3643,6 +3652,12 @@
     {"if": {"properties": {"action": {"const": "device.terminal_limit_updated"}}}, "then": {"properties": {"detail": {"$ref": "device-terminal-limit-audit-detail.schema.json"}}}},
     {"if":{"properties":{"action":{"const":"ssh.forward_opened"}}},"then":{"properties":{"detail":{"type":"object","additionalProperties":false,"properties":{"forward_id":{"$ref":"common.schema.json#/$defs/uuid"},"host":{"type":"string","minLength":1,"maxLength":253},"port":{"type":"integer","minimum":1,"maximum":65535},"backend":{"enum":["agent","ssh"]}},"required":["forward_id","host","port","backend"]}}}},
     {"if":{"properties":{"action":{"const":"ssh.forward_closed"}}},"then":{"properties":{"detail":{"type":"object","additionalProperties":false,"properties":{"forward_id":{"$ref":"common.schema.json#/$defs/uuid"},"host":{"type":"string","minLength":1,"maxLength":253},"port":{"type":"integer","minimum":1,"maximum":65535},"backend":{"enum":["agent","ssh"]},"reason":{"type":"string","minLength":1,"maxLength":128},"opened":{"type":"boolean"},"bytes_sent":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes_received":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["forward_id","host","port","backend","reason","opened","bytes_sent","bytes_received"]}}}},
+    {"if":{"properties":{"action":{"const":"script.created"}}},"then":{"properties":{"detail":{"$ref":"device-script-audit-detail.schema.json#/$defs/saved"}}}},
+    {"if":{"properties":{"action":{"const":"script.updated"}}},"then":{"properties":{"detail":{"$ref":"device-script-audit-detail.schema.json#/$defs/saved"}}}},
+    {"if":{"properties":{"action":{"const":"script.deleted"}}},"then":{"properties":{"detail":{"$ref":"device-script-audit-detail.schema.json#/$defs/deleted"}}}},
+    {"if":{"properties":{"action":{"const":"script.submitted"}}},"then":{"properties":{"detail":{"$ref":"device-script-audit-detail.schema.json#/$defs/submitted"}}}},
+    {"if":{"properties":{"action":{"const":"script.started"}}},"then":{"properties":{"detail":{"$ref":"device-script-audit-detail.schema.json#/$defs/started"}}}},
+    {"if":{"properties":{"action":{"const":"script.finished"}}},"then":{"properties":{"detail":{"$ref":"device-script-audit-detail.schema.json#/$defs/finished"}}}},
     {"if":{"properties":{"action":{"const":"mapping.created"}}},"then":{"properties":{"detail":{"$ref":"tcp-mapping-audit-detail.schema.json#/$defs/saved"}}}},
     {"if":{"properties":{"action":{"const":"mapping.updated"}}},"then":{"properties":{"detail":{"$ref":"tcp-mapping-audit-detail.schema.json#/$defs/saved"}}}},
     {"if":{"properties":{"action":{"const":"mapping.deleted"}}},"then":{"properties":{"detail":{"$ref":"tcp-mapping-audit-detail.schema.json#/$defs/deleted"}}}},

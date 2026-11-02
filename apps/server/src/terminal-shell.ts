@@ -7,7 +7,8 @@ const zsh = readFileSync(
   new URL("../../../lib/terminal-command-hooks.zsh", import.meta.url),
   "utf8",
 );
-const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
+export const quoteShellArgument = (value: string) =>
+  "'" + value.replace(/'/g, "'\\''") + "'";
 
 // A PTY exec request installs only session-local hooks. It never changes dotfiles
 // or the login shell. Unsupported shells retain normal login and recording.
@@ -17,11 +18,11 @@ export function terminalShell(token: string, restrictPrivilege = false) {
   if [ -r "$p" ]; then . "$p"; break; fi
 done
 __fh_previous_prompt=$(IFS=';'; printf '%s' "\${PROMPT_COMMAND[*]-}")
-export FARHELM_COMMAND_TOKEN=${quote(token)}
+export FARHELM_COMMAND_TOKEN=${quoteShellArgument(token)}
 ${bash}`;
   // zsh needs ZDOTDIR to run hooks after the user's normal startup files. Only
   // our private temporary directory is written; it is removed before the prompt.
-  const zshRc = `export FARHELM_COMMAND_TOKEN=${quote(token)}\n${zsh}\ncommand rm -- "$__fh_bootdir/.zshenv" "$__fh_bootdir/.zprofile" "$__fh_bootdir/.zshrc" "$__fh_bootdir/.zlogin"\ncommand rmdir -- "$__fh_bootdir"`;
+  const zshRc = `export FARHELM_COMMAND_TOKEN=${quoteShellArgument(token)}\n${zsh}\ncommand rm -- "$__fh_bootdir/.zshenv" "$__fh_bootdir/.zprofile" "$__fh_bootdir/.zshrc" "$__fh_bootdir/.zlogin"\ncommand rmdir -- "$__fh_bootdir"`;
   const script = `case "\${SHELL##*/}" in
 bash)
 exec "$SHELL" --noprofile --rcfile /dev/fd/3 -i 3<<'FARHELM_BASH_RC'
@@ -35,7 +36,7 @@ export __fh_original_zdotdir="\${ZDOTDIR:-$HOME}"
 for name in .zshenv .zprofile .zshrc .zlogin; do
   printf '%s\n' 'typeset -gr __fh_bootdir' 'ZDOTDIR=$__fh_original_zdotdir' "[[ ! -r \"\$ZDOTDIR/$name\" ]] || source \"\$ZDOTDIR/$name\"" '__fh_original_zdotdir=$ZDOTDIR' 'ZDOTDIR=$__fh_bootdir' > "$__fh_bootdir/$name"
 done
-printf '%s\n' 'ZDOTDIR=$__fh_original_zdotdir' ${quote(zshRc)} >> "$__fh_bootdir/.zlogin"
+printf '%s\n' 'ZDOTDIR=$__fh_original_zdotdir' ${quoteShellArgument(zshRc)} >> "$__fh_bootdir/.zlogin"
 export ZDOTDIR=$__fh_bootdir
 exec "$SHELL" -il
 ;;
@@ -48,5 +49,5 @@ printf '\\033]777;farhelm;${token};P;restricted\\007'
 ${script}`;
   return `PATH=/usr/bin:/bin; export PATH
 [ "$(/usr/bin/id -u)" != 0 ] && [ -x /usr/bin/setpriv ] || exit 126
-exec /usr/bin/setpriv --no-new-privs -- /bin/sh -c ${quote(restricted)}`;
+exec /usr/bin/setpriv --no-new-privs -- /bin/sh -c ${quoteShellArgument(restricted)}`;
 }

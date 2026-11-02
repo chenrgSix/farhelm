@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.local/contracts/v1/device-script-audit-detail.schema.json",
+  "$defs": {
+    "saved": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "script_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "script_hash": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      },
+      "required": [
+        "script_id",
+        "name",
+        "revision",
+        "script_hash"
+      ]
+    },
+    "deleted": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "script_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "script_id",
+        "name",
+        "revision"
+      ]
+    },
+    "submitted": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "script_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "backend": {
+          "enum": [
+            "agent",
+            "ssh"
+          ]
+        },
+        "payload_hash": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      },
+      "required": [
+        "script_id",
+        "name",
+        "revision",
+        "backend",
+        "payload_hash"
+      ]
+    },
+    "started": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "const": "ssh"
+        }
+      },
+      "required": [
+        "backend"
+      ]
+    },
+    "finished": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "payload": {
+          "$ref": "result.schema.json"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "device-script-audit-detail.schema.json#/$defs/saved"
+    },
+    {
+      "$ref": "device-script-audit-detail.schema.json#/$defs/deleted"
+    },
+    {
+      "$ref": "device-script-audit-detail.schema.json#/$defs/submitted"
+    },
+    {
+      "$ref": "device-script-audit-detail.schema.json#/$defs/started"
+    },
+    {
+      "$ref": "device-script-audit-detail.schema.json#/$defs/finished"
+    }
+  ]
+}

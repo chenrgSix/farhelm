@@ -34,6 +34,13 @@ import {
 import { readFile } from "node:fs/promises";
 import { join, isAbsolute, resolve, extname } from "node:path";
 import { ConnectionLimits } from "./connection-limits.js";
+import {
+  registerDeviceScripts,
+  SCRIPT_TIMEOUT_MS,
+  SCRIPT_OUTPUT_LIMIT,
+  type DeviceScript,
+} from "./device-scripts.js";
+import { deviceSudo } from "./device-sudo.js";
 import { DeviceForwarding } from "./device-forwarding.js";
 import { Store } from "./store.js";
 import { auditContext, auditText } from "./audit-context.js";
@@ -338,7 +345,8 @@ export async function buildServer(config: ServerConfig) {
     if (
       config.deploymentControl?.busy() ||
       (config.deploymentControl?.terminalsBlocked() &&
-        route === "/api/v1/commands")
+        (route === "/api/v1/commands" ||
+          route.endsWith("/scripts/:scriptId/run")))
     )
       fail(503, "DEPLOYMENT_APPLYING");
     if (
@@ -604,10 +612,27 @@ export async function buildServer(config: ServerConfig) {
     if (!c?.ready || !live(c) || !networkRoutes.allowed(id)) return;
     const rows = db
       .prepare(
-        "SELECT * FROM tasks WHERE device_id=? AND status NOT IN ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','EXPIRED','UNKNOWN') ORDER BY created_at,id",
+        `SELECT t.*,s.script_id,s.revision AS script_revision FROM tasks t LEFT JOIN device_script_tasks s ON s.task_id=t.id
+         WHERE t.device_id=? AND (s.backend IS NULL OR s.backend='agent') AND t.status NOT IN ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','EXPIRED','UNKNOWN')
+         ORDER BY t.created_at,t.id`,
       )
       .all(id) as any[];
     for (const row of rows) {
+      if (row.status === "QUEUED" && row.script_id) {
+        try {
+          scriptActor(row.actor_id, {
+            id: row.script_id,
+            revision: row.script_revision,
+            device_id: id,
+          });
+          if (Date.now() >= JSON.parse(row.task_json).expires_at)
+            fail(409, "TTL_EXPIRED_BEFORE_START");
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+          finishScript(row.id, "EXPIRED", error.code, null, null);
+          continue;
+        }
+      }
       if (all || row.status === "QUEUED" || row.status === "SENT") {
         if (
           send(c, "task.assign", JSON.parse(row.task_json)) &&
@@ -1630,10 +1655,178 @@ export async function buildServer(config: ServerConfig) {
     connections.delete(id);
     return { v: 1, ok: true };
   });
-  app.post("/api/v1/commands", async (req) => {
-    const user = operator(req);
+  const authorizeScriptRun = registerDeviceScripts(app, {
+    store,
+    reader: (req) => permitted(req, "devices.read"),
+    admin,
+    requireScope,
+    requireDevice,
+    availableStorage,
+    submit(req, user, script) {
+      return submitCommand(
+        req,
+        user,
+        {
+          v: 1,
+          device_id: script.device_id,
+          argv: ["/bin/sh", "-c", script.script],
+          cwd: "/tmp",
+          timeout_ms: SCRIPT_TIMEOUT_MS,
+          max_output_bytes: SCRIPT_OUTPUT_LIMIT,
+          ttl_seconds: 60,
+        },
+        script,
+      );
+    },
+  });
+  const sshScriptRuns = new Map<
+    string,
+    { controller: AbortController; done: Promise<void> }
+  >();
+  function scriptActor(
+    actorId: string,
+    script: Pick<DeviceScript, "id" | "revision" | "device_id">,
+  ) {
+    const row = db
+      .prepare(
+        "SELECT * FROM users WHERE id=? AND enabled=1 AND must_change_password=0",
+      )
+      .get(actorId);
+    if (!row) fail(403, "SCRIPT_ACCESS_DENIED");
+    const user = store.user(row);
+    authorizeScriptRun(user, script);
+    return user;
+  }
+  function finishScript(
+    taskId: string,
+    status: string,
+    reason: string | null,
+    code: number | null,
+    started: number | null,
+    stdout: Buffer = Buffer.alloc(0),
+    stderr: Buffer = Buffer.alloc(0),
+  ) {
+    const row = store.task(taskId);
+    store.transaction(() => {
+      const output = (data: Buffer) => {
+        if (code === null && !data.length) return null;
+        const sha256 = hash(data);
+        if (
+          !db
+            .prepare("SELECT 1 FROM artifacts WHERE task_id=? AND sha256=?")
+            .get(taskId, sha256)
+        )
+          saveArtifact(taskId, sha256, data);
+        return { sha256, size: data.length };
+      };
+      const result = {
+        status,
+        reason,
+        exit_code: code,
+        started_at: started,
+        finished_at: Date.now(),
+        audit_complete: status !== "UNKNOWN",
+        cleanup:
+          started !== null || status === "UNKNOWN"
+            ? "unconfirmed"
+            : "not_started",
+        stdout: output(stdout),
+        stderr: output(stderr),
+      };
+      db.prepare(
+        "UPDATE tasks SET status=?,result_json=?,updated_at=? WHERE id=?",
+      ).run(status, canonical(result), result.finished_at, taskId);
+      store.audit("script.finished", row.actor_id, row.device_id, taskId, {
+        payload: result,
+      });
+    });
+  }
+  // A process restart cannot establish whether the remote shell already ran.
+  for (const row of db
+    .prepare(
+      `SELECT t.id,(SELECT max(a.at) FROM audit a WHERE a.task_id=t.id AND a.action='script.started') AS started_at
+       FROM tasks t JOIN device_script_tasks s ON s.task_id=t.id WHERE s.backend='ssh' AND t.status='RUNNING'`,
+    )
+    .all())
+    finishScript(
+      String(row.id),
+      "UNKNOWN",
+      "SSH_SERVER_RESTARTED",
+      null,
+      row.started_at === null ? null : Number(row.started_at),
+    );
+  function launchSsh(task: Task, script: DeviceScript, allowRoot: boolean) {
+    const controller = new AbortController();
+    let started: number | null = null;
+    const done = (async () => {
+      try {
+        const result = await deviceConnections.runScript(
+          task.device_id,
+          script.script,
+          controller.signal,
+          allowRoot,
+          () => {
+            const user = scriptActor(task.actor_id, script);
+            if (
+              deviceConnections.kind(task.device_id) !== "ssh" ||
+              (allowRoot && !deviceSudo(db, user, task.device_id).allowed)
+            )
+              fail(403, "SCRIPT_ACCESS_DENIED");
+            availableStorage();
+            store.audit(
+              "script.started",
+              task.actor_id,
+              task.device_id,
+              task.task_id,
+              { backend: "ssh" },
+            );
+            started = Date.now();
+          },
+        );
+        finishScript(
+          task.task_id,
+          result.code === 0 ? "SUCCEEDED" : "FAILED",
+          result.code === 0 ? null : "NONZERO_EXIT",
+          result.code,
+          started,
+          result.stdout,
+          result.stderr,
+        );
+      } catch (error) {
+        const reason =
+          error instanceof Error ? error.message : "SSH_SCRIPT_FAILED";
+        finishScript(
+          task.task_id,
+          started !== null
+            ? "UNKNOWN"
+            : controller.signal.aborted
+              ? "CANCELLED"
+              : "FAILED",
+          reason,
+          null,
+          started,
+        );
+      }
+    })()
+      .catch((error) =>
+        app.log.error(
+          { error: String(error) },
+          "Could not finalize SSH script task",
+        ),
+      )
+      .finally(() => sshScriptRuns.delete(task.task_id));
+    sshScriptRuns.set(task.task_id, { controller, done });
+  }
+  app.post("/api/v1/commands", async (req) =>
+    submitCommand(req, operator(req), object(req.body)),
+  );
+  function submitCommand(
+    req: FastifyRequest,
+    user: User,
+    b: Record<string, any>,
+    script?: DeviceScript,
+  ) {
     rate.check("commands:" + user.id, 60);
-    const b = object(req.body);
     version(b);
     keys(b, [
       "v",
@@ -1648,7 +1841,8 @@ export async function buildServer(config: ServerConfig) {
     requireScope(user, deviceId);
     const d = requireDevice(deviceId);
     if (d.revoked_at !== null) fail(409, "DEVICE_REVOKED");
-    if (d.connection_kind !== "agent") fail(409, "AGENT_REQUIRED_FOR_TASKS");
+    if (!script && d.connection_kind !== "agent")
+      fail(409, "AGENT_REQUIRED_FOR_TASKS");
     if (!Array.isArray(b.argv) || b.argv.length < 1 || b.argv.length > 128)
       fail(400, "INVALID_ARGV");
     const argv = b.argv.map((x) => {
@@ -1668,6 +1862,7 @@ export async function buildServer(config: ServerConfig) {
     const key = str(req.headers["idempotency-key"], 1, 128);
     const requestHash = hash(
       canonical({
+        ...(script ? { script_id: script.id, revision: script.revision } : {}),
         device_id: deviceId,
         argv,
         cwd,
@@ -1685,6 +1880,28 @@ export async function buildServer(config: ServerConfig) {
       const row = store.task(existing.task_id);
       return { v: 1, task_id: row.id, status: row.status };
     }
+    const sshScript = script && d.connection_kind === "ssh";
+    const allowRoot = !!sshScript && deviceSudo(db, user, deviceId).allowed;
+    if (
+      sshScript &&
+      connectionAuthorizations.defaultNeedsSudo(user, deviceId, "ssh") &&
+      !allowRoot
+    )
+      fail(403, "SUDO_PERMISSION_REQUIRED");
+    if (sshScript && !deviceConnections.canSsh(deviceId))
+      fail(409, "SSH_NOT_CONFIGURED");
+    if (script && !sshScript) {
+      if (!agentEnabled) fail(409, "AGENT_ACCESS_DISABLED");
+      const agent = connections.get(deviceId);
+      if (
+        !agent?.ready ||
+        !live(agent) ||
+        Date.now() - agent.lastHeartbeat > heartbeatTimeout ||
+        !networkRoutes.allowed(deviceId)
+      )
+        fail(409, "DEVICE_OFFLINE");
+    }
+    if (sshScript && sshScriptRuns.size >= 32) fail(429, "SCRIPT_SSH_LIMIT");
     if (upgrades.active(deviceId)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
     availableStorage();
     const pending = (
@@ -1727,29 +1944,49 @@ export async function buildServer(config: ServerConfig) {
         user.id,
         canonical(task),
         task.payload_hash,
-        "QUEUED",
+        sshScript ? "RUNNING" : "QUEUED",
         now,
         now,
       );
       db.prepare(
         "INSERT INTO idempotency(actor_id,key,request_hash,task_id) VALUES(?,?,?,?)",
       ).run(user.id, key, requestHash, task.task_id);
-      store.audit("task.created", user.id, deviceId, task.task_id, {
-        action: "AGENT_EXEC",
-        argv,
-        cwd,
-        role: user.role,
-        authorized: true,
-        payload_hash: task.payload_hash,
-      });
+      if (script)
+        db.prepare(
+          "INSERT INTO device_script_tasks(task_id,script_id,revision,name,backend) VALUES(?,?,?,?,?)",
+        ).run(
+          task.task_id,
+          script.id,
+          script.revision,
+          script.name,
+          d.connection_kind,
+        );
+      if (script)
+        store.audit("script.submitted", user.id, deviceId, task.task_id, {
+          script_id: script.id,
+          name: script.name,
+          revision: script.revision,
+          backend: d.connection_kind,
+          payload_hash: task.payload_hash,
+        });
+      else
+        store.audit("task.created", user.id, deviceId, task.task_id, {
+          action: "AGENT_EXEC",
+          argv,
+          cwd,
+          role: user.role,
+          authorized: true,
+          payload_hash: task.payload_hash,
+        });
     });
-    dispatch(deviceId);
+    if (sshScript) launchSsh(task, script, allowRoot);
+    else dispatch(deviceId);
     return {
       v: 1,
       task_id: task.task_id,
       status: store.task(task.task_id).status,
     };
-  });
+  }
   app.get("/api/v1/tasks", async (req) => {
     const user = permitted(req, "tasks.read");
     const { rows, page } = historyPage(db, user, "tasks", req.query);
@@ -1784,7 +2021,9 @@ export async function buildServer(config: ServerConfig) {
         ).run(Date.now(), row.id);
         store.audit("task.cancel_requested", user.id, row.device_id, row.id);
       });
-    dispatch(row.device_id);
+    if (sshScriptRuns.has(row.id))
+      sshScriptRuns.get(row.id)!.controller.abort();
+    else dispatch(row.device_id);
     return { v: 1, ok: true, status: row.status };
   });
   app.get("/api/v1/audit", async (req) => {
@@ -1808,6 +2047,39 @@ export async function buildServer(config: ServerConfig) {
       page,
     };
   });
+  function isSshScriptTask(id: string) {
+    return !!db
+      .prepare(
+        "SELECT 1 FROM device_script_tasks WHERE task_id=? AND backend='ssh'",
+      )
+      .get(id);
+  }
+  function saveArtifact(taskId: string, sha: string, data: Buffer) {
+    const directory = join(artifactRoot, taskId);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    syncDir(artifactRoot);
+    const relative = join(taskId, sha),
+      finalPath = join(artifactRoot, relative),
+      temp = join(directory, ".tmp-" + randomUUID());
+    let fd: number | undefined;
+    try {
+      fd = openSync(temp, "wx", 0o600);
+      writeFileSync(fd, data);
+      fsyncSync(fd);
+      closeSync(fd);
+      fd = undefined;
+      renameSync(temp, finalPath);
+      syncDir(directory);
+      db.prepare(
+        "INSERT INTO artifacts(task_id,sha256,size,relative_path,created_at) VALUES(?,?,?,?,?)",
+      ).run(taskId, sha, data.length, relative, Date.now());
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+      try {
+        unlinkSync(temp);
+      } catch {}
+    }
+  }
   app.put(
     "/api/agent/tasks/:task_id/artifacts/:sha256",
     {
@@ -1823,7 +2095,8 @@ export async function buildServer(config: ServerConfig) {
       const taskId = str(params.task_id, 1, 128),
         sha = digest(params.sha256);
       const row = store.task(taskId);
-      if (row.device_id !== device.id) fail(403, "TASK_DEVICE_MISMATCH");
+      if (row.device_id !== device.id || isSshScriptTask(row.id))
+        fail(403, "TASK_DEVICE_MISMATCH");
       if (!Buffer.isBuffer(req.body)) fail(415, "BINARY_BODY_REQUIRED");
       const data = req.body;
       if (hash(data) !== sha) fail(422, "ARTIFACT_HASH_MISMATCH");
@@ -1844,30 +2117,7 @@ export async function buildServer(config: ServerConfig) {
       if (total.count >= 4 || total.n + data.length > task.max_output_bytes)
         fail(413, "TASK_OUTPUT_LIMIT");
       availableStorage();
-      const directory = join(artifactRoot, taskId);
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
-      syncDir(artifactRoot);
-      const relative = join(taskId, sha),
-        finalPath = join(artifactRoot, relative),
-        temp = join(directory, ".tmp-" + randomUUID());
-      let fd: number | undefined;
-      try {
-        fd = openSync(temp, "wx", 0o600);
-        writeFileSync(fd, data);
-        fsyncSync(fd);
-        closeSync(fd);
-        fd = undefined;
-        renameSync(temp, finalPath);
-        syncDir(directory);
-        db.prepare(
-          "INSERT INTO artifacts(task_id,sha256,size,relative_path,created_at) VALUES(?,?,?,?,?)",
-        ).run(taskId, sha, data.length, relative, Date.now());
-      } finally {
-        if (fd !== undefined) closeSync(fd);
-        try {
-          unlinkSync(temp);
-        } catch {}
-      }
+      saveArtifact(taskId, sha, data);
       return { v: 1, sha256: sha, size: data.length };
     },
   );
@@ -1984,7 +2234,8 @@ export async function buildServer(config: ServerConfig) {
     const event = validateEvent(input);
     return store.transaction(() => {
       const row = store.task(event.task_id);
-      if (row.device_id !== deviceId) fail(403, "TASK_DEVICE_MISMATCH");
+      if (row.device_id !== deviceId || isSshScriptTask(row.id))
+        fail(403, "TASK_DEVICE_MISMATCH");
       const serialized = canonical(event);
       const existing = db
         .prepare("SELECT * FROM events WHERE event_id=?")
@@ -2443,6 +2694,8 @@ export async function buildServer(config: ServerConfig) {
   timer.unref();
   app.addHook("onClose", async () => {
     clearInterval(timer);
+    for (const run of sshScriptRuns.values()) run.controller.abort();
+    await Promise.all([...sshScriptRuns.values()].map((run) => run.done));
     await disks.close();
     terminals.close();
     forwarding.close();

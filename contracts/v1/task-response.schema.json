@@ -14,6 +14,8 @@
     "device_id": {
       "$ref": "common.schema.json#/$defs/id"
     },
+    "actor_username": {"type": ["string", "null"], "maxLength": 128},
+    "device_name": {"type": ["string", "null"], "maxLength": 256},
     "actor_id": {
       "$ref": "common.schema.json#/$defs/id"
     },

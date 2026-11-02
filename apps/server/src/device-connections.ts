@@ -547,6 +547,45 @@ export function registerDeviceConnections(
         },
       };
     },
+    async runScript(
+      id: string,
+      script: string,
+      signal: AbortSignal,
+      allowRoot: boolean,
+      authorize: () => void,
+    ) {
+      const selected = routeTargets(id),
+        revision = saved(id)?.revision;
+      for (const [index, candidate] of selected.targets.entries()) {
+        try {
+          return await targets.runScript(
+            candidate.config,
+            script,
+            signal,
+            allowRoot,
+            () => {
+              if (
+                saved(id)?.revision !== revision ||
+                d.routes.current(id).revision !== selected.revision
+              )
+                fail(409, "DEVICE_CONNECTION_CHANGED");
+              authorize();
+            },
+          );
+        } catch (error) {
+          // Only retry failures that happened before any script was sent.
+          if (
+            signal.aborted ||
+            index + 1 === selected.targets.length ||
+            !["SSH_CONNECT_TIMEOUT", "SSH_CONNECT_FAILED"].includes(
+              (error as Error).message,
+            )
+          )
+            throw error;
+        }
+      }
+      return fail(409, "SSH_NOT_CONFIGURED");
+    },
     async diskUsage(id: string) {
       const selected = routeTargets(id),
         revision = saved(id)?.revision;

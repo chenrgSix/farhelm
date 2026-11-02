@@ -45,6 +45,11 @@ export const permissionCatalog = [
       "审计授权设备上其他用户的任务、详情及输出，不授予取消他人任务的权限",
   },
   {
+    id: "scripts.run",
+    label: "运行设备操作台",
+    description: "点击授权设备上管理员预设的脚本按钮，查看本人执行结果",
+  },
+  {
     id: "tasks.execute",
     label: "执行命令",
     description: "创建和取消授权设备上的命令任务",
@@ -335,7 +340,8 @@ export function registerAccessControl(
     )
       fail(400, "TERMINAL_CONNECT_PERMISSION_REQUIRED");
     if (
-      permissions.includes("tasks.execute") &&
+      (permissions.includes("tasks.execute") ||
+        permissions.includes("scripts.run")) &&
       !permissions.includes("tasks.read")
     )
       fail(400, "TASK_READ_PERMISSION_REQUIRED");
