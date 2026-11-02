@@ -1658,7 +1658,6 @@ export async function buildServer(config: ServerConfig) {
   const authorizeScriptRun = registerDeviceScripts(app, {
     store,
     reader: (req) => permitted(req, "devices.read"),
-    admin,
     requireScope,
     requireDevice,
     availableStorage,

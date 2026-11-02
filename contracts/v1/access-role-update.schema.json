@@ -33,6 +33,7 @@
           "tasks.read_all",
           "tasks.execute",
           "scripts.run",
+          "scripts.manage",
           "recordings.read",
           "recordings.read_all",
           "audit.read",
@@ -42,7 +43,7 @@
         ]
       },
       "uniqueItems": true,
-      "maxItems": 13
+      "maxItems": 14
     }
   },
   "required": ["v", "revision", "name", "description", "permissions"]

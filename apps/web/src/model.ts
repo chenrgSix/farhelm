@@ -34,7 +34,7 @@ export function hasPermission(
   if (!user) return false;
   const allowed = user.permissions
     ? user.permissions.includes(permission)
-    : permission === "terminal.sudo"
+    : permission === "terminal.sudo" || permission === "scripts.manage"
       ? user.role === "admin"
       : permission.endsWith(".read_all")
         ? ["admin", "auditor"].includes(user.role)

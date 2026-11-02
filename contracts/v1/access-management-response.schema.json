@@ -22,6 +22,7 @@
               "tasks.read_all",
               "tasks.execute",
               "scripts.run",
+              "scripts.manage",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
@@ -43,7 +44,7 @@
         },
         "required": ["id", "label", "description"]
       },
-      "maxItems": 13
+      "maxItems": 14
     },
     "users": {
       "type": "array",
@@ -115,6 +116,7 @@
                 "tasks.read_all",
                 "tasks.execute",
                 "scripts.run",
+                "scripts.manage",
                 "recordings.read",
                 "recordings.read_all",
                 "audit.read",
@@ -124,7 +126,7 @@
               ]
             },
             "uniqueItems": true,
-            "maxItems": 13
+            "maxItems": 14
           },
           "effective_device_scope": {
             "anyOf": [
@@ -202,6 +204,7 @@
                 "tasks.read_all",
                 "tasks.execute",
                 "scripts.run",
+                "scripts.manage",
                 "recordings.read",
                 "recordings.read_all",
                 "audit.read",
@@ -211,7 +214,7 @@
               ]
             },
             "uniqueItems": true,
-            "maxItems": 13
+            "maxItems": 14
           },
           "builtin": {
             "type": "boolean"
@@ -420,6 +423,7 @@
               "tasks.read_all",
               "tasks.execute",
               "scripts.run",
+              "scripts.manage",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
@@ -429,7 +433,7 @@
             ]
           },
           "uniqueItems": true,
-          "maxItems": 13
+          "maxItems": 14
         },
         "effective_device_scope": {
           "anyOf": [
@@ -503,6 +507,7 @@
               "tasks.read_all",
               "tasks.execute",
               "scripts.run",
+              "scripts.manage",
               "recordings.read",
               "recordings.read_all",
               "audit.read",
@@ -512,7 +517,7 @@
             ]
           },
           "uniqueItems": true,
-          "maxItems": 13
+          "maxItems": 14
         },
         "builtin": {
           "type": "boolean"

@@ -47,7 +47,12 @@ export const permissionCatalog = [
   {
     id: "scripts.run",
     label: "运行设备操作台",
-    description: "点击授权设备上管理员预设的脚本按钮，查看本人执行结果",
+    description: "点击授权设备上的预设按钮，查看本人执行结果",
+  },
+  {
+    id: "scripts.manage",
+    label: "配置设备操作台",
+    description: "在授权设备上新增、查看、修改和删除按钮及其 Shell 脚本",
   },
   {
     id: "tasks.execute",

@@ -20,7 +20,6 @@ export function registerDeviceScripts(
   d: {
     store: Store;
     reader(req: FastifyRequest): User;
-    admin(req: FastifyRequest): User;
     requireScope(user: User, deviceId: string): void;
     requireDevice(id: string): { revoked_at: number | null };
     availableStorage(): void;
@@ -35,6 +34,12 @@ export function registerDeviceScripts(
     d.requireScope(user, id);
     if (d.requireDevice(id).revoked_at != null) fail(409, "DEVICE_REVOKED");
     return id;
+  }
+  function manager(req: FastifyRequest) {
+    const user = d.reader(req);
+    if (!hasPermission(user, "scripts.manage"))
+      fail(403, "SCRIPT_MANAGE_DENIED");
+    return user;
   }
   function find(req: FastifyRequest, id: string) {
     const row = db
@@ -64,10 +69,12 @@ export function registerDeviceScripts(
   app.get(path, async (req) => {
     const user = d.reader(req),
       id = device(req, user);
-    if (!hasPermission(user, "scripts.run")) fail(403, "SCRIPT_ACCESS_DENIED");
+    const canManage = hasPermission(user, "scripts.manage");
+    if (!canManage && !hasPermission(user, "scripts.run"))
+      fail(403, "SCRIPT_ACCESS_DENIED");
     const scripts = db
       .prepare(
-        user.role === "admin"
+        canManage
           ? "SELECT id,name,revision,script FROM device_scripts WHERE device_id=? ORDER BY name,id"
           : "SELECT id,name,revision FROM device_scripts WHERE device_id=? ORDER BY name,id",
       )
@@ -82,7 +89,7 @@ export function registerDeviceScripts(
     return { v: 1, scripts, runs };
   });
   function save(req: FastifyRequest, editing: boolean) {
-    const user = d.admin(req),
+    const user = manager(req),
       id = device(req, user),
       b = object(req.body);
     version(b);
@@ -141,7 +148,7 @@ export function registerDeviceScripts(
   app.post(path, async (req) => save(req, false));
   app.put(item, async (req) => save(req, true));
   app.delete(item, async (req) => {
-    const user = d.admin(req),
+    const user = manager(req),
       id = device(req, user),
       b = object(req.body);
     version(b);

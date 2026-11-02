@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import DeviceWorkbench from "./DeviceWorkbench.vue";
 import { api } from "../api/client";
 import type { Device, DeviceDisk, User } from "../api/types";
@@ -8,6 +8,9 @@ import { diskBytes, diskPercent } from "../disk";
 import { copyText } from "../clipboard";
 import { routeHash } from "../navigation";
 const props = defineProps<{ device: Device; user: User }>();
+const canManageScripts = computed(() =>
+  hasPermission(props.user, "scripts.manage", props.device.id),
+);
 const emit = defineEmits<{ close: []; changed: [] }>();
 const disk = ref<DeviceDisk>();
 const interval = ref(24);
@@ -166,7 +169,11 @@ onBeforeUnmount(() => {
       <slot name="actions" />
     </div>
     <DeviceWorkbench
-      v-if="!device.revoked_at && hasPermission(user, 'scripts.run', device.id)"
+      v-if="
+        !device.revoked_at &&
+        (hasPermission(user, 'scripts.run', device.id) || canManageScripts)
+      "
+      :key="canManageScripts ? 'manage' : 'run'"
       :device="device"
       :user="user"
     />

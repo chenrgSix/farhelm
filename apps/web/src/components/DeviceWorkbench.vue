@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "../api/client";
 import type { CommandResponse, Device, Task, User } from "../api/types";
-import { formatTime, statusLabels, terminalStates } from "../model";
+import {
+  hasPermission,
+  formatTime,
+  statusLabels,
+  terminalStates,
+} from "../model";
 import TaskDetail from "./TaskDetail.vue";
 
 interface Button {
@@ -19,6 +24,12 @@ interface Recent {
 }
 const props = defineProps<{ device: Device; user: User }>();
 const base = "/devices/" + encodeURIComponent(props.device.id) + "/scripts";
+const canManage = computed(() =>
+  hasPermission(props.user, "scripts.manage", props.device.id),
+);
+const canRun = computed(() =>
+  hasPermission(props.user, "scripts.run", props.device.id),
+);
 const buttons = ref<Button[]>([]),
   runs = ref<Recent[]>([]);
 const draft = ref<Button>(),
@@ -129,7 +140,8 @@ async function inspect(id: string) {
   }
 }
 async function run(row: Button) {
-  if (busy.value || (retry.value && retry.value.id !== row.id)) return;
+  if (!canRun.value || busy.value || (retry.value && retry.value.id !== row.id))
+    return;
   const previous = retry.value;
   if (
     !previous &&
@@ -192,7 +204,13 @@ onBeforeUnmount(() => {
     <header class="panel-heading">
       <div>
         <h3>设备操作台</h3>
-        <p class="field-hint">点击已配置的操作，查看执行结果和输出。</p>
+        <p class="field-hint">
+          {{
+            canRun
+              ? "点击已配置的操作，查看执行结果和输出。"
+              : "配置这台设备的操作按钮和脚本，供操作员使用。"
+          }}
+        </p>
       </div>
       <div class="controls">
         <button
@@ -204,7 +222,7 @@ onBeforeUnmount(() => {
           刷新操作台
         </button>
         <button
-          v-if="user.role === 'admin'"
+          v-if="canManage"
           type="button"
           class="button primary small"
           :disabled="busy"
@@ -216,30 +234,28 @@ onBeforeUnmount(() => {
     </header>
     <p v-if="error" role="alert" class="notice danger">{{ error }}</p>
     <p v-if="notice" role="status" class="notice neutral">{{ notice }}</p>
-    <p v-if="retry && !busy" class="notice warning">
+    <p v-if="canRun && retry && !busy" class="notice warning">
       提交结果待确认。可用原请求重试，或在任务中心核对。
       <button type="button" class="text-button" @click="clearAfterReview">
         已核对，结束重试
       </button>
     </p>
     <p v-if="!buttons.length" class="muted">
-      {{
-        user.role === "admin"
-          ? "这台设备还没有配置操作。"
-          : "当前没有可执行的操作。"
-      }}
+      {{ canManage ? "这台设备还没有配置操作。" : "当前没有可执行的操作。" }}
     </p>
     <ul v-else class="buttons">
       <li v-for="row in buttons" :key="row.id">
         <button
+          v-if="canRun"
           class="button secondary"
           :disabled="busy || (!!retry && retry.id !== row.id)"
           @click="run(row)"
         >
           {{ retry?.id === row.id ? "重试 · " : "" }}{{ row.name }}
         </button>
+        <span v-else>{{ row.name }}</span>
         <button
-          v-if="user.role === 'admin'"
+          v-if="canManage"
           class="text-button"
           :disabled="busy"
           :aria-label="'配置 ' + row.name"
@@ -249,7 +265,7 @@ onBeforeUnmount(() => {
         </button>
       </li>
     </ul>
-    <form v-if="draft" class="editor" @submit.prevent="change()">
+    <form v-if="canManage && draft" class="editor" @submit.prevent="change()">
       <fieldset :disabled="busy">
         <legend>{{ draft.id ? "配置操作" : "添加操作" }}</legend>
         <label

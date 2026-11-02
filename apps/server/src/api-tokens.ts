@@ -262,7 +262,7 @@ export class ApiTokens {
         b.permissions.length > PERMISSIONS.length ||
         new Set(b.permissions).size !== b.permissions.length ||
         b.permissions.some(
-          (p: any) => !PERMISSIONS.includes(p) || p === "scripts.run",
+          (p: any) => !PERMISSIONS.includes(p) || p.startsWith("scripts."),
         )
       )
         fail(400, "INVALID_TOKEN_PERMISSIONS");
@@ -319,7 +319,9 @@ export class ApiTokens {
             .prepare("SELECT * FROM api_tokens ORDER BY created_at DESC,id")
             .all() as unknown as TokenRow[]
         ).map(view),
-        permissions: permissionCatalog.filter((p) => p.id !== "scripts.run"),
+        permissions: permissionCatalog.filter(
+          (p) => !p.id.startsWith("scripts."),
+        ),
       };
     });
     app.post("/api/v1/api-tokens", async (req) => {

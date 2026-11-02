@@ -469,6 +469,15 @@ export class Store {
         "utf8",
       ),
     );
+    this.db.exec(
+      readFileSync(
+        new URL(
+          "../migrations/048_script_manage_permission.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
     this.instance = (
       this.db
         .prepare("SELECT value FROM meta WHERE key='server_instance'")
@@ -681,6 +690,7 @@ export class Store {
                 "terminal.connect",
                 "tasks.execute",
                 "scripts.run",
+                "scripts.manage",
                 "health.manage",
                 "network.manage",
               ].includes(p),

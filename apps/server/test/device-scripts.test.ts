@@ -9,18 +9,10 @@ import { SshTargets, fingerprint } from "../src/ssh-target.js";
 import { randomUUID, generateKeyPairSync } from "node:crypto";
 import { buildServer } from "../src/server.js";
 
-test("设备操作员共用预设按钮，不能跨设备、更改脚本或使用自由命令", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "fh-device-scripts-"));
-  const password = "test-password13";
-  const config = {
-    dataDir: dir,
-    deviceAccess: "ssh-only" as const,
-    webEnabled: true,
-    webProtocol: "http" as const,
-    adminUsername: "admin",
-    adminPassword: password,
-  };
-  let app = await buildServer(config);
+function scriptClient(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  password: string,
+) {
   const request = (
     method: "POST" | "GET" | "DELETE" | "PUT",
     url: string,
@@ -45,6 +37,22 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
     assert.equal(r.statusCode, 200, r.body);
     return r.json().access_token;
   }
+  return { request, login };
+}
+
+test("设备操作员共用预设按钮，不能跨设备、更改脚本或使用自由命令", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fh-device-scripts-"));
+  const password = "test-password13";
+  const config = {
+    dataDir: dir,
+    deviceAccess: "ssh-only" as const,
+    webEnabled: true,
+    webProtocol: "http" as const,
+    adminUsername: "admin",
+    adminPassword: password,
+  };
+  let app = await buildServer(config);
+  const { request, login } = scriptClient(app, password);
   try {
     const admin = await login("admin");
     const d = await request("POST", "/ssh-devices", admin, {
@@ -216,6 +224,139 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
       JSON.parse(app.store.task(task).result_json).reason,
       "SSH_SERVER_RESTARTED",
     );
+  } finally {
+    await app.close();
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("配置人员按设备范围通过用户组维护按钮，运行和平台管理仍独立", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fh-script-manage-")),
+    password = "test-password13";
+  const app = await buildServer({
+    dataDir: dir,
+    deviceAccess: "ssh-only",
+    webEnabled: true,
+    webProtocol: "http",
+    adminUsername: "admin",
+    adminPassword: password,
+  });
+  const { request, login } = scriptClient(app, password);
+  try {
+    const admin = await login("admin");
+    const roleConfig = {
+      v: 1,
+      name: "脚本维护",
+      description: "维护预设按钮",
+      permissions: ["devices.read", "scripts.manage"],
+    };
+    const created = await request("POST", "/roles", admin, roleConfig);
+    assert.equal(created.statusCode, 200, created.body);
+    const role = created.json().role;
+    const [assigned, other] = [randomUUID(), randomUUID()];
+    for (const id of [assigned, other])
+      app.store.db
+        .prepare(
+          "INSERT INTO devices(id,public_key,name,created_at) VALUES(?,?,?,?)",
+        )
+        .run(id, id, id, Date.now());
+    const user = app.store.seedUser({
+      username: "maintainer",
+      password,
+      role: "business",
+      deviceScope: [],
+    });
+    app.store.db.prepare("DELETE FROM user_roles WHERE user_id=?").run(user.id);
+    const group = await request("POST", "/groups", admin, {
+      v: 1,
+      name: "维护组",
+      description: "",
+      member_ids: [user.id],
+      role_ids: [role.id],
+      device_scope: [assigned],
+    });
+    assert.equal(group.statusCode, 200, group.body);
+    const token = await login(user.username);
+    const me = (await request("GET", "/me", token)).json();
+    assert.deepEqual(me.permissions.sort(), ["devices.read", "scripts.manage"]);
+    const base = "/devices/" + assigned + "/scripts",
+      outside = "/devices/" + other + "/scripts";
+    const config = { v: 1, name: "显示版本", script: "echo v1" };
+    const added = await request("POST", base, token, config);
+    assert.equal(added.statusCode, 200, added.body);
+    const item = base + "/" + added.json().id;
+    const listing = (await request("GET", base, token)).json();
+    assert.equal(listing.scripts[0].script, config.script);
+    assert.deepEqual(listing.runs, []);
+    const updated = await request("PUT", item, token, {
+      ...config,
+      revision: 1,
+      script: "echo v2",
+    });
+    assert.equal(updated.statusCode, 200, updated.body);
+    assert.equal(
+      (
+        await request(
+          "POST",
+          item + "/run",
+          token,
+          { v: 1, revision: 2 },
+          "blocked",
+        )
+      ).json().error,
+      "SCRIPT_ACCESS_DENIED",
+    );
+    assert.equal((await request("GET", "/access", token)).statusCode, 403);
+    assert.equal(
+      (await request("GET", outside, token)).json().error,
+      "DEVICE_SCOPE_DENIED",
+    );
+    assert.equal(
+      (await request("POST", outside, token, config)).json().error,
+      "DEVICE_SCOPE_DENIED",
+    );
+    const otherItem =
+      outside + "/" + (await request("POST", outside, admin, config)).json().id;
+    assert.equal(
+      (
+        await request("PUT", otherItem, token, { ...config, revision: 1 })
+      ).json().error,
+      "DEVICE_SCOPE_DENIED",
+    );
+    assert.equal(
+      (await request("DELETE", otherItem, token, { v: 1, revision: 1 })).json()
+        .error,
+      "DEVICE_SCOPE_DENIED",
+    );
+    assert.equal(
+      (await request("DELETE", item, token, { v: 1, revision: 2 })).statusCode,
+      200,
+    );
+    assert.deepEqual(
+      app.store.db
+        .prepare(
+          "SELECT action FROM audit WHERE actor_id=? AND device_id=? AND action LIKE 'script.%' ORDER BY id",
+        )
+        .all(user.id, assigned)
+        .map((row) => row.action),
+      ["script.created", "script.updated", "script.deleted"],
+    );
+    const revoke = await request("PUT", "/roles/" + role.id, admin, {
+      ...roleConfig,
+      revision: role.revision,
+      permissions: ["devices.read"],
+    });
+    assert.equal(revoke.statusCode, 200, revoke.body);
+    assert.notEqual(
+      (await request("POST", base, token, config)).statusCode,
+      200,
+    );
+    const fresh = await login(user.username);
+    assert.equal(
+      (await request("POST", base, fresh, config)).json().error,
+      "SCRIPT_MANAGE_DENIED",
+    );
+    assert.equal((await request("GET", base, fresh)).statusCode, 403);
   } finally {
     await app.close();
     rmSync(dir, { force: true, recursive: true });

@@ -145,6 +145,7 @@ export class ApiClient {
         DEPLOYMENT_REVISION_CONFLICT:
           "运行设置已被其他管理员修改，请刷新后重新编辑。",
         SCRIPT_CHANGED: "按钮配置已改变，请刷新操作台再试。",
+        SCRIPT_MANAGE_DENIED: "当前账号没有这台设备的操作台配置权限。",
         SCRIPT_ACCESS_DENIED: "当前账号没有此按钮的执行权限。",
         SCRIPT_NAME_EXISTS: "本设备已经有同名按钮。",
         INVALID_DEVICE_SCRIPT: "请填写按钮名称和脚本，脚本最多 8192 字节。",

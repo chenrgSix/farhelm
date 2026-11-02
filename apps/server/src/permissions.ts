@@ -8,6 +8,7 @@ export const PERMISSIONS = [
   "tasks.read_all",
   "tasks.execute",
   "scripts.run",
+  "scripts.manage",
   "recordings.read",
   "recordings.read_all",
   "audit.read",
@@ -27,7 +28,10 @@ export function rolePermissions(role: Role): Permission[] {
     ? [...PERMISSIONS]
     : role === "ops"
       ? PERMISSIONS.filter(
-          (p) => !p.endsWith(".read_all") && p !== "terminal.sudo",
+          (p) =>
+            !p.endsWith(".read_all") &&
+            p !== "terminal.sudo" &&
+            p !== "scripts.manage",
         )
       : role === "auditor"
         ? [
