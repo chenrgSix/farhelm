@@ -24,7 +24,7 @@ const user: User = {
   role: "admin",
   device_scope: "*",
 };
-const data: DeviceDisk = {
+const data = {
   v: 1,
   device_id: "device",
   interval_hours: 24,
@@ -41,7 +41,7 @@ const data: DeviceDisk = {
   cache_until: Date.now() + 300000,
   collecting: false,
   stale: false,
-};
+} satisfies DeviceDisk;
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -115,21 +115,38 @@ it("joins an existing collection even when the pending attempt has a cache deadl
   expect(wrapper.find("meter").exists()).toBe(true);
   wrapper.unmount();
 });
-it("opens from cached data with totals and never polls or recollects a fresh snapshot", async () => {
+it("opens from cache without polling and requests a fresh sample on a manual click", async () => {
   vi.useFakeTimers();
-  const request = vi.spyOn(api, "request").mockResolvedValue(data);
+  const updated = {
+    ...data,
+    checked_at: data.checked_at + 1000,
+    usage: { ...data.usage, used_bytes: 60 * 1024 ** 3 },
+  };
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce(data)
+    .mockResolvedValueOnce(updated);
   const wrapper = mount(DeviceDetail, { props: { device, user } });
   await flushPromises();
   expect(wrapper.text()).toContain("40.0");
   expect(wrapper.text()).toContain("100 GiB");
   expect(wrapper.get("select").element.value).toBe("24");
+  expect(request).toHaveBeenCalledTimes(1);
   await wrapper
     .findAll("button")
     .find((b) => b.text() === "刷新磁盘")!
     .trigger("click");
-  expect(request).toHaveBeenCalledTimes(1);
+  await flushPromises();
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request).toHaveBeenLastCalledWith("/devices/device/disk/collect", {
+    method: "POST",
+    body: { v: 1, force: true },
+    timeoutMs: 25000,
+  });
+  expect(wrapper.text()).toContain("60.0");
+  expect(wrapper.text()).toContain("磁盘数据已刷新");
   await vi.advanceTimersByTimeAsync(24 * 3600000);
-  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledTimes(2);
   wrapper.unmount();
 });
 it("collects once when opened without cached data, saves only an explicit schedule and supports returning to the list", async () => {

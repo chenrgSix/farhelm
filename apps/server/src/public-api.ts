@@ -65,7 +65,7 @@ export const publicOperations: Operation[] = [
   {
     method: "POST",
     path: "/devices/:id/disk/collect",
-    summary: "按需采集磁盘（服务端缓存与限流）",
+    summary: "按需采集磁盘，可用 force 请求最新数据",
     permission: "devices.read",
     request: "device-disk-collect-request",
     response: "device-disk-response",

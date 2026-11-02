@@ -124,13 +124,13 @@ export function registerDeviceDisks(
         finish(undefined, "DEVICE_OFFLINE");
     });
   }
-  function collect(id: string, actor: string | null) {
+  function collect(id: string, actor: string | null, force = false) {
     if (closed) fail(503, "SERVER_SHUTDOWN");
     const running = pending.get(id);
     if (running) return running;
     const saved = row(id),
       until = cacheUntil(saved);
-    if (until !== null && until > now()) return Promise.resolve();
+    if (!force && until !== null && until > now()) return Promise.resolve();
     if (pending.size >= 4) fail(429, "DISK_COLLECTION_BUSY");
     if (d.requireDevice(id).revoked_at) fail(409, "DEVICE_REVOKED");
     const started = now();
@@ -193,12 +193,14 @@ export function registerDeviceDisks(
   app.post("/api/v1/devices/:id/disk/collect", async (req) => {
     const { user, id, device } = authorize(req);
     const body = object(req.body);
-    keys(body, ["v"]);
+    keys(body, ["v", "force"]);
     version(body);
+    if (body.force !== undefined && typeof body.force !== "boolean")
+      fail(400, "INVALID_DISK_FORCE");
     if (device.revoked_at) fail(409, "DEVICE_REVOKED");
     d.rate.check("disk-viewer:" + user.id, 30);
     d.rate.check("disk-global", 120);
-    await collect(id, user.id);
+    await collect(id, user.id, body.force === true);
     authorize(req); // Recheck scope/session after waiting for a shared collection.
     return view(id);
   });

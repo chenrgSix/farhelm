@@ -309,7 +309,60 @@ test("24-hour default and explicit intervals schedule only when due; readers can
   }
 });
 
-test("SSH devices use the same shared cache and recollect only after expiration", async () => {
+test("manual refresh bypasses cache and failure cooldown and joins an in-flight Agent collection", async () => {
+  const f = fixture();
+  const manual = { v: 1, force: true };
+  const joinedRequests = Promise.withResolvers<void>();
+  let joining = 0;
+  f.app.addHook("preHandler", (req, _reply, done) => {
+    done();
+    if (req.headers.authorization === "joining-reader" && ++joining === 2)
+      joinedRequests.resolve();
+  });
+  try {
+    assertValid("device-disk-collect-request", manual);
+    assert.equal(
+      (await f.api("POST", "d0", { v: 1, force: "true" })).statusCode,
+      400,
+    );
+    assert.equal((await f.api("POST", "d1", manual, "reader")).statusCode, 403);
+    const first = f.api("POST", "d0", { v: 1 }).then((r) => r.json());
+    await f.waitFrames(1);
+    f.finish(0);
+    const initial = await first;
+    f.advance(1000);
+    const inFlight = f
+      .api("POST", "d0", manual, "reader")
+      .then((r) => r.json());
+    await f.waitFrames(2);
+    const joined = f
+      .api("POST", "d0", manual, "joining-reader")
+      .then((r) => r.json());
+    const automatic = f
+      .api("POST", "d0", { v: 1 }, "joining-reader")
+      .then((r) => r.json());
+    await joinedRequests.promise;
+    f.finish(1, true);
+    for (const result of await Promise.all([inFlight, joined, automatic])) {
+      assert.equal(result.last_error, "DISK_COLLECTION_FAILED");
+      assert.equal(result.checked_at, initial.checked_at);
+    }
+    assert.equal(f.frames.length, 2);
+    await f.api("POST", "d0", { v: 1, force: false });
+    assert.equal(f.frames.length, 2);
+    const retry = f.api("POST", "d0", manual).then((r) => r.json());
+    await f.waitFrames(3);
+    f.finish(2);
+    const refreshed = await retry;
+    assert.equal(refreshed.checked_at, initial.checked_at + 1000);
+    assert.equal(refreshed.last_error, null);
+    assert.equal((await f.api("GET")).json().checked_at, refreshed.checked_at);
+  } finally {
+    await f.close();
+  }
+});
+
+test("SSH devices share the cache and recollect on manual refresh or expiration", async () => {
   const f = fixture();
   try {
     f.useSsh();
@@ -317,9 +370,11 @@ test("SSH devices use the same shared cache and recollect only after expiration"
     assert.deepEqual((await f.api("GET")).json().usage, usage);
     await f.api("POST", "d0", { v: 1 });
     assert.equal(f.sshCalls, 1);
+    await f.api("POST", "d0", { v: 1, force: true });
+    assert.equal(f.sshCalls, 2);
     f.advance(5 * 60000 + 1);
     await f.api("POST", "d0", { v: 1 });
-    assert.equal(f.sshCalls, 2);
+    assert.equal(f.sshCalls, 3);
   } finally {
     await f.close();
   }

@@ -6,6 +6,10 @@
   "properties": {
     "v": {
       "const": 1
+    },
+    "force": {
+      "type": "boolean",
+      "description": "Request a fresh sample even during the cache or failure cooldown period. Concurrent requests share an in-flight collection."
     }
   },
   "required": ["v"]

@@ -60,27 +60,21 @@ function apply(value: DeviceDisk) {
   disk.value = value;
   interval.value = value.interval_hours;
 }
-async function collect() {
+async function collect(force = false) {
   if (busy.value || props.device.revoked_at) return;
-  if (
-    !disk.value?.collecting &&
-    disk.value?.cache_until &&
-    disk.value.cache_until > Date.now()
-  ) {
-    notice.value = `正在使用缓存，可在 ${formatTime(disk.value.cache_until)} 后重新采集。`;
-    return;
-  }
   busy.value = true;
   error.value = "";
   notice.value = "";
   try {
     const value = await api.request<DeviceDisk>(`${endpoint()}/collect`, {
       method: "POST",
-      body: { v: 1 },
+      body: force ? { v: 1, force: true } : { v: 1 },
       timeoutMs: 25000, // Covers two bounded SSH route attempts.
     });
     if (disposed) return;
     apply(value);
+    if (force && !value.last_error && value.checked_at != null)
+      notice.value = `磁盘数据已刷新，采集时间 ${formatTime(value.checked_at)}。`;
     emit("changed");
   } catch (e) {
     if (!disposed)
@@ -195,7 +189,7 @@ onBeforeUnmount(() => {
           <button
             class="button secondary small"
             :disabled="busy || !!device.revoked_at"
-            @click="collect"
+            @click="collect(true)"
           >
             {{ busy ? "读取中…" : "刷新磁盘" }}
           </button>
@@ -247,7 +241,8 @@ onBeforeUnmount(() => {
           不包含内存盘、网络盘、重复挂载和未挂载磁盘；容器部署以容器可见的文件系统为准。可用空间不含系统保留空间。
         </p>
         <p class="field-hint">
-          结果缓存 5 分钟，多人查看共用一次采集；失败后冷却 1 分钟。
+          打开详情时复用 5
+          分钟内的采集结果。点击「刷新磁盘」可立即重新采集，多人同时刷新会共用一次采集。
         </p>
       </section>
       <div class="detail-side">
