@@ -333,8 +333,8 @@ onBeforeUnmount(() => {
         >
       </fieldset>
       <p class="field-hint">
-        容器部署还需发布对应 TCP
-        端口，主机防火墙需允许访问；网页不会自动修改容器端口或防火墙。远程客户端需要加密时，请启用目标服务的
+        项目的 Linux Compose
+        部署直接监听宿主机端口；自定义桥接网络部署需额外发布端口。主机防火墙须允许客户端访问。远程客户端需要加密时，请启用目标服务的
         TLS。
       </p>
       <div class="mapping-actions">

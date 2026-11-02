@@ -20,7 +20,8 @@ const agentContainer = `${project}-agent`;
 const native = process.env.FARHELM_TEST_NATIVE_CONTAINER;
 const plain = process.env.FARHELM_TEST_HTTP === "1";
 const target = `${project}-target`,
-  network = native ? `${project}-net` : `${project}_default`;
+  network = `${project}-net`;
+const httpTarget = `${project}-http-target`;
 let serverContainer,
   ca,
   token = "",
@@ -169,6 +170,9 @@ try {
     assert.equal(info.HostConfig.ReadonlyRootfs, true);
     assert.equal(info.HostConfig.RestartPolicy.Name, "unless-stopped");
     assert.equal(info.State.Health.Status, "healthy");
+    assert.equal(info.HostConfig.NetworkMode, "host");
+    assert.equal(Object.keys(info.HostConfig.PortBindings ?? {}).length, 0);
+    assert.equal((await api("GET", "/ssh")).port, sshPort);
   }
   for (const key of ["host", "identity"])
     execFileSync("ssh-keygen", [
@@ -198,10 +202,9 @@ try {
     "-d",
     "--name",
     target,
-    "--network",
-    network,
-    "--network-alias",
-    "target",
+    ...(native
+      ? ["--network", network, "--network-alias", "target"]
+      : ["--publish", "127.0.0.1::22"]),
     "--mount",
     `type=bind,source=${temp},target=/fixture,readonly`,
     "--mount",
@@ -212,8 +215,10 @@ try {
     v: 1,
     name: "deployment-target",
     ssh: {
-      host: "target",
-      port: 22,
+      host: native ? "target" : "127.0.0.1",
+      port: native
+        ? 22
+        : Number((await docker(["port", target, "22/tcp"])).split(":").at(-1)),
       username: "terminal",
       fingerprint: targetFingerprint,
     },
@@ -229,6 +234,59 @@ try {
       ).ok,
     "target SSH readiness",
   );
+  if (!native) {
+    // A serves HTTP on its own loopback. Only Farhelm's mapped port is reachable from the host.
+    const marker = `mapped-from-${project}`;
+    await docker([
+      "run",
+      "--rm",
+      "-d",
+      "--name",
+      httpTarget,
+      "--network",
+      `container:${target}`,
+      "farhelm/server:local",
+      "node",
+      "-e",
+      `require('node:http').createServer((q,res)=>res.end(${JSON.stringify(marker)})).listen(8000,'127.0.0.1')`,
+    ]);
+    const path = `/devices/${device.device_id}`;
+    const policy = await api("GET", path + "/forwarding");
+    await api("PUT", path + "/forwarding", {
+      v: 1,
+      revision: policy.revision,
+      enabled: true,
+    });
+    const port = await freePort();
+    const { mapping } = await api("POST", path + "/tcp-mappings", {
+      v: 1,
+      name: "deployment check",
+      listen_host: "127.0.0.1",
+      listen_port: port,
+      target_host: "127.0.0.1",
+      target_port: 8000,
+      source_cidrs: ["127.0.0.1/32"],
+      enabled: true,
+    });
+    assert.equal(mapping.status, "listening");
+    await until(async () => {
+      try {
+        const result = await fetch(`http://127.0.0.1:${port}/`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        return result.ok && (await result.text()) === marker;
+      } catch {
+        return false;
+      }
+    }, "host-network HTTP mapping");
+    await api("DELETE", path + "/tcp-mappings/" + mapping.id, {
+      v: 1,
+      revision: mapping.revision,
+    });
+    console.log(
+      "PASS: a new TCP mapping serves the target's loopback HTTP service without publishing a Docker port",
+    );
+  }
   const created = await api("POST", "/terminal-sessions", {
     v: 1,
     device_id: device.device_id,
@@ -337,7 +395,7 @@ try {
       "--name",
       agentContainer,
       "--network",
-      `container:${serverContainer}`,
+      native ? `container:${serverContainer}` : "host",
       "--user",
       "terminal",
       "--workdir",
@@ -347,7 +405,7 @@ try {
       "--mount",
       `type=bind,source=${temp}/ca.crt,target=/ca.crt,readonly`,
       "--env",
-      "FLEET_SERVER_URL=https://127.0.0.1:8444",
+      `FLEET_SERVER_URL=https://127.0.0.1:${native ? 8444 : env.FARHELM_AGENT_PORT}`,
       "--env",
       "FLEET_CA_CERT=/ca.crt",
       "--env",
@@ -437,7 +495,14 @@ try {
       (await docker(["port", native, "8443/tcp"])).split(":").at(-1),
     );
     origin = `https://127.0.0.1:${webPort}`;
-  } else
+  } else {
+    // Reuse the initialized volume, but change all three listener ports via the environment.
+    webPort = await freePort();
+    sshPort = await freePort();
+    env.FARHELM_WEB_PORT = String(webPort);
+    env.FARHELM_SSH_PORT = String(sshPort);
+    env.FARHELM_AGENT_PORT = String(await freePort());
+    origin = `${plain ? "http" : "https"}://127.0.0.1:${webPort}`;
     await compose(
       "up",
       "-d",
@@ -446,7 +511,12 @@ try {
       "--wait-timeout",
       "90",
     );
-  if (!native) serverContainer = await compose("ps", "-q", "server");
+    serverContainer = await compose("ps", "-q", "server");
+    const state = JSON.parse(await readData("deployment.json"));
+    assert.equal(state.listener_port, webPort);
+    assert.equal(state.ssh_port, sshPort);
+    assert.equal(state.agent_listener_port, Number(env.FARHELM_AGENT_PORT));
+  }
   await until(
     async () => {
       try {
@@ -463,6 +533,7 @@ try {
   if (!plain)
     assert.equal(await readData("certificates/private-ca.json"), caIdentity);
   assert.equal((await api("GET", "/ssh")).fingerprint, fingerprint);
+  if (!native) assert.equal((await api("GET", "/ssh")).port, sshPort);
   assert.ok(
     (await api("GET", "/devices")).devices.some(
       (d) => d.id === device.device_id,
@@ -502,6 +573,7 @@ try {
   await docker(["rm", "-f", agentContainer]).catch(() => {});
   ws?.terminate();
   sshClient?.destroy();
+  if (!native) await docker(["rm", "-f", httpTarget]).catch(() => {});
   await docker(["rm", "-f", target]).catch(() => {});
   if (native) {
     await docker(["network", "disconnect", network, native]).catch(() => {});

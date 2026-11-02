@@ -13,7 +13,7 @@ RUN npm --prefix apps/server run build \
  && npm --prefix apps/web run build \
  && npm --prefix apps/server prune --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
 
-FROM ${NODE_IMAGE}
+FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production FLEET_DATA_DIR=/var/lib/farhelm \
     FLEET_HOST=0.0.0.0 FLEET_PORT=8443 FLEET_AGENT_PORT=8444 FLEET_WEB_ENABLED=1 \
     FLEET_DEVICE_ACCESS=agent-ssh FLEET_WEB_PROTOCOL=https \
@@ -36,3 +36,17 @@ USER node
 EXPOSE 8443 8444 2222 8080
 HEALTHCHECK --interval=30s --timeout=6s --start-period=40s --retries=3 CMD ["node", "deploy/server/healthcheck.mjs"]
 CMD ["node", "deploy/server/bootstrap.mjs"]
+
+# Host networking must support ports 80/443 even on hosts that reserve low ports.
+# Keep the one permitted capability through init and Node with no-new-privileges.
+FROM runtime AS host
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends tini libcap2-bin \
+    && setcap cap_net_bind_service=ep /usr/bin/tini \
+    && setcap cap_net_bind_service=ep /usr/local/bin/node && rm -rf /var/lib/apt/lists/*
+USER node
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "deploy/server/bootstrap.mjs"]
+
+# Direct Dockerfile builds can still run with all capabilities dropped.
+FROM runtime AS standalone

@@ -28,7 +28,7 @@ Agent 0.2.3 起可在设备「网络记录」中配置多个网络探测地址�
 
 平台将网页协议与 Agent 接入独立配置：网页可选 HTTP/HTTPS（默认端口 8443），Agent 使用独立 HTTPS 端口 8444，CA 与证书继续自动管理。系统设置中可切换网页协议，已有终端及录制保留；旧 Agent 先同步独立地址再切换。**设备仅用 SSH** 与 **关闭网页管理** 也独立配置：设置 `FLEET_DEVICE_ACCESS=ssh-only`、`FLEET_WEB_ENABLED=1`、`FLEET_WEB_PROTOCOL=http` 即可使用无需证书的 HTTP 网页，管理设备、账号权限和录制，并保留网页终端及 SSH 入口。只有显式设置 `FLEET_WEB_ENABLED=0` 才关闭网页。SSH 主机密钥自动生成并持久保存，详见 [SSH 接入与网页管理](docs/ssh-only.md)。
 
-服务端支持 [Linux 一键安装与 Docker Compose 部署](docs/server-deployment.md)，两种方式均直接提供前端、API 和 HTTPS，无需 Nginx。Compose 配置位于 [deploy/compose.yml](deploy/compose.yml)，在 `deploy/` 目录启动，包含持久化数据和自动启动配置。
+服务端支持 [Linux 一键安装与 Docker Compose 部署](docs/server-deployment.md)，两种方式均直接提供前端、API 和 HTTPS，无需 Nginx。Compose 配置位于 [deploy/compose.yml](deploy/compose.yml)，在 `deploy/` 目录启动。当前仓库的 Compose 使用 Linux 宿主机网络，网页映射直接监听堡垒机 IP；网页、Agent 和 SSH 网关端口由 `deploy/.env` 指定。
 
 ## 项目名称与兼容性
 

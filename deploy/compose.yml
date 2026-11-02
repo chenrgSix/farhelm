@@ -5,13 +5,21 @@ services:
     build:
       context: ..
       dockerfile: deploy/server/Dockerfile
+      target: host
     restart: unless-stopped
-    init: true
     stop_grace_period: 30s
+    network_mode: host
     environment:
       FARHELM_PUBLIC_HOST: ${FARHELM_PUBLIC_HOST:-localhost}
       FARHELM_PUBLIC_PORT: ${FARHELM_WEB_PORT:-8443}
+      FLEET_HOST: ${FARHELM_BIND_ADDRESS:-0.0.0.0}
+      FLEET_PORT: ${FARHELM_WEB_PORT:-8443}
+      FLEET_AGENT_PORT: ${FARHELM_AGENT_PORT:-8444}
       FLEET_AGENT_PUBLIC_PORT: ${FARHELM_AGENT_PORT:-8444}
+      FLEET_SSH_HOST: ${FARHELM_BIND_ADDRESS:-0.0.0.0}
+      FLEET_SSH_PORT: ${FARHELM_SSH_PORT:-2222}
+      FLEET_ACME_HTTP_HOST: ${FARHELM_BIND_ADDRESS:-0.0.0.0}
+      FLEET_ACME_HTTP_PORT: ${FARHELM_ACME_HTTP_PORT:-8080}
       FLEET_DEVICE_ACCESS: ${FLEET_DEVICE_ACCESS:-agent-ssh}
       FLEET_WEB_PROTOCOL: ${FLEET_WEB_PROTOCOL:-https}
       FLEET_EASYTIER_CLI: ${FLEET_EASYTIER_CLI:-easytier-cli}
@@ -21,16 +29,13 @@ services:
       FLEET_ADMIN_PASSWORD: ${FLEET_ADMIN_PASSWORD:-}
       FLEET_SSH_PUBLIC_HOST: ${FARHELM_PUBLIC_HOST:-localhost}
       FLEET_SSH_PUBLIC_PORT: ${FARHELM_SSH_PORT:-2222}
-    ports:
-      - "${FARHELM_BIND_ADDRESS:-0.0.0.0}:${FARHELM_WEB_PORT:-8443}:8443"
-      - "${FARHELM_BIND_ADDRESS:-0.0.0.0}:${FARHELM_AGENT_PORT:-8444}:8444"
-      - "${FARHELM_BIND_ADDRESS:-0.0.0.0}:${FARHELM_SSH_PORT:-2222}:2222"
     volumes:
       - farhelm-data:/var/lib/farhelm
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
     cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
 volumes:
   farhelm-data:

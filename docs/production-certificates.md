@@ -30,7 +30,7 @@ Let’s Encrypt 的 IP 证书有效期为 **160 小时**，平台以返回证书
 Farhelm 直接提供网页、API 和 HTTPS，并热加载自动签发的新证书。推荐使用[一键安装或 Docker Compose](server-deployment.md)，无需安装 Nginx：
 
 - 一键安装：启用 Agent 时，TLS-ALPN-01 使用 `--agent-port 443`；仅 SSH + HTTPS 网页时使用 `--web-port 443`。安装器为非 root 服务配置低端口绑定能力。
-- Docker Compose：启用 Agent 时，在 `deploy/.env` 设置 `FARHELM_AGENT_PORT=443`，由 Docker 将主机 443 映射至 Agent 8444；仅 SSH + HTTPS 网页则设 `FARHELM_WEB_PORT=443` 映射网页 8443。选择 HTTP-01 时再使用 `deploy/compose.acme.yml` 将主机 80 映射至内部验证端口 8080。
+- Docker Compose：使用 Linux 宿主机网络。启用 Agent 时，在 `deploy/.env` 设置 `FARHELM_AGENT_PORT=443`，Agent 入口直接监听宿主机 443；仅 SSH + HTTPS 网页则设 `FARHELM_WEB_PORT=443`。选择 HTTP-01 时可用 `deploy/compose.acme.yml` 让验证服务直接监听宿主机 80。
 - 手动部署仍可参考 [server.env.example](../deploy/server/server.env.example) 和 [farhelm.service](../deploy/server/farhelm.service)。需要 Node 24+、已构建的前后端和可写的持久化数据目录，`FLEET_WEB_DIST` 指向网页构建目录。服务示例默认程序位于 `/opt/farhelm`，数据位于 `/var/lib/farhelm`，配置位于 `/etc/farhelm/server.env`。
 
 ### 已有外部代理时的可选配置

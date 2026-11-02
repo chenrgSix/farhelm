@@ -5,6 +5,8 @@ import https from "node:https";
 import { isIP } from "node:net";
 import { checkServerIdentity } from "node:tls";
 const data = process.env.FLEET_DATA_DIR ?? "/var/lib/farhelm";
+const bind = process.env.FLEET_HOST ?? "0.0.0.0";
+const host = bind === "0.0.0.0" ? "127.0.0.1" : bind === "::" ? "::1" : bind;
 async function check(options, tls) {
   if (tls) {
     const bundle = JSON.parse(
@@ -50,7 +52,7 @@ try {
     checks.push(
       check(
         {
-          host: "127.0.0.1",
+          host,
           port: Number(process.env.FLEET_PORT ?? listener_port ?? 8443),
         },
         settings.web_protocol === "https",
@@ -60,7 +62,7 @@ try {
     checks.push(
       check(
         {
-          host: "127.0.0.1",
+          host,
           port: Number(
             process.env.FLEET_AGENT_PORT ?? agent_listener_port ?? 8444,
           ),

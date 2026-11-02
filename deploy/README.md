@@ -14,9 +14,9 @@ docker compose up -d --build --wait
 
 首次启动要使用 HTTP 网页 + HTTPS Agent，在 `.env` 设置 `FLEET_WEB_PROTOCOL=http` 并保留 `FLEET_DEVICE_ACCESS=agent-ssh`；网页访问 `http://你的服务器IP:8443`，Agent 使用 `https://你的服务器IP:8444`。已有环境从「系统设置 → 平台运行方式」切换并确认，不靠环境变量覆盖保存的配置。旧 Agent 先迁移独立地址，详见[升级迁移步骤](../docs/server-deployment.md#已有部署迁移)。
 
-- `compose.yml`：正式部署，仅启动 Farhelm 服务，包含前端、自启策略和持久化数据卷。
+- `compose.yml`：使用 Linux 宿主机网络。网页、Agent 和 SSH 分别直接监听 `.env` 的 `FARHELM_WEB_PORT`、`FARHELM_AGENT_PORT` 和 `FARHELM_SSH_PORT`。网页新增端口映射时，直接填写宿主机 IP 和空闲端口。
 - `compose.env.example`：环境模板，实际配置保存在本目录的 `.env`。
-- `compose.acme.yml`：可选的 HTTP-01 端口映射；启用时运行 `docker compose -f compose.yml -f compose.acme.yml up -d --build --wait`。
+- `compose.acme.yml`：将 HTTP-01 验证监听端口默认设为宿主机的 80；启用时运行 `docker compose -f compose.yml -f compose.acme.yml up -d --build --wait`。
 - `server/`：Dockerfile、共享初始化脚本，以及手动 systemd 部署参考。
 - `agent/`：Agent 安装包构建工具。
 - `dev/`：已有本机开发环境的配置，不参与正式部署。

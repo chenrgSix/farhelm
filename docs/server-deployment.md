@@ -60,7 +60,7 @@ sudo bash install.sh --source . --host 10.10.0.10 --ssh-only-http
 
 ```bash
 # 也可下载 Release 源码包后进入解压目录
-git clone --branch v0.2.18 https://github.com/chenrgSix/farhelm.git
+git clone https://github.com/chenrgSix/farhelm.git
 cd farhelm/deploy
 cp compose.env.example .env
 ```
@@ -71,7 +71,7 @@ cp compose.env.example .env
 docker compose up -d --build --wait
 ```
 
-网页默认 `https://你的域名或IP:8443`，Agent HTTPS 默认 `8444`（`FARHELM_AGENT_PORT`），SSH 网关默认 `2222`。
+项目的 Compose 默认使用 Linux 宿主机网络。网页、Agent HTTPS、SSH 网关直接监听 `deploy/.env` 配置的地址（`FARHELM_BIND_ADDRESS`）和端口（`FARHELM_WEB_PORT`、`FARHELM_AGENT_PORT`、`FARHELM_SSH_PORT`），默认分别为 8443、8444、2222。端口须空闲；修改后再次执行上述 `up` 命令使环境变量生效。若调整已部署设备使用的 Agent 对外地址，按下方迁移说明同步已有设备。
 
 从仓库根目录操作时，显式指定 `--env-file deploy/.env -f deploy/compose.yml`，例如 `docker compose --env-file deploy/.env -f deploy/compose.yml up -d --build --wait`。从旧版根目录布局迁移时，将原根目录 `.env` 移到 `deploy/.env`；固定项目名 `farhelm` 和数据卷名保持不变，使用过 `-p` 的部署继续沿用原项目名。
 
@@ -86,6 +86,8 @@ docker compose cp server:/var/lib/farhelm/ca.crt ./farhelm-ca.crt
 docker compose ps
 docker compose logs -f server
 ```
+
+从桥接模式迁移时，移除自定义 Compose 覆盖里的 `ports` 和桥接网络配置，并在宿主机防火墙上放行需要访问的端口。网页端口映射直接绑定宿主机 IP，无需重新创建容器；原桥接网络内的服务名需换成宿主机可达的地址。
 
 Compose 使用非 root 用户、只读容器根文件系统、命名数据卷和 `restart: unless-stopped`。Docker 随开机启动后，容器会按重启策略自动恢复；手动停止的容器不会自行恢复，需再执行 `docker compose up -d`。[Docker 重启策略说明](https://docs.docker.com/engine/containers/start-containers-automatically/)
 
@@ -125,7 +127,7 @@ FLEET_WEB_PROTOCOL=http
 
 默认私有 CA 可立即在内网使用。需要浏览器公共信任时，在「系统设置 → HTTPS 证书」切换公网自动申请并配置域名/IP、邮箱及验证方式。先按[证书迁移说明](private-certificates.md)处理已有 Agent 的信任；不要直接把入口换成 Agent 尚不信任的证书。
 
-- HTTP-01：公网 80 必须转发至平台内部 ACME 8080。Compose 可启用附加配置：
+- HTTP-01：公网 80 必须到达验证监听器。Compose 可启用附加配置，让验证监听器直接使用宿主机的 80 端口；如已有前置转发，可用 `FARHELM_ACME_HTTP_PORT` 指定其实际目标端口：
 
   ```bash
   docker compose -f compose.yml -f compose.acme.yml up -d --build --wait
@@ -158,7 +160,7 @@ FLEET_WEB_PROTOCOL=http
 
 ## 已有部署迁移
 
-v0.2.18 先升级平台，再上传对应架构的 Agent 二进制及同名 JSON 清单完成 Agent 升级。从 v0.2.17 升级时会保留设备转发开关；因撤权或关闭转发而暂停的映射须由管理员重新保存。来自 v0.2.16 或更早版本的设备默认关闭转发。要继续使用 SSH 转发或[网页端口映射](tcp-mappings.md)，请按需在设备「接入配置 → TCP 转发」中开启。Agent 出口需要 0.2.16 或更新版本；要区分目标 TCP 拒绝与超时，平台和 Agent 均需升级到 0.2.18。SSH 出口要求目标 sshd 允许 TCP 转发。网页映射须配置来源 IP/CIDR，并在防火墙及容器部署中放行所需端口。升级前结束活跃终端、停服备份完整数据目录，并保留 CA、SSH 主机密钥、凭据加密密钥及 Agent 完整状态目录。平台迁移仅执行一次，按原 sudo 权限、终端权限、设备范围和普通连接授权的交集保留用户在对应设备的 sudo 权限；保留原角色来源。可在「访问控制 → 设备访问授权」调整个人／用户组／角色授权，个人禁止优先。新设备、新用户默认无 sudo，删除迁移规则不会在重启时恢复。
+v0.2.18 先升级平台，再上传对应架构的 Agent 二进制及同名 JSON 清单完成 Agent 升级。从 v0.2.17 升级时会保留设备转发开关；因撤权或关闭转发而暂停的映射须由管理员重新保存。来自 v0.2.16 或更早版本的设备默认关闭转发。要继续使用 SSH 转发或[网页端口映射](tcp-mappings.md)，请按需在设备「接入配置 → TCP 转发」中开启。Agent 出口需要 0.2.16 或更新版本；要区分目标 TCP 拒绝与超时，平台和 Agent 均需升级到 0.2.18。SSH 出口要求目标 sshd 允许 TCP 转发。网页映射须配置来源 IP/CIDR，并在宿主机防火墙中放行所需端口。升级前结束活跃终端、停服备份完整数据目录，并保留 CA、SSH 主机密钥、凭据加密密钥及 Agent 完整状态目录。平台迁移仅执行一次，按原 sudo 权限、终端权限、设备范围和普通连接授权的交集保留用户在对应设备的 sudo 权限；保留原角色来源。可在「访问控制 → 设备访问授权」调整个人／用户组／角色授权，个人禁止优先。新设备、新用户默认无 sudo，删除迁移规则不会在重启时恢复。
 
 本版要求 Agent 支持每会话 sudo 限制；旧 Agent 无法落实时明确要求升级，不自动降级放行。纯 SSH／备用 SSH 的受限终端需要 Linux `/usr/bin/setpriv` 与 `/proc` 校验；无法确认限制时拒绝连接。普通 Agent 会话不受备用 SSH 的 root 身份配置影响，实际走 root SSH 时必须有该设备的 sudo 授权。设备提权开关仍是上限，已获授权会话保留密码代填、手工认证和免密 sudo；不修改 sudoers 或网络配置。共享 Linux UID 的终端进程限制不等于完整安全隔离，详见[授权边界](access-control.md#sudo-迁移与执行边界)。
 

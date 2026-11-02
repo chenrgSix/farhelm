@@ -128,6 +128,9 @@ export class DeploymentController {
         },
         snapshot.web_origin,
       );
+      this.saved.listener_port = port ?? this.saved.listener_port;
+      this.saved.ssh_port = config.ssh?.port ?? 0;
+      this.saved.agent_listener_port = agentPort;
     } catch (error) {
       await server.close();
       throw error;
@@ -253,7 +256,6 @@ export class DeploymentController {
         this.saved.agent_listener_port ??
           (this.saved.listener_port === 8444 ? 8445 : 8444),
       );
-      this.saved.agent_listener_port = Number(this.env.FLEET_AGENT_PORT);
       await this.launch(this.saved);
       if (interrupted)
         this.running!.store.audit("deployment.rolled_back", null, null, null, {
