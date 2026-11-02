@@ -46,6 +46,40 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
+it("previews three IP addresses and lets users expand and collapse the full list", async () => {
+  vi.spyOn(api, "request").mockResolvedValue(data);
+  const addresses = [
+    "10.0.1.20",
+    "172.17.0.1",
+    "fe80::1",
+    "2001:db8:1234:5678:abcd:1234:5678:9abc",
+  ];
+  const wrapper = mount(DeviceDetail, {
+    props: { device: { ...device, ip_addresses: addresses }, user },
+  });
+  await flushPromises();
+  const list = wrapper.get('ul[aria-label="设备 IP 地址"]');
+  const shown = () => list.findAll("li").map((row) => row.text());
+  const toggle = wrapper.get("button[aria-expanded]");
+  expect(shown()).toEqual(addresses.slice(0, 3));
+  expect(toggle.text()).toBe("查看全部 4 个地址");
+  expect(toggle.attributes("aria-controls")).toBe(list.attributes("id"));
+  await toggle.trigger("click");
+  expect(shown()).toEqual(addresses);
+  expect(toggle.attributes("aria-expanded")).toBe("true");
+  await toggle.trigger("click");
+  expect(shown()).toEqual(addresses.slice(0, 3));
+  expect(toggle.attributes("aria-expanded")).toBe("false");
+  await wrapper.setProps({
+    device: { ...device, ip_addresses: addresses.slice(0, 3) },
+  });
+  expect(shown()).toEqual(addresses.slice(0, 3));
+  expect(wrapper.find("button[aria-expanded]").exists()).toBe(false);
+  await wrapper.setProps({ device });
+  expect(wrapper.find('ul[aria-label="设备 IP 地址"]').exists()).toBe(false);
+  expect(wrapper.text()).toContain("尚未上报");
+  wrapper.unmount();
+});
 it("copies a device-specific link without any authentication material", async () => {
   vi.spyOn(api, "request").mockResolvedValue(data);
   const copy = vi.spyOn(clipboard, "copyText").mockResolvedValue();

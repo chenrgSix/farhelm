@@ -8,6 +8,14 @@ import { diskBytes, diskPercent } from "../disk";
 import { copyText } from "../clipboard";
 import { routeHash } from "../navigation";
 const props = defineProps<{ device: Device; user: User }>();
+const addressPreviewLimit = 3;
+const addresses = computed(() => props.device.ip_addresses ?? []);
+const addressesExpanded = ref(false);
+const visibleAddresses = computed(() =>
+  addressesExpanded.value
+    ? addresses.value
+    : addresses.value.slice(0, addressPreviewLimit),
+);
 const canManageScripts = computed(() =>
   hasPermission(props.user, "scripts.manage", props.device.id),
 );
@@ -259,8 +267,39 @@ onBeforeUnmount(() => {
             <dt>Agent 版本</dt>
             <dd>{{ device.agent_version ?? "—" }}</dd>
             <dt>IP 地址</dt>
-            <dd class="mono">
-              {{ device.ip_addresses?.join("、") || "尚未上报" }}
+            <dd>
+              <template v-if="addresses.length">
+                <ul
+                  :id="`device-addresses-${device.id}`"
+                  class="address-list mono"
+                  aria-label="设备 IP 地址"
+                  :class="{ expanded: addressesExpanded }"
+                  :tabindex="
+                    addressesExpanded && addresses.length > addressPreviewLimit
+                      ? 0
+                      : undefined
+                  "
+                >
+                  <li v-for="(address, index) in visibleAddresses" :key="index">
+                    {{ address }}
+                  </li>
+                </ul>
+                <button
+                  v-if="addresses.length > addressPreviewLimit"
+                  type="button"
+                  class="text-button address-toggle"
+                  :aria-expanded="addressesExpanded"
+                  :aria-controls="`device-addresses-${device.id}`"
+                  @click="addressesExpanded = !addressesExpanded"
+                >
+                  {{
+                    addressesExpanded
+                      ? "收起地址"
+                      : `查看全部 ${addresses.length} 个地址`
+                  }}
+                </button>
+              </template>
+              <template v-else>尚未上报</template>
             </dd>
             <dt>设备组</dt>
             <dd>
@@ -396,7 +435,23 @@ dd {
 }
 .detail-side {
   display: grid;
+  min-width: 0;
   gap: 20px;
+}
+.address-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  grid-template-columns: minmax(0, 1fr);
+}
+.address-list.expanded {
+  max-height: 10rem;
+  overflow-y: auto;
+}
+.address-toggle {
+  margin-top: 6px;
 }
 .detail-card h3 {
   margin: 0 0 20px;
