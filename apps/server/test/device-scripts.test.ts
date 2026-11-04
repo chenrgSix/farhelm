@@ -181,6 +181,7 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
     for (const res of runs) assert.equal(res.statusCode, 200, res.body);
     const task = runs[0]!.json().task_id;
     assert.equal(task, runs[1]!.json().task_id);
+    assert.equal(JSON.parse(app.store.task(task).task_json).timeout_ms, 60_000);
     assert.equal((await request("GET", "/tasks/" + task, bob)).statusCode, 403);
     const blocked = await request("POST", run, bob, { v: 1, revision: 1 }, key);
     assert.equal(blocked.statusCode, 409);
@@ -261,6 +262,10 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
         .task_id,
       secondaryTask,
     );
+    assert.equal(
+      JSON.parse(app.store.task(secondaryTask).task_json).timeout_ms,
+      300_000,
+    );
     const owner = competing[0]!.statusCode === 200 ? alice : bob;
     const otherActor = owner === alice ? bob : alice;
     assert.equal(
@@ -320,8 +325,13 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
       revision: 1,
       name: "新名称",
       script: "exit 7",
+      timeout_minutes: 25,
     });
     assert.equal(savedAgain.statusCode, 200, savedAgain.body);
+    assert.equal(
+      JSON.parse(app.store.task(other.json().task_id).task_json).timeout_ms,
+      60_000,
+    );
     assert.equal(
       (await request("POST", run, bob, { v: 1, revision: 1 }, "old"))
         .statusCode,
@@ -387,6 +397,10 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
     hold = true;
     const next = await retry();
     assert.equal(next.statusCode, 200, next.body);
+    assert.equal(
+      JSON.parse(app.store.task(next.json().task_id).task_json).timeout_ms,
+      25 * 60_000,
+    );
     assert.equal((await confirm(freshAdmin)).statusCode, 200);
     assert.deepEqual(
       (await recovered.request("GET", base + "/activity", freshBob))
@@ -483,11 +497,26 @@ test("配置人员按设备范围通过用户组维护按钮，运行和平台�
     const base = "/devices/" + assigned + "/scripts",
       outside = "/devices/" + other + "/scripts";
     const config = { v: 1, name: "显示版本", script: "echo v1" };
-    const added = await request("POST", base, token, config);
+    for (const invalid of [0, 61, 1.5, "10"]) {
+      assert.equal(
+        (
+          await request("POST", base, token, {
+            ...config,
+            timeout_minutes: invalid,
+          })
+        ).statusCode,
+        400,
+      );
+    }
+    const added = await request("POST", base, token, {
+      ...config,
+      timeout_minutes: 60,
+    });
     assert.equal(added.statusCode, 200, added.body);
     const item = base + "/" + added.json().id;
     const listing = (await request("GET", base, token)).json();
     assert.equal(listing.scripts[0].script, config.script);
+    assert.equal(listing.scripts[0].timeout_minutes, 60);
     assert.deepEqual(listing.runs, []);
     const updated = await request("PUT", item, token, {
       ...config,
@@ -495,6 +524,29 @@ test("配置人员按设备范围通过用户组维护按钮，运行和平台�
       script: "echo v2",
     });
     assert.equal(updated.statusCode, 200, updated.body);
+    assert.equal(
+      (await request("GET", base, token)).json().scripts[0].timeout_minutes,
+      60,
+    );
+    const reset = await request("PUT", item, token, {
+      ...config,
+      revision: 2,
+      interactive: true,
+      timeout_minutes: null,
+    });
+    assert.equal(reset.statusCode, 200, reset.body);
+    assert.equal(
+      (await request("GET", base, token)).json().scripts[0].timeout_minutes,
+      null,
+    );
+    const saved = (await request("GET", "/audit", admin))
+      .json()
+      .audit.find(
+        (row: { action: string; detail: { revision: number } }) =>
+          row.action === "script.updated" && row.detail.revision === 3,
+      );
+    assertValid("audit", saved);
+    assert.equal(saved.detail.timeout_minutes, 5);
     assert.equal(
       (
         await request(
@@ -530,7 +582,7 @@ test("配置人员按设备范围通过用户组维护按钮，运行和平台�
       "DEVICE_SCOPE_DENIED",
     );
     assert.equal(
-      (await request("DELETE", item, token, { v: 1, revision: 2 })).statusCode,
+      (await request("DELETE", item, token, { v: 1, revision: 3 })).statusCode,
       200,
     );
     assert.deepEqual(
@@ -540,7 +592,7 @@ test("配置人员按设备范围通过用户组维护按钮，运行和平台�
         )
         .all(user.id, assigned)
         .map((row) => row.action),
-      ["script.created", "script.updated", "script.deleted"],
+      ["script.created", "script.updated", "script.updated", "script.deleted"],
     );
     const revoke = await request("PUT", "/roles/" + role.id, admin, {
       ...roleConfig,
@@ -616,6 +668,7 @@ test("SSH 执行区分退出码与提交后断线，发送脚本之前复核授�
       targets.runScript(
         config,
         script,
+        60_000,
         new AbortController().signal,
         false,
         before,

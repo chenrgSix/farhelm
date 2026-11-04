@@ -17,6 +17,7 @@ interface Button {
   revision: number;
   script?: string;
   interactive?: boolean;
+  timeout_minutes?: number | null;
 }
 interface ActiveRun {
   script_id: string;
@@ -109,6 +110,7 @@ async function pollActivity() {
     polling = false;
   }
 }
+const timeoutMinutes = ref<number | "">("");
 const draft = ref<Button>(),
   task = ref<Task>(),
   selected = ref(""),
@@ -159,6 +161,7 @@ async function refresh() {
   }
 }
 function edit(row?: Button) {
+  timeoutMinutes.value = row?.timeout_minutes ?? "";
   error.value = notice.value = "";
   draft.value = row
     ? { ...row }
@@ -184,6 +187,8 @@ async function change(remove = false) {
             v: 1,
             name: row.name.trim(),
             script: row.script,
+            timeout_minutes:
+              timeoutMinutes.value === "" ? null : timeoutMinutes.value,
             ...(row.interactive !== undefined
               ? { interactive: row.interactive }
               : {}),
@@ -466,10 +471,23 @@ onBeforeUnmount(() => {
             允许执行人逐行回答</span
           ></label
         >
+        <label
+          >执行超时（分钟）<input
+            v-model.number="timeoutMinutes"
+            type="number"
+            min="1"
+            max="60"
+            step="1"
+            :placeholder="draft.interactive ? '默认 5' : '默认 1'"
+        /></label>
+        <p class="field-hint">
+          可填 1 至 60 的整数。留空时，普通脚本默认 1 分钟，逐行交互默认 5
+          分钟。等待回答也计入总时长。
+        </p>
         <p class="field-hint">
           使用 /bin/sh，在 /tmp
-          下执行。可以粘贴脚本，也可以调用设备上已有的脚本。普通脚本限时 60
-          秒，逐行交互限时 5 分钟，可用 read 接收回答。
+          下执行。可以粘贴脚本，也可以调用设备上已有的脚本。逐行交互可用 read
+          接收回答。
         </p>
         <p class="field-hint">
           拥有这台设备访问权限和「运行设备操作台」权限的同事可以执行此操作。

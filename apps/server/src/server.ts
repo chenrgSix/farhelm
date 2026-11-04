@@ -1,7 +1,6 @@
 import {
   AgentScriptIo,
   SshScriptIo,
-  INTERACTIVE_TIMEOUT_MS,
   emptyPage,
   sliceOutput,
 } from "./script-io.js";
@@ -45,7 +44,7 @@ import {
   registerDeviceScripts,
   requireScriptIdle,
   ScriptBusyError,
-  SCRIPT_TIMEOUT_MS,
+  scriptTimeoutMinutes,
   SCRIPT_OUTPUT_LIMIT,
   type DeviceScript,
 } from "./device-scripts.js";
@@ -1745,9 +1744,7 @@ export async function buildServer(config: ServerConfig) {
           device_id: script.device_id,
           argv: ["/bin/sh", "-c", script.script],
           cwd: "/tmp",
-          timeout_ms: script.interactive
-            ? INTERACTIVE_TIMEOUT_MS
-            : SCRIPT_TIMEOUT_MS,
+          timeout_ms: scriptTimeoutMinutes(script) * 60_000,
           max_output_bytes: SCRIPT_OUTPUT_LIMIT,
           ttl_seconds: 60,
         },
@@ -1845,6 +1842,7 @@ export async function buildServer(config: ServerConfig) {
         const result = await deviceConnections.runScript(
           task.device_id,
           script.script,
+          task.timeout_ms,
           controller.signal,
           allowRoot,
           () => {

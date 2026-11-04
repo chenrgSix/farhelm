@@ -156,6 +156,7 @@ const labels: Record<string, string> = {
   confirmed_stopped: "已核实停止",
   script_id: "操作按钮 ID",
   script_hash: "脚本校验值",
+  timeout_minutes: "执行超时（分钟）",
   payload_hash: "任务校验值",
   event_id: "事件 ID",
   seq: "事件序号",

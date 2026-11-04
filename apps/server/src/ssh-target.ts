@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey } from "node:crypto";
-import { INTERACTIVE_TIMEOUT_MS, type SshScriptIo } from "./script-io.js";
+import type { SshScriptIo } from "./script-io.js";
 import { DISK_COMMAND } from "./disk-usage.js";
-import { SCRIPT_TIMEOUT_MS, SCRIPT_OUTPUT_LIMIT } from "./device-scripts.js";
+import { SCRIPT_OUTPUT_LIMIT } from "./device-scripts.js";
 import { terminalShell, quoteShellArgument } from "./terminal-shell.js";
 import ssh2, { type ClientChannel, type ConnectConfig } from "ssh2";
 import { ApiError } from "./util.js";
@@ -272,6 +272,7 @@ export class SshTargets {
   runScript(
     config: SshTargetConfig,
     script: string,
+    timeoutMs: number,
     signal: AbortSignal,
     allowRoot: boolean,
     beforeSend: () => void,
@@ -305,7 +306,7 @@ export class SshTargets {
         const timer = setTimeout(
           () =>
             finish(submitted ? "SSH_SCRIPT_TIMEOUT" : "SSH_CONNECT_TIMEOUT"),
-          io ? INTERACTIVE_TIMEOUT_MS : SCRIPT_TIMEOUT_MS,
+          timeoutMs,
         );
         signal.addEventListener("abort", abort, { once: true });
         client.on("error", (e: any) =>

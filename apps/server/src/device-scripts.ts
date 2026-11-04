@@ -15,7 +15,6 @@ import {
   version,
 } from "./util.js";
 
-export const SCRIPT_TIMEOUT_MS = 60000;
 export const SCRIPT_OUTPUT_LIMIT = 262144;
 
 export interface DeviceScript {
@@ -25,7 +24,14 @@ export interface DeviceScript {
   name: string;
   script: string;
   interactive: number;
+  timeout_minutes: number | null;
 }
+export function scriptTimeoutMinutes(
+  script: Pick<DeviceScript, "interactive" | "timeout_minutes">,
+) {
+  return script.timeout_minutes ?? (script.interactive ? 5 : 1);
+}
+
 export class ScriptBusyError extends ApiError {
   constructor(readonly activeRun: Record<string, unknown>) {
     super(409, "SCRIPT_BUSY");
@@ -129,7 +135,7 @@ export function registerDeviceScripts(
     const scripts = db
       .prepare(
         canManage
-          ? "SELECT id,name,revision,interactive,script FROM device_scripts WHERE device_id=? ORDER BY name,id"
+          ? "SELECT id,name,revision,interactive,timeout_minutes,script FROM device_scripts WHERE device_id=? ORDER BY name,id"
           : "SELECT id,name,revision,interactive FROM device_scripts WHERE device_id=? ORDER BY name,id",
       )
       .all(id)
@@ -153,10 +159,15 @@ export function registerDeviceScripts(
       "name",
       "script",
       "interactive",
+      "timeout_minutes",
       ...(editing ? ["revision"] : []),
     ]);
     if (b.interactive !== undefined && typeof b.interactive !== "boolean")
       fail(400, "INVALID_SCRIPT_MODE");
+    const configuredTimeout =
+      b.timeout_minutes == null
+        ? b.timeout_minutes
+        : integer(b.timeout_minutes, 1, 60);
     const name = str(b.name, 1, 80).trim(),
       script = str(b.script, 1, 8192);
     if (!name || !script.trim() || Buffer.byteLength(script) > 8192)
@@ -192,18 +203,17 @@ export function registerDeviceScripts(
           .get(id, name, scriptId)
       )
         fail(409, "SCRIPT_NAME_EXISTS");
-      db.prepare(
-        "INSERT INTO device_scripts(id,device_id,name,script,revision,interactive) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,script=excluded.script,revision=excluded.revision,interactive=excluded.interactive",
-      ).run(
-        scriptId,
-        id,
-        name,
-        script,
-        revision,
+      const interactive =
         b.interactive === undefined
           ? (previous?.interactive ?? 0)
-          : Number(b.interactive),
-      );
+          : Number(b.interactive);
+      const timeoutMinutes =
+        configuredTimeout === undefined
+          ? (previous?.timeout_minutes ?? null)
+          : configuredTimeout;
+      db.prepare(
+        "INSERT INTO device_scripts(id,device_id,name,script,revision,interactive,timeout_minutes) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,script=excluded.script,revision=excluded.revision,interactive=excluded.interactive,timeout_minutes=excluded.timeout_minutes",
+      ).run(scriptId, id, name, script, revision, interactive, timeoutMinutes);
       d.store.audit(
         editing ? "script.updated" : "script.created",
         user.id,
@@ -214,6 +224,10 @@ export function registerDeviceScripts(
           name,
           revision,
           script_hash: hash(script),
+          timeout_minutes: scriptTimeoutMinutes({
+            interactive,
+            timeout_minutes: timeoutMinutes,
+          }),
         },
       );
       return { v: 1, id: scriptId, revision };

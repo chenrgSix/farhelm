@@ -551,6 +551,7 @@ export function registerDeviceConnections(
     async runScript(
       id: string,
       script: string,
+      timeoutMs: number,
       signal: AbortSignal,
       allowRoot: boolean,
       authorize: () => void,
@@ -563,6 +564,7 @@ export function registerDeviceConnections(
           return await targets.runScript(
             candidate.config,
             script,
+            timeoutMs,
             signal,
             allowRoot,
             () => {

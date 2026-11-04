@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ApiError, fail, integer, keys, object, str } from "./util.js";
 
-export const INTERACTIVE_TIMEOUT_MS = 300_000;
 export const CHUNK = 8192;
 export interface ScriptQuery {
   stdout_offset: number;

@@ -88,6 +88,7 @@ it.each(["admin", "ops"] as const)(
     await wrapper
       .get("textarea")
       .setValue("cd /tmp\n/bin/sh /opt/ops/check.sh");
+    await wrapper.get('input[type="number"]').setValue("25");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
     expect(request.mock.calls[1]).toEqual([
@@ -97,6 +98,7 @@ it.each(["admin", "ops"] as const)(
         body: {
           v: 1,
           name: "检查状态",
+          timeout_minutes: 25,
           script: "cd /tmp\n/bin/sh /opt/ops/check.sh",
         },
       },

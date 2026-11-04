@@ -495,6 +495,17 @@ export class Store {
         "ALTER TABLE device_scripts ADD COLUMN interactive INTEGER NOT NULL DEFAULT 0 CHECK(interactive IN (0,1))",
       );
     }
+    if (
+      !this.db
+        .prepare(
+          "SELECT 1 FROM pragma_table_info('device_scripts') WHERE name='timeout_minutes'",
+        )
+        .get()
+    ) {
+      this.db.exec(
+        "ALTER TABLE device_scripts ADD COLUMN timeout_minutes INTEGER CHECK(timeout_minutes BETWEEN 1 AND 60)",
+      );
+    }
     this.instance = (
       this.db
         .prepare("SELECT value FROM meta WHERE key='server_instance'")
