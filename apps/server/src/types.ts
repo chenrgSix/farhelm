@@ -23,6 +23,7 @@ export interface Task {
   expires_at: number;
   timeout_ms: number;
   max_output_bytes: number;
+  interactive?: true;
   payload_hash: string;
 }
 export interface TaskEvent {

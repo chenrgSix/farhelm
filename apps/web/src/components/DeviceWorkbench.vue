@@ -8,6 +8,7 @@ import {
   statusLabels,
   terminalStates,
 } from "../model";
+import ScriptConsole from "./ScriptConsole.vue";
 import TaskDetail from "./TaskDetail.vue";
 
 interface Button {
@@ -15,16 +16,20 @@ interface Button {
   name: string;
   revision: number;
   script?: string;
+  interactive?: boolean;
 }
 interface ActiveRun {
   script_id: string;
   task_id: string;
   actor_username: string;
+  interactive?: boolean;
   status: Task["status"];
   created_at: number;
   backend: "agent" | "ssh";
 }
 interface Recent {
+  script_id: string;
+  interactive?: boolean;
   id: string;
   name: string;
   status: Task["status"];
@@ -40,6 +45,20 @@ const canRun = computed(() =>
 );
 const buttons = ref<Button[]>([]),
   runs = ref<Recent[]>([]);
+const consoleRun = ref<{ url: string; name: string }>();
+function openConsole(scriptId: string, taskId: string, name: string) {
+  closeResult();
+  consoleRun.value = {
+    url:
+      base +
+      "/" +
+      encodeURIComponent(scriptId) +
+      "/runs/" +
+      encodeURIComponent(taskId) +
+      "/io",
+    name,
+  };
+}
 const activeRuns = ref<ActiveRun[]>([]);
 const activityKnown = ref(false),
   activityError = ref("");
@@ -165,6 +184,9 @@ async function change(remove = false) {
             v: 1,
             name: row.name.trim(),
             script: row.script,
+            ...(row.interactive !== undefined
+              ? { interactive: row.interactive }
+              : {}),
             ...revision,
           },
     });
@@ -212,6 +234,7 @@ function closeResult() {
   task.value = undefined;
 }
 async function inspect(id: string) {
+  consoleRun.value = undefined;
   clearTimeout(timer);
   const serial = ++generation;
   if (selected.value !== id) task.value = undefined;
@@ -264,7 +287,8 @@ async function run(row: Button) {
     );
     remember();
     notice.value = "已提交「" + row.name + "」。";
-    await inspect(response.task_id);
+    if (row.interactive) openConsole(row.id, response.task_id, row.name);
+    else await inspect(response.task_id);
     await load();
   } catch (e) {
     if (e instanceof ApiError && e.status > 0 && e.status < 500) remember();
@@ -391,6 +415,19 @@ onBeforeUnmount(() => {
           >
           <small class="mono">任务 {{ active.task_id }}</small>
           <button
+            v-if="
+              active.interactive &&
+              active.actor_username === user.username &&
+              canRun &&
+              active.status !== 'UNKNOWN'
+            "
+            type="button"
+            class="text-button"
+            @click="openConsole(row.id, active.task_id, row.name)"
+          >
+            打开交互面板
+          </button>
+          <button
             v-if="canManage && active.status === 'UNKNOWN'"
             type="button"
             class="text-button"
@@ -423,9 +460,16 @@ onBeforeUnmount(() => {
             placeholder="/bin/sh /opt/ops/check-service.sh"
           ></textarea>
         </label>
+        <label
+          ><span
+            ><input type="checkbox" v-model="draft.interactive" />
+            允许执行人逐行回答</span
+          ></label
+        >
         <p class="field-hint">
           使用 /bin/sh，在 /tmp
-          下执行。可以粘贴脚本，也可以调用设备上已有的脚本。每次执行限时 60 秒。
+          下执行。可以粘贴脚本，也可以调用设备上已有的脚本。普通脚本限时 60
+          秒，逐行交互限时 5 分钟，可用 read 接收回答。
         </p>
         <p class="field-hint">
           拥有这台设备访问权限和「运行设备操作台」权限的同事可以执行此操作。
@@ -454,13 +498,27 @@ onBeforeUnmount(() => {
       <h4>我最近的执行</h4>
       <ul class="runs">
         <li v-for="item in runs" :key="item.id">
-          <button class="text-button" @click="inspect(item.id)">
+          <button
+            class="text-button"
+            @click="
+              item.interactive
+                ? openConsole(item.script_id, item.id, item.name)
+                : inspect(item.id)
+            "
+          >
             {{ item.name }} · {{ statusLabels[item.status] }} ·
             {{ formatTime(item.created_at) }}
           </button>
         </li>
       </ul>
     </div>
+    <ScriptConsole
+      v-if="consoleRun && canRun"
+      :key="consoleRun.url"
+      :url="consoleRun.url"
+      :name="consoleRun.name"
+      @close="consoleRun = undefined"
+    />
     <TaskDetail
       v-if="task"
       :key="task.task_id"

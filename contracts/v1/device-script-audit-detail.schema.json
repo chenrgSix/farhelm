@@ -113,6 +113,7 @@
         "payload"
       ]
     },
+    "input": { "type":"object","additionalProperties":false,"properties":{"seq":{"type":"integer","minimum":1,"maximum":2147483647}},"required":["seq"] },
     "stopConfirmed": {
       "type": "object",
       "additionalProperties": false,
@@ -146,6 +147,7 @@
     {
       "$ref": "device-script-audit-detail.schema.json#/$defs/finished"
     },
+    {"$ref":"device-script-audit-detail.schema.json#/$defs/input"},
     {
       "$ref": "device-script-audit-detail.schema.json#/$defs/stopConfirmed"
     }

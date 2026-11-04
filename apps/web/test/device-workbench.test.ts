@@ -194,3 +194,48 @@ it("只允许配置人员核实待核对任务，确认时绑定原任务 ID", a
     wrapper.unmount();
   }
 });
+
+it("逐行回答显示无换行的提示，只发送本轮序号和回答文本", async () => {
+  const { default: ScriptConsole } =
+    await import("../src/components/ScriptConsole.vue");
+  const request = vi
+    .spyOn(api, "request")
+    .mockResolvedValueOnce({
+      status: "RUNNING",
+      stdout: btoa("Version? "),
+      stderr: "",
+      next: 1,
+    })
+    .mockResolvedValueOnce({
+      status: "RUNNING",
+      stdout: "",
+      stderr: btoa("Continue? "),
+      next: 2,
+    });
+  const wrapper = mount(ScriptConsole, {
+    props: { url: "/runs/example/io", name: "发布" },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain("Version? ");
+    await wrapper.get("input").setValue("v1.2");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(request.mock.calls[1]).toEqual([
+      "/runs/example/io",
+      {
+        method: "POST",
+        body: {
+          v: 1,
+          stdout_offset: 9,
+          stderr_offset: 0,
+          input: { seq: 1, text: "v1.2" },
+        },
+      },
+    ]);
+    expect(wrapper.text()).toContain("Continue? ");
+    expect((wrapper.get("input").element as HTMLInputElement).value).toBe("");
+  } finally {
+    wrapper.unmount();
+  }
+});

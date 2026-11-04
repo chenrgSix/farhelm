@@ -19,6 +19,8 @@ pub struct Task {
     pub expires_at: i64,
     pub timeout_ms: u64,
     pub max_output_bytes: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub interactive: bool,
     pub payload_hash: String,
 }
 impl Task {
@@ -135,6 +137,7 @@ pub fn test_task() -> Task {
         expires_at: 9_000_000_000_000,
         timeout_ms: 1000,
         max_output_bytes: 1024,
+        interactive: false,
         payload_hash: String::new(),
     };
     t.payload_hash = t.hash();

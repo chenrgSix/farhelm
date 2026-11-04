@@ -53,7 +53,8 @@ pub trait ExecutionBackend: Send + Sync {
     fn name(&self) -> &'static str;
 }
 pub struct Disabled;
-pub struct SameUid;
+#[derive(Default)]
+pub struct SameUid(crate::script_io::ScriptIo);
 #[async_trait]
 impl ExecutionBackend for Disabled {
     async fn execute(&self, _: &Config, journal: &Journal, task: &Task) -> Result<()> {
@@ -69,17 +70,21 @@ impl ExecutionBackend for Disabled {
 #[async_trait]
 impl ExecutionBackend for SameUid {
     async fn execute(&self, cfg: &Config, journal: &Journal, task: &Task) -> Result<()> {
-        run_same_uid(cfg, journal, task).await
+        run_same_uid(cfg, journal, task, &self.0).await
     }
     fn name(&self) -> &'static str {
         "same-uid"
     }
 }
 
-pub async fn scheduler(cfg: Config, journal: Journal) -> Result<()> {
+pub async fn scheduler(
+    cfg: Config,
+    journal: Journal,
+    script_io: crate::script_io::ScriptIo,
+) -> Result<()> {
     recover_running(&cfg, &journal).await?;
     let backend: Box<dyn ExecutionBackend> = if cfg.execution_enabled {
-        Box::new(SameUid)
+        Box::new(SameUid(script_io))
     } else {
         Box::new(Disabled)
     };
@@ -114,7 +119,12 @@ fn no_execution(status: &str, reason: &str) -> Value {
     json!({"status":status,"exit_code":null,"reason":reason,"audit_complete":!reason.starts_with("AUDIT_"),"stdout":null,"stderr":null,"started_at":null,"finished_at":now_ms(),"cleanup":"not_started"})
 }
 
-async fn run_same_uid(cfg: &Config, journal: &Journal, task: &Task) -> Result<()> {
+async fn run_same_uid(
+    cfg: &Config,
+    journal: &Journal,
+    task: &Task,
+    script_io: &crate::script_io::ScriptIo,
+) -> Result<()> {
     ensure!(
         unsafe { libc::geteuid() } != 0,
         "refusing arbitrary execution as root"
@@ -150,7 +160,11 @@ async fn run_same_uid(cfg: &Config, journal: &Journal, task: &Task) -> Result<()
         .env("PATH", "/usr/bin:/bin")
         .env("LANG", "C.UTF-8")
         .env("LC_ALL", "C.UTF-8")
-        .stdin(Stdio::null())
+        .stdin(if task.interactive {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -168,6 +182,11 @@ async fn run_same_uid(cfg: &Config, journal: &Journal, task: &Task) -> Result<()
         });
     }
 
+    let live_files = if task.interactive {
+        Some((out.try_clone()?, err.try_clone()?))
+    } else {
+        None
+    };
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => {
@@ -178,6 +197,8 @@ async fn run_same_uid(cfg: &Config, journal: &Journal, task: &Task) -> Result<()
             return Ok(());
         }
     };
+    let io_lease = live_files
+        .map(|(out, err)| script_io.open(&task.task_id, child.stdin.take().unwrap(), out, err));
     let pid = child.id().context("spawn did not produce PID")?;
     let identity = process_identity(pid).context("cannot verify spawned process identity")?;
     if let Err(error) = journal.set_process(&task.task_id, pid, identity.start_ticks) {
@@ -218,6 +239,7 @@ async fn run_same_uid(cfg: &Config, journal: &Journal, task: &Task) -> Result<()
             }
         }
     }
+    drop(io_lease);
     // Preserve the unreaped leader until group cleanup, preventing PGID reuse.
     // TERM, bounded grace, KILL; wait/reap occurs only after both group signals.
     let cleanup_evidence = stop_group(&identity).await;
@@ -318,6 +340,7 @@ async fn reap_group(pgid: i32) {
 }
 fn create_capture(path: &Path) -> Result<File> {
     Ok(OpenOptions::new()
+        .read(true)
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -519,7 +542,7 @@ mod execution_tests {
         ];
         t.payload_hash = t.hash();
         j.accept(&t).unwrap();
-        SameUid.execute(&cfg, &j, &t).await.unwrap();
+        SameUid::default().execute(&cfg, &j, &t).await.unwrap();
         let r = result(&j);
         assert_eq!(r["status"], "FAILED");
         assert_eq!(r["exit_code"], 7);
@@ -540,7 +563,7 @@ mod execution_tests {
         t.argv = vec!["/usr/bin/env".into()];
         t.payload_hash = t.hash();
         j.accept(&t).unwrap();
-        SameUid.execute(&cfg, &j, &t).await.unwrap();
+        SameUid::default().execute(&cfg, &j, &t).await.unwrap();
         let r = result(&j);
         assert_eq!(r["status"], "SUCCEEDED");
         let text =
@@ -564,7 +587,7 @@ mod execution_tests {
         ];
         t.payload_hash = t.hash();
         j.accept(&t).unwrap();
-        SameUid.execute(&cfg, &j, &t).await.unwrap();
+        SameUid::default().execute(&cfg, &j, &t).await.unwrap();
         let r = result(&j);
         assert_eq!(r["status"], "SUCCEEDED");
         assert_eq!(
@@ -586,7 +609,7 @@ mod execution_tests {
         t.max_output_bytes = 32;
         t.payload_hash = t.hash();
         j.accept(&t).unwrap();
-        SameUid.execute(&cfg, &j, &t).await.unwrap();
+        SameUid::default().execute(&cfg, &j, &t).await.unwrap();
         let r = result(&j);
         assert_eq!(r["status"], "UNKNOWN");
         assert_eq!(r["reason"], "OUTPUT_LIMIT");
@@ -611,7 +634,7 @@ mod execution_tests {
         t.timeout_ms = 150;
         t.payload_hash = t.hash();
         j.accept(&t).unwrap();
-        SameUid.execute(&cfg, &j, &t).await.unwrap();
+        SameUid::default().execute(&cfg, &j, &t).await.unwrap();
         let r = result(&j);
         assert_eq!(r["status"], "UNKNOWN");
         assert_eq!(r["reason"], "TIMEOUT_CLEANUP_UNCONFIRMED");
@@ -644,7 +667,7 @@ mod execution_tests {
         t.timeout_ms = 150;
         t.payload_hash = t.hash();
         j.accept(&t).unwrap();
-        let outcome = SameUid.execute(&cfg, &j, &t).await;
+        let outcome = SameUid::default().execute(&cfg, &j, &t).await;
         let pid = fs::read_to_string(&pidfile)
             .unwrap()
             .trim()
@@ -711,7 +734,7 @@ mod execution_tests {
         t.payload_hash = t.hash();
         fs::create_dir(cfg.state.join(format!("artifacts/{}.stdout", t.task_id))).unwrap();
         j.accept(&t).unwrap();
-        SameUid.execute(&cfg, &j, &t).await.unwrap();
+        SameUid::default().execute(&cfg, &j, &t).await.unwrap();
         let r = result(&j);
         assert_eq!(r["status"], "FAILED");
         assert_eq!(r["reason"], "AUDIT_STORAGE_UNAVAILABLE");

@@ -237,7 +237,8 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
       await request("POST", base, admin, {
         v: 1,
         name: "独立按钮",
-        script: "true",
+        script: "read answer",
+        interactive: true,
       })
     ).json().id;
     const competing = await Promise.all(
@@ -259,6 +260,50 @@ test("设备操作员共用预设按钮，不能跨设备、更改脚本或使�
       competing.find((res) => res.statusCode === 409)!.json().active_run
         .task_id,
       secondaryTask,
+    );
+    const owner = competing[0]!.statusCode === 200 ? alice : bob;
+    const otherActor = owner === alice ? bob : alice;
+    assert.equal(
+      (
+        await request("PUT", base + "/" + secondary, admin, {
+          v: 1,
+          revision: 1,
+          name: "修改",
+          script: "true",
+          interactive: false,
+        })
+      ).json().error,
+      "SCRIPT_BUSY",
+    );
+    const ioPath = base + "/" + secondary + "/runs/" + secondaryTask + "/io";
+    const query = { v: 1, stdout_offset: 0, stderr_offset: 0 };
+    assert.equal((await request("POST", ioPath, owner, query)).json().next, 0);
+    assert.equal(
+      (await request("POST", ioPath, otherActor, query)).statusCode,
+      404,
+    );
+    assert.equal(
+      (
+        await request("POST", ioPath, otherActor, {
+          ...query,
+          input: { seq: 1, text: "y" },
+        })
+      ).statusCode,
+      404,
+    );
+    assert.equal(
+      (
+        await request("POST", ioPath, owner, {
+          ...query,
+          input: { seq: 1, text: "one\ntwo" },
+        })
+      ).statusCode,
+      400,
+    );
+    assert.equal(
+      (await request("POST", item + "/runs/" + task + "/io", alice, query))
+        .statusCode,
+      404,
     );
     hold = false;
     for (const socket of sockets) socket.destroy();

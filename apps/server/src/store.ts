@@ -484,6 +484,17 @@ export class Store {
         "utf8",
       ),
     );
+    if (
+      !this.db
+        .prepare(
+          "SELECT 1 FROM pragma_table_info('device_scripts') WHERE name='interactive'",
+        )
+        .get()
+    ) {
+      this.db.exec(
+        "ALTER TABLE device_scripts ADD COLUMN interactive INTEGER NOT NULL DEFAULT 0 CHECK(interactive IN (0,1))",
+      );
+    }
     this.instance = (
       this.db
         .prepare("SELECT value FROM meta WHERE key='server_instance'")

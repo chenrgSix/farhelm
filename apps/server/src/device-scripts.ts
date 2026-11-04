@@ -1,3 +1,4 @@
+import { parseScriptQuery, type ScriptQuery } from "./script-io.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Store } from "./store.js";
@@ -23,6 +24,7 @@ export interface DeviceScript {
   revision: number;
   name: string;
   script: string;
+  interactive: number;
 }
 export class ScriptBusyError extends ApiError {
   constructor(readonly activeRun: Record<string, unknown>) {
@@ -49,6 +51,13 @@ export function registerDeviceScripts(
     requireScope(user: User, deviceId: string): void;
     requireDevice(id: string): { revoked_at: number | null };
     availableStorage(): void;
+    io(
+      task: string,
+      device: string,
+      backend: string,
+      user: User,
+      query: ScriptQuery,
+    ): unknown;
     submit(req: FastifyRequest, user: User, script: DeviceScript): unknown;
   },
 ) {
@@ -100,12 +109,16 @@ export function registerDeviceScripts(
       fail(403, "SCRIPT_ACCESS_DENIED");
     return { user, id, canManage };
   }
+  function withMode({ interactive, ...row }: Record<string, unknown>) {
+    return interactive ? { ...row, interactive: true } : row;
+  }
   function activity(id: string) {
     return db
       .prepare(
-        "SELECT * FROM device_script_activity WHERE device_id=? ORDER BY created_at,task_id",
+        "SELECT a.*, json_extract(t.task_json,'$.interactive') AS interactive FROM device_script_activity a JOIN tasks t ON t.id=a.task_id WHERE a.device_id=? ORDER BY a.created_at,a.task_id",
       )
-      .all(id);
+      .all(id)
+      .map(withMode);
   }
   app.get(path + "/activity", async (req) => ({
     v: 1,
@@ -116,25 +129,34 @@ export function registerDeviceScripts(
     const scripts = db
       .prepare(
         canManage
-          ? "SELECT id,name,revision,script FROM device_scripts WHERE device_id=? ORDER BY name,id"
-          : "SELECT id,name,revision FROM device_scripts WHERE device_id=? ORDER BY name,id",
+          ? "SELECT id,name,revision,interactive,script FROM device_scripts WHERE device_id=? ORDER BY name,id"
+          : "SELECT id,name,revision,interactive FROM device_scripts WHERE device_id=? ORDER BY name,id",
       )
-      .all(id);
+      .all(id)
+      .map(withMode);
     const runs = hasPermission(user, "tasks.read")
       ? db
           .prepare(
-            "SELECT t.id,s.name,t.status,t.created_at FROM tasks t JOIN device_script_tasks s ON s.task_id=t.id WHERE t.device_id=? AND t.actor_id=? ORDER BY t.created_at DESC,t.id DESC LIMIT 5",
+            "SELECT t.id,s.name,s.script_id,json_extract(t.task_json,'$.interactive') AS interactive,t.status,t.created_at FROM tasks t JOIN device_script_tasks s ON s.task_id=t.id WHERE t.device_id=? AND t.actor_id=? ORDER BY t.created_at DESC,t.id DESC LIMIT 5",
           )
           .all(id, user.id)
       : [];
-    return { v: 1, scripts, runs, activity: activity(id) };
+    return { v: 1, scripts, runs: runs.map(withMode), activity: activity(id) };
   });
   function save(req: FastifyRequest, editing: boolean) {
     const user = manager(req),
       id = device(req, user),
       b = object(req.body);
     version(b);
-    keys(b, ["v", "name", "script", ...(editing ? ["revision"] : [])]);
+    keys(b, [
+      "v",
+      "name",
+      "script",
+      "interactive",
+      ...(editing ? ["revision"] : []),
+    ]);
+    if (b.interactive !== undefined && typeof b.interactive !== "boolean")
+      fail(400, "INVALID_SCRIPT_MODE");
     const name = str(b.name, 1, 80).trim(),
       script = str(b.script, 1, 8192);
     if (!name || !script.trim() || Buffer.byteLength(script) > 8192)
@@ -142,6 +164,8 @@ export function registerDeviceScripts(
     d.availableStorage();
     return d.store.transaction(() => {
       const previous = editing ? find(req, id) : undefined;
+      // A waiting prompt must keep the revision used to authorize its answers.
+      if (previous?.interactive) requireScriptIdle(d.store, id, previous.id);
       if (
         previous &&
         previous.revision !== integer(b.revision, 1, Number.MAX_SAFE_INTEGER)
@@ -169,8 +193,17 @@ export function registerDeviceScripts(
       )
         fail(409, "SCRIPT_NAME_EXISTS");
       db.prepare(
-        "INSERT INTO device_scripts(id,device_id,name,script,revision) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,script=excluded.script,revision=excluded.revision",
-      ).run(scriptId, id, name, script, revision);
+        "INSERT INTO device_scripts(id,device_id,name,script,revision,interactive) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,script=excluded.script,revision=excluded.revision,interactive=excluded.interactive",
+      ).run(
+        scriptId,
+        id,
+        name,
+        script,
+        revision,
+        b.interactive === undefined
+          ? (previous?.interactive ?? 0)
+          : Number(b.interactive),
+      );
       d.store.audit(
         editing ? "script.updated" : "script.created",
         user.id,
@@ -238,6 +271,32 @@ export function registerDeviceScripts(
         });
       return { v: 1 };
     });
+  });
+  app.post(item + "/runs/:taskId/io", async (req) => {
+    const user = d.reader(req),
+      id = device(req, user);
+    const b = object(req.body);
+    version(b);
+    const query = parseScriptQuery(b);
+    const scriptId = str((req.params as any).scriptId, 1, 128);
+    const taskId = str((req.params as any).taskId, 1, 128);
+    const row = db
+      .prepare(
+        "SELECT t.status,t.task_json,s.backend,s.revision FROM tasks t JOIN device_script_tasks s ON s.task_id=t.id WHERE t.id=? AND t.device_id=? AND t.actor_id=? AND s.script_id=?",
+      )
+      .get(taskId, id, user.id, scriptId);
+    if (!row || !JSON.parse(String(row.task_json)).interactive)
+      fail(404, "TASK_NOT_FOUND");
+    if (!hasPermission(user, "scripts.run")) fail(403, "SCRIPT_ACCESS_DENIED");
+    if (query.input) {
+      authorizeRun(user, {
+        id: scriptId,
+        device_id: id,
+        revision: Number(row.revision),
+      });
+      if (row.status !== "RUNNING") fail(409, "SCRIPT_INPUT_CLOSED");
+    }
+    return d.io(taskId, id, String(row.backend), user, query);
   });
   app.post(item + "/run", async (req) => {
     const user = d.reader(req),

@@ -399,6 +399,125 @@
       "$ref": "agent-disk-envelope.schema.json"
     },
     {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "script.io"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "request_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "task_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "stdout_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "stderr_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "input": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "pattern": "^[^\\r\\n\\u0000]*$"
+                }
+              },
+              "required": [
+                "seq",
+                "text"
+              ]
+            }
+          },
+          "required": [
+            "request_id",
+            "task_id",
+            "stdout_offset",
+            "stderr_offset"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "script.io.result"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "request_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "task_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "stdout": {
+              "type": "string",
+              "maxLength": 10924,
+              "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+            },
+            "stderr": {
+              "type": "string",
+              "maxLength": 10924,
+              "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+            },
+            "next": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "accepted": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "request_id",
+            "task_id",
+            "stdout",
+            "stderr",
+            "next"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
       "$ref": "tcp-forward-envelope.schema.json"
     }
   ],

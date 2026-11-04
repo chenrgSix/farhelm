@@ -154,6 +154,11 @@ export class ApiClient {
           ? `此操作已被 ${blockingActor} 的任务占用，请查看按钮上的执行信息。`
           : "此操作正在执行或等待核对。",
         SCRIPT_REVIEW_NOT_ALLOWED: "只能解除结果待核对的任务，请刷新执行状态。",
+        SCRIPT_AGENT_UPDATE_REQUIRED: "此设备需要升级到支持逐行交互的 Agent。",
+        SCRIPT_INPUT_CLOSED: "此任务已经停止接收输入。",
+        SCRIPT_LINE_NOT_ACCEPTED: "这行回答未发送，任务状态或回答序号已改变。",
+        SCRIPT_IO_UNAVAILABLE: "设备输入通道暂不可用。",
+        INVALID_SCRIPT_LINE: "每次只能发送一行，最多 1024 字节。",
         SCRIPT_CHANGED: "按钮配置已改变，请刷新操作台再试。",
         SCRIPT_MANAGE_DENIED: "当前账号没有这台设备的操作台配置权限。",
         SCRIPT_ACCESS_DENIED: "当前账号没有此按钮的执行权限。",

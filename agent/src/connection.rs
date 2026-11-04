@@ -34,6 +34,7 @@ pub async fn run(
     journal: Journal,
     identity: Identity,
     probes: crate::network_probes::Probes,
+    script_io: crate::script_io::ScriptIo,
 ) -> Result<i32> {
     let identity = Arc::new(identity);
 
@@ -72,6 +73,7 @@ pub async fn run(
                 network: &mut network,
                 contact,
                 probes: &probes,
+                script_io: &script_io,
                 route: &route,
                 channel,
             })
@@ -225,6 +227,7 @@ struct Session<'a> {
     network: &'a mut Monitor,
     contact: tokio::sync::watch::Sender<Option<tokio::time::Instant>>,
     probes: &'a crate::network_probes::Probes,
+    script_io: &'a crate::script_io::ScriptIo,
     route: &'a crate::routes::Settings,
     channel: &'a str,
 }
@@ -240,6 +243,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         network,
         contact,
         probes,
+        script_io,
         route,
         channel,
     } = context;
@@ -251,7 +255,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         .send(Message::Text(
             envelope(
                 "agent.hello",
-                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","tcp.forward.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","tcp.forward.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
+                json!({"agent_version":env!("CARGO_PKG_VERSION"),"capabilities":if upgrade::supervised(){vec!["script.lines.v1","disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","tcp.forward.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1","agent.upgrade.v1"]}else{vec!["script.lines.v1","disk.usage.v1","agent.route.v1","agent.trust.v1","agent.network.probes.v1","agent.network.v1","tcp.forward.v1","terminal.pty.v1","terminal.policy.v1","terminal.sudo.v1","terminal.sudo.nopasswd.v1","terminal.sudo.command.v1","terminal.config.v1","health.probes.v1","agent.address.v1"]},"server_url":cfg.server.origin().ascii_serialization(),"runtime":{"arch":std::env::consts::ARCH,"sha256":running_hash},"trusted_ca_fingerprints":crate::trust::fingerprints(cfg)?}),
             )?
             .into(),
         ))
@@ -551,6 +555,12 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                                     let result=tokio::time::timeout(Duration::from_secs(30),probe(cfg,journal,identity,&update)).await.map_err(anyhow::Error::from).and_then(|x|x);
                                     (update,result)
                                 });
+                            }
+                            "script.io" => {
+                                let req = serde_json::from_value(envelope.body)?;
+                                let reply = script_io.reply(req)?;
+                                let frame = crate::protocol::envelope("script.io.result", reply)?;
+                                socket.send(Message::Text(frame.into())).await?;
                             }
                             "task.assign"=>{let task:Task=serde_json::from_value(envelope.body)?;task.validate(&access.device_id)?;let fresh=journal.accept(&task)?;if fresh{cfg.fault("after_accept")?;}}
                             "task.cancel"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Cancel{task_id:String}let body:Cancel=serde_json::from_value(envelope.body)?;journal.cancel(&body.task_id)?;}

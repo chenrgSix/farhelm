@@ -1,4 +1,5 @@
 import { createHash, createPrivateKey } from "node:crypto";
+import { INTERACTIVE_TIMEOUT_MS, type SshScriptIo } from "./script-io.js";
 import { DISK_COMMAND } from "./disk-usage.js";
 import { SCRIPT_TIMEOUT_MS, SCRIPT_OUTPUT_LIMIT } from "./device-scripts.js";
 import { terminalShell, quoteShellArgument } from "./terminal-shell.js";
@@ -274,6 +275,7 @@ export class SshTargets {
     signal: AbortSignal,
     allowRoot: boolean,
     beforeSend: () => void,
+    io?: SshScriptIo,
   ) {
     return new Promise<{ stdout: Buffer; stderr: Buffer; code: number }>(
       (resolve, reject) => {
@@ -303,7 +305,7 @@ export class SshTargets {
         const timer = setTimeout(
           () =>
             finish(submitted ? "SSH_SCRIPT_TIMEOUT" : "SSH_CONNECT_TIMEOUT"),
-          SCRIPT_TIMEOUT_MS,
+          io ? INTERACTIVE_TIMEOUT_MS : SCRIPT_TIMEOUT_MS,
         );
         signal.addEventListener("abort", abort, { once: true });
         client.on("error", (e: any) =>
@@ -322,11 +324,22 @@ export class SshTargets {
         );
         client.on("ready", () => {
           if (done) return;
+          // In line mode authorization must precede exec: the SSH command itself contains the script.
+          if (io) {
+            try {
+              beforeSend();
+              submitted = true;
+            } catch (error) {
+              finish((error as Error).message);
+              return;
+            }
+          }
           const command =
             (allowRoot
               ? ""
               : 'uid=$(/usr/bin/id -u) && [ "$uid" -gt 0 ] || exit 126; ') +
-            "cd /tmp && exec /usr/bin/setpriv --no-new-privs -- /bin/sh -s";
+            "cd /tmp && exec /usr/bin/setpriv --no-new-privs -- /bin/sh " +
+            (io ? "-c " + quoteShellArgument(script) : "-s");
           client.exec(command, (err, channel) => {
             if (done) {
               channel?.destroy();
@@ -340,7 +353,10 @@ export class SshTargets {
               bytes += data.length;
               if (bytes > SCRIPT_OUTPUT_LIMIT)
                 finish("SSH_SCRIPT_OUTPUT_LIMIT");
-              else if (!done) chunks.push(data);
+              else if (!done) {
+                chunks.push(data);
+                io?.output(chunks === stdout ? "stdout" : "stderr", data);
+              }
             };
             channel.on("data", (b: Buffer) => collect(stdout, b));
             channel.stderr.on("data", (b: Buffer) => collect(stderr, b));
@@ -350,6 +366,19 @@ export class SshTargets {
                 ? finish(undefined, code)
                 : finish("SSH_SCRIPT_INTERRUPTED"),
             );
+            if (io) {
+              io.ready((line) => {
+                if (
+                  done ||
+                  channel.destroyed ||
+                  channel.writableEnded ||
+                  channel.writableLength > 8192
+                )
+                  throw new ApiError(409, "SCRIPT_INPUT_CLOSED");
+                channel.write(line);
+              });
+              return;
+            }
             try {
               beforeSend();
               submitted = true;

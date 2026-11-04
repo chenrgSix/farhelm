@@ -31,11 +31,16 @@ async fn run() -> Result<()> {
     let identity = Identity::load_or_create(&cfg.state)?;
     let journal = Journal::open(&cfg.state.join("journal.sqlite3"))?;
     farhelm_agent::config::sync_dir(&cfg.state)?;
-    let execution = tokio::spawn(executor::scheduler(cfg.clone(), journal.clone()));
+    let script_io = farhelm_agent::script_io::ScriptIo::default();
+    let execution = tokio::spawn(executor::scheduler(
+        cfg.clone(),
+        journal.clone(),
+        script_io.clone(),
+    ));
     let probes = farhelm_agent::network_probes::Probes::new(journal.clone());
     let probing = tokio::spawn(probes.clone().run(cfg.clone()));
     let exit = tokio::select! {
-        result=connection::run(cfg,journal,identity,probes)=>result?,
+        result=connection::run(cfg,journal,identity,probes,script_io)=>result?,
         result=execution=>{result??;anyhow::bail!("execution scheduler stopped unexpectedly")},
         result=probing=>{result??;anyhow::bail!("network probe scheduler stopped unexpectedly")},
     };

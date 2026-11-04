@@ -1,3 +1,10 @@
+import {
+  AgentScriptIo,
+  SshScriptIo,
+  INTERACTIVE_TIMEOUT_MS,
+  emptyPage,
+  sliceOutput,
+} from "./script-io.js";
 import { AcmeTlsResponder, ACME_ALPN } from "./acme-tls.js";
 import type { TLSSocket } from "node:tls";
 import Fastify, {
@@ -118,6 +125,7 @@ interface Connection {
   ready: boolean;
   terminal: boolean;
   tcpForward: boolean;
+  scriptLines?: boolean;
   sudo: boolean;
   sudoNopasswd: boolean;
   sudoCommands: boolean;
@@ -254,6 +262,7 @@ export async function buildServer(config: ServerConfig) {
             "req.body.password",
             "req.body.current_password",
             "req.body.new_password",
+            "req.body.input.text",
             "req.body.private_key",
             "req.body.ssh_password",
             "req.body.passphrase",
@@ -626,6 +635,7 @@ export async function buildServer(config: ServerConfig) {
       )
       .all(id) as any[];
     for (const row of rows) {
+      const task = JSON.parse(row.task_json) as Task;
       if (row.status === "QUEUED" && row.script_id) {
         try {
           scriptActor(row.actor_id, {
@@ -633,7 +643,9 @@ export async function buildServer(config: ServerConfig) {
             revision: row.script_revision,
             device_id: id,
           });
-          if (Date.now() >= JSON.parse(row.task_json).expires_at)
+          if (task.interactive && !c.scriptLines)
+            fail(409, "SCRIPT_AGENT_UPDATE_REQUIRED");
+          if (Date.now() >= task.expires_at)
             fail(409, "TTL_EXPIRED_BEFORE_START");
         } catch (error) {
           if (!(error instanceof ApiError)) throw error;
@@ -641,11 +653,11 @@ export async function buildServer(config: ServerConfig) {
           continue;
         }
       }
-      if (all || row.status === "QUEUED" || row.status === "SENT") {
-        if (
-          send(c, "task.assign", JSON.parse(row.task_json)) &&
-          row.status === "QUEUED"
-        )
+      if (
+        (all || row.status === "QUEUED" || row.status === "SENT") &&
+        (!task.interactive || c.scriptLines)
+      ) {
+        if (send(c, "task.assign", task) && row.status === "QUEUED")
           db.prepare(
             "UPDATE tasks SET status='SENT',updated_at=? WHERE id=? AND status='QUEUED'",
           ).run(Date.now(), row.id);
@@ -1663,12 +1675,67 @@ export async function buildServer(config: ServerConfig) {
     connections.delete(id);
     return { v: 1, ok: true };
   });
+  const agentScriptIo = new AgentScriptIo();
   const authorizeScriptRun = registerDeviceScripts(app, {
     store,
     reader: (req) => permitted(req, "devices.read"),
     requireScope,
     requireDevice,
     availableStorage,
+    async io(taskId, deviceId, backend, user, query) {
+      const row = store.task(taskId);
+      rate.check("script-io:" + row.actor_id, 600);
+      if (query.input) {
+        rate.check("script-line:" + row.actor_id, 60);
+        if (row.cancel_requested) fail(409, "SCRIPT_INPUT_CLOSED");
+        availableStorage();
+        store.audit("script.input_requested", row.actor_id, deviceId, taskId, {
+          seq: query.input.seq,
+        });
+      }
+      let page = emptyPage();
+      if (row.status === "RUNNING") {
+        if (backend === "ssh") {
+          const run = sshScriptRuns.get(taskId);
+          if (
+            query.input &&
+            run?.allowRoot &&
+            !deviceSudo(db, user, deviceId).allowed
+          )
+            fail(403, "SUDO_PERMISSION_REQUIRED");
+          if (run?.io) page = run.io.query(query);
+        } else {
+          const agent = connections.get(deviceId);
+          if (
+            !agent?.ready ||
+            !agent.scriptLines ||
+            !networkRoutes.allowed(deviceId)
+          )
+            fail(503, "SCRIPT_IO_UNAVAILABLE");
+          page = await agentScriptIo.query(deviceId, taskId, query, (body) =>
+            send(agent, "script.io", body),
+          );
+        }
+      } else if (row.result_json) {
+        const result = JSON.parse(row.result_json);
+        for (const name of ["stdout", "stderr"] as const) {
+          const artifact =
+            result[name] &&
+            db
+              .prepare(
+                "SELECT relative_path FROM artifacts WHERE task_id=? AND sha256=?",
+              )
+              .get(taskId, result[name].sha256);
+          if (artifact)
+            page[name] = sliceOutput(
+              readFileSync(join(artifactRoot, String(artifact.relative_path))),
+              query[name === "stdout" ? "stdout_offset" : "stderr_offset"],
+            );
+        }
+      }
+      if (query.input && !page.accepted) fail(409, "SCRIPT_LINE_NOT_ACCEPTED");
+      return { v: 1, status: row.status, ...page };
+    },
     submit(req, user, script) {
       return submitCommand(
         req,
@@ -1678,7 +1745,9 @@ export async function buildServer(config: ServerConfig) {
           device_id: script.device_id,
           argv: ["/bin/sh", "-c", script.script],
           cwd: "/tmp",
-          timeout_ms: SCRIPT_TIMEOUT_MS,
+          timeout_ms: script.interactive
+            ? INTERACTIVE_TIMEOUT_MS
+            : SCRIPT_TIMEOUT_MS,
           max_output_bytes: SCRIPT_OUTPUT_LIMIT,
           ttl_seconds: 60,
         },
@@ -1688,7 +1757,12 @@ export async function buildServer(config: ServerConfig) {
   });
   const sshScriptRuns = new Map<
     string,
-    { controller: AbortController; done: Promise<void> }
+    {
+      controller: AbortController;
+      done: Promise<void>;
+      io?: SshScriptIo;
+      allowRoot: boolean;
+    }
   >();
   function scriptActor(
     actorId: string,
@@ -1764,6 +1838,7 @@ export async function buildServer(config: ServerConfig) {
     );
   function launchSsh(task: Task, script: DeviceScript, allowRoot: boolean) {
     const controller = new AbortController();
+    const io = script.interactive ? new SshScriptIo() : undefined;
     let started: number | null = null;
     const done = (async () => {
       try {
@@ -1789,6 +1864,7 @@ export async function buildServer(config: ServerConfig) {
             );
             started = Date.now();
           },
+          io,
         );
         finishScript(
           task.task_id,
@@ -1812,6 +1888,8 @@ export async function buildServer(config: ServerConfig) {
           reason,
           null,
           started,
+          io?.captured("stdout"),
+          io?.captured("stderr"),
         );
       }
     })()
@@ -1822,7 +1900,7 @@ export async function buildServer(config: ServerConfig) {
         ),
       )
       .finally(() => sshScriptRuns.delete(task.task_id));
-    sshScriptRuns.set(task.task_id, { controller, done });
+    sshScriptRuns.set(task.task_id, { controller, done, io, allowRoot });
   }
   app.post("/api/v1/commands", async (req) =>
     submitCommand(req, operator(req), object(req.body)),
@@ -1909,6 +1987,8 @@ export async function buildServer(config: ServerConfig) {
           !networkRoutes.allowed(deviceId)
         )
           fail(409, "DEVICE_OFFLINE");
+        if (script.interactive && !agent.scriptLines)
+          fail(409, "SCRIPT_AGENT_UPDATE_REQUIRED");
       }
       if (sshScript && sshScriptRuns.size >= 32) fail(429, "SCRIPT_SSH_LIMIT");
       if (upgrades.active(deviceId)) fail(409, "AGENT_UPGRADE_IN_PROGRESS");
@@ -1927,6 +2007,7 @@ export async function buildServer(config: ServerConfig) {
         device_id: deviceId,
         actor_id: user.id,
         action: "exec" as const,
+        ...(script?.interactive ? { interactive: true as const } : {}),
         argv,
         cwd,
         created_at: now,
@@ -2465,6 +2546,7 @@ export async function buildServer(config: ServerConfig) {
                 )
               )
                 fail(400, "INVALID_CAPABILITIES");
+              c.scriptLines = b.capabilities.includes("script.lines.v1");
               c.disk = b.capabilities.includes("disk.usage.v1");
               c.route = b.capabilities.includes("agent.route.v1");
               c.terminal = b.capabilities.includes("terminal.pty.v1");
@@ -2576,6 +2658,9 @@ export async function buildServer(config: ServerConfig) {
             if (!renewed) fail(401, "DEVICE_AUTH_INVALID");
             c.tokenHash = th;
             c.expiresAt = renewed.expires_at;
+          } else if (env.type === "script.io.result") {
+            if (!c.ready || !c.scriptLines) fail(400, "HELLO_REQUIRED");
+            agentScriptIo.receive(c.deviceId, b);
           } else if (env.type === "agent.disk.result") {
             if (!c.ready || !c.disk) fail(400, "HELLO_REQUIRED");
             disks.receive(c.deviceId, c.healthSession, b);

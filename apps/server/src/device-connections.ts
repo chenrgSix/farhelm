@@ -1,3 +1,4 @@
+import type { SshScriptIo } from "./script-io.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
@@ -553,6 +554,7 @@ export function registerDeviceConnections(
       signal: AbortSignal,
       allowRoot: boolean,
       authorize: () => void,
+      io?: SshScriptIo,
     ) {
       const selected = routeTargets(id),
         revision = saved(id)?.revision;
@@ -571,6 +573,7 @@ export function registerDeviceConnections(
                 fail(409, "DEVICE_CONNECTION_CHANGED");
               authorize();
             },
+            io,
           );
         } catch (error) {
           // Only retry failures that happened before any script was sent.

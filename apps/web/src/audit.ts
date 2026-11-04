@@ -3,6 +3,7 @@ import { formatTime, statusLabels } from "./model";
 
 export const auditActionLabels: Record<string, string> = {
   "script.submitted": "提交设备操作",
+  "script.input_requested": "提交脚本回答",
   "script.started": "脚本开始执行",
   "script.stop_confirmed": "核实脚本已停止并解除占用",
   "script.finished": "脚本执行结束",
