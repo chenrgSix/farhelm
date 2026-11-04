@@ -15,6 +15,11 @@ import {
   version,
 } from "./util.js";
 
+/** Older agents accept execution deadlines from 100 ms to one hour. */
+export function needsExtendedTimeout(timeoutMs: number) {
+  return timeoutMs === 0 || timeoutMs > 3_600_000;
+}
+
 export const SCRIPT_OUTPUT_LIMIT = 262144;
 
 export interface DeviceScript {
@@ -24,12 +29,12 @@ export interface DeviceScript {
   name: string;
   script: string;
   interactive: number;
-  timeout_minutes: number | null;
+  run_timeout_minutes: number | null;
 }
 export function scriptTimeoutMinutes(
-  script: Pick<DeviceScript, "interactive" | "timeout_minutes">,
+  script: Pick<DeviceScript, "interactive" | "run_timeout_minutes">,
 ) {
-  return script.timeout_minutes ?? (script.interactive ? 5 : 1);
+  return script.run_timeout_minutes ?? (script.interactive ? 5 : 1);
 }
 
 export class ScriptBusyError extends ApiError {
@@ -135,7 +140,7 @@ export function registerDeviceScripts(
     const scripts = db
       .prepare(
         canManage
-          ? "SELECT id,name,revision,interactive,timeout_minutes,script FROM device_scripts WHERE device_id=? ORDER BY name,id"
+          ? "SELECT id,name,revision,interactive,run_timeout_minutes AS timeout_minutes,script FROM device_scripts WHERE device_id=? ORDER BY name,id"
           : "SELECT id,name,revision,interactive FROM device_scripts WHERE device_id=? ORDER BY name,id",
       )
       .all(id)
@@ -167,7 +172,11 @@ export function registerDeviceScripts(
     const configuredTimeout =
       b.timeout_minutes == null
         ? b.timeout_minutes
-        : integer(b.timeout_minutes, 1, 60);
+        : integer(
+            b.timeout_minutes,
+            0,
+            Math.floor(Number.MAX_SAFE_INTEGER / 60_000),
+          );
     const name = str(b.name, 1, 80).trim(),
       script = str(b.script, 1, 8192);
     if (!name || !script.trim() || Buffer.byteLength(script) > 8192)
@@ -209,10 +218,10 @@ export function registerDeviceScripts(
           : Number(b.interactive);
       const timeoutMinutes =
         configuredTimeout === undefined
-          ? (previous?.timeout_minutes ?? null)
+          ? (previous?.run_timeout_minutes ?? null)
           : configuredTimeout;
       db.prepare(
-        "INSERT INTO device_scripts(id,device_id,name,script,revision,interactive,timeout_minutes) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,script=excluded.script,revision=excluded.revision,interactive=excluded.interactive,timeout_minutes=excluded.timeout_minutes",
+        "INSERT INTO device_scripts(id,device_id,name,script,revision,interactive,run_timeout_minutes) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,script=excluded.script,revision=excluded.revision,interactive=excluded.interactive,run_timeout_minutes=excluded.run_timeout_minutes",
       ).run(scriptId, id, name, script, revision, interactive, timeoutMinutes);
       d.store.audit(
         editing ? "script.updated" : "script.created",
@@ -226,7 +235,7 @@ export function registerDeviceScripts(
           script_hash: hash(script),
           timeout_minutes: scriptTimeoutMinutes({
             interactive,
-            timeout_minutes: timeoutMinutes,
+            run_timeout_minutes: timeoutMinutes,
           }),
         },
       );

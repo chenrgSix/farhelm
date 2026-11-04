@@ -147,7 +147,7 @@ async function readOutput(stream: "stdout" | "stderr") {
       <dt>排队截止</dt>
       <dd>{{ formatTime(task.expires_at) }}</dd>
       <dt>执行超时</dt>
-      <dd>{{ task.timeout_ms }} ms</dd>
+      <dd>{{ task.timeout_ms === 0 ? "不限时" : task.timeout_ms + " ms" }}</dd>
       <dt>输出硬上限</dt>
       <dd>{{ formatBytes(task.max_output_bytes) }}</dd>
       <dt>不可变请求哈希</dt>

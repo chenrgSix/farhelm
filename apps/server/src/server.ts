@@ -45,6 +45,7 @@ import {
   requireScriptIdle,
   ScriptBusyError,
   scriptTimeoutMinutes,
+  needsExtendedTimeout,
   SCRIPT_OUTPUT_LIMIT,
   type DeviceScript,
 } from "./device-scripts.js";
@@ -125,6 +126,7 @@ interface Connection {
   terminal: boolean;
   tcpForward: boolean;
   scriptLines?: boolean;
+  extendedScriptTimeout: boolean;
   sudo: boolean;
   sudoNopasswd: boolean;
   sudoCommands: boolean;
@@ -635,6 +637,8 @@ export async function buildServer(config: ServerConfig) {
       .all(id) as any[];
     for (const row of rows) {
       const task = JSON.parse(row.task_json) as Task;
+      const timeoutSupported =
+        c.extendedScriptTimeout || !needsExtendedTimeout(task.timeout_ms);
       if (row.status === "QUEUED" && row.script_id) {
         try {
           scriptActor(row.actor_id, {
@@ -642,6 +646,7 @@ export async function buildServer(config: ServerConfig) {
             revision: row.script_revision,
             device_id: id,
           });
+          if (!timeoutSupported) fail(409, "SCRIPT_AGENT_TIMEOUT_UNSUPPORTED");
           if (task.interactive && !c.scriptLines)
             fail(409, "SCRIPT_AGENT_UPDATE_REQUIRED");
           if (Date.now() >= task.expires_at)
@@ -654,7 +659,8 @@ export async function buildServer(config: ServerConfig) {
       }
       if (
         (all || row.status === "QUEUED" || row.status === "SENT") &&
-        (!task.interactive || c.scriptLines)
+        (!task.interactive || c.scriptLines) &&
+        timeoutSupported
       ) {
         if (send(c, "task.assign", task) && row.status === "QUEUED")
           db.prepare(
@@ -1939,7 +1945,9 @@ export async function buildServer(config: ServerConfig) {
       fail(400, "RELATIVE_EXECUTABLE_DENIED");
     const cwd = str(b.cwd, 1, 4096);
     if (!isAbsolute(cwd)) fail(400, "ABSOLUTE_CWD_REQUIRED");
-    const timeout = integer(b.timeout_ms, 100, 3600000),
+    const timeout = script
+        ? integer(b.timeout_ms, 0, Number.MAX_SAFE_INTEGER)
+        : integer(b.timeout_ms, 100, 3600000),
       maxOutput = integer(b.max_output_bytes, 0, MAX_OBJECT),
       ttl = integer(b.ttl_seconds, 1, 86400);
     const key = str(req.headers["idempotency-key"], 1, 128);
@@ -1985,6 +1993,8 @@ export async function buildServer(config: ServerConfig) {
           !networkRoutes.allowed(deviceId)
         )
           fail(409, "DEVICE_OFFLINE");
+        if (!agent.extendedScriptTimeout && needsExtendedTimeout(timeout))
+          fail(409, "SCRIPT_AGENT_TIMEOUT_UNSUPPORTED");
         if (script.interactive && !agent.scriptLines)
           fail(409, "SCRIPT_AGENT_UPDATE_REQUIRED");
       }
@@ -2465,6 +2475,8 @@ export async function buildServer(config: ServerConfig) {
       const auth = deviceAuth(req);
       const c: Connection = {
         webIngress: isWebRequest(req.raw),
+        extendedScriptTimeout:
+          req.headers["x-farhelm-script-timeout"] === "extended-v1",
         socket,
         deviceId: auth.id,
         tokenHash: auth.token_hash,

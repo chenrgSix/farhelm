@@ -89,6 +89,12 @@
       "minimum": 100,
       "maximum": 3600000
     },
+    "task_timeout_ms": {
+      "anyOf": [
+        { "const": 0 },
+        { "type": "integer", "minimum": 100, "maximum": 9007199254740991 }
+      ]
+    },
     "max_output_bytes": {
       "type": "integer",
       "minimum": 0,

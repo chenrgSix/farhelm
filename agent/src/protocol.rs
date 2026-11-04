@@ -78,7 +78,7 @@ impl Task {
             "timestamps outside interoperable integer range"
         );
         ensure!(
-            self.timeout_ms >= 100 && self.timeout_ms <= 3_600_000,
+            self.timeout_ms == 0 || (100..=9_007_199_254_740_991).contains(&self.timeout_ms),
             "invalid timeout"
         );
         ensure!(self.max_output_bytes <= MAX_OUTPUT, "invalid output cap");
@@ -157,6 +157,22 @@ mod tests {
     fn rejects_wrong_identity_and_unknown_version() {
         assert!(test_task().validate("other").is_err());
         assert!(Envelope::parse(br#"{"v":2,"type":"task.assign","body":{}}"#).is_err());
+    }
+    #[test]
+    fn validates_unlimited_and_extended_deadlines_without_accepting_invalid_millis() {
+        let mut task = test_task();
+        for (ms, valid) in [
+            (0, true),
+            (99, false),
+            (100, true),
+            (2_400_000_000, true),
+            (9_007_199_254_740_991, true),
+            (9_007_199_254_740_992, false),
+        ] {
+            task.timeout_ms = ms;
+            task.payload_hash = task.hash();
+            assert_eq!(task.validate("device").is_ok(), valid, "{ms}");
+        }
     }
     #[test]
     fn rejects_injected_task_fields() {

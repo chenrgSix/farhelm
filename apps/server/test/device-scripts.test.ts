@@ -9,6 +9,38 @@ import { SshTargets, fingerprint } from "../src/ssh-target.js";
 import { randomUUID, generateKeyPairSync } from "node:crypto";
 import { assertValid } from "../../../tests/contracts/validate.mjs";
 import { buildServer } from "../src/server.js";
+import { Store } from "../src/store.js";
+
+test("旧版脚本超时设置迁移后保留默认和自定义值，不限时配置可跨重启保存", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fh-script-timeouts-"));
+  let store = new Store(dir);
+  try {
+    store.db.exec(`
+      ALTER TABLE device_scripts DROP COLUMN run_timeout_minutes;
+      ALTER TABLE device_scripts ADD COLUMN timeout_minutes INTEGER CHECK(timeout_minutes BETWEEN 1 AND 60);
+      INSERT INTO devices(id,public_key,name,created_at) VALUES('dev','key','device',1);
+      INSERT INTO device_scripts(id,device_id,name,script,revision,interactive,timeout_minutes)
+      VALUES ('a','dev','short','true',1,0,NULL), ('b','dev','interactive','true',1,1,60);
+    `);
+    store.db.close();
+    store = new Store(dir);
+    const timeouts = () =>
+      store.db
+        .prepare("SELECT run_timeout_minutes FROM device_scripts ORDER BY id")
+        .all()
+        .map((row) => row.run_timeout_minutes);
+    assert.deepEqual(timeouts(), [null, 60]);
+    store.db.exec(
+      "UPDATE device_scripts SET run_timeout_minutes=CASE id WHEN 'a' THEN 0 ELSE 40000 END",
+    );
+    store.db.close();
+    store = new Store(dir);
+    assert.deepEqual(timeouts(), [0, 40000]);
+  } finally {
+    if (store.db.isOpen) store.db.close();
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
 
 function scriptClient(
   app: Awaited<ReturnType<typeof buildServer>>,
@@ -497,7 +529,7 @@ test("配置人员按设备范围通过用户组维护按钮，运行和平台�
     const base = "/devices/" + assigned + "/scripts",
       outside = "/devices/" + other + "/scripts";
     const config = { v: 1, name: "显示版本", script: "echo v1" };
-    for (const invalid of [0, 61, 1.5, "10"]) {
+    for (const invalid of [-1, Number.MAX_SAFE_INTEGER, 1.5, "10"]) {
       assert.equal(
         (
           await request("POST", base, token, {
@@ -510,13 +542,13 @@ test("配置人员按设备范围通过用户组维护按钮，运行和平台�
     }
     const added = await request("POST", base, token, {
       ...config,
-      timeout_minutes: 60,
+      timeout_minutes: 90,
     });
     assert.equal(added.statusCode, 200, added.body);
     const item = base + "/" + added.json().id;
     const listing = (await request("GET", base, token)).json();
     assert.equal(listing.scripts[0].script, config.script);
-    assert.equal(listing.scripts[0].timeout_minutes, 60);
+    assert.equal(listing.scripts[0].timeout_minutes, 90);
     assert.deepEqual(listing.runs, []);
     const updated = await request("PUT", item, token, {
       ...config,
@@ -526,7 +558,7 @@ test("配置人员按设备范围通过用户组维护按钮，运行和平台�
     assert.equal(updated.statusCode, 200, updated.body);
     assert.equal(
       (await request("GET", base, token)).json().scripts[0].timeout_minutes,
-      60,
+      90,
     );
     const reset = await request("PUT", item, token, {
       ...config,
@@ -664,20 +696,28 @@ test("SSH 执行区分退出码与提交后断线，发送脚本之前复核授�
     fingerprint: fingerprint(parsed.getPublicSSH()),
   };
   try {
-    const run = (script: string, before = () => {}) =>
+    const run = (script: string, before = () => {}, timeoutMs = 60_000) =>
       targets.runScript(
         config,
         script,
-        60_000,
+        timeoutMs,
         new AbortController().signal,
         false,
         before,
       );
-    const result = await run("echo 'fixed command'");
+    // A single Node timer would overflow at this duration and abort the connection.
+    const result = await run(
+      "echo 'fixed command'",
+      undefined,
+      40_000 * 60_000,
+    );
     assert.equal(result.code, 7);
     assert.equal(result.stdout.toString(), "output");
     assert.equal(result.stderr.toString(), "detail");
-    await assert.rejects(run("interrupt"), /SSH_SCRIPT_INTERRUPTED/);
+    await assert.rejects(
+      run("interrupt", undefined, 0),
+      /SSH_SCRIPT_INTERRUPTED/,
+    );
     await assert.rejects(
       run("must never be sent", () => {
         throw new Error("SCRIPT_ACCESS_DENIED");

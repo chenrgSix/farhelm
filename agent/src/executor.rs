@@ -232,7 +232,7 @@ async fn run_same_uid(
     loop {
         tokio::select! {
             Some(failure)=failure_rx.recv()=>{interruption=Some(match failure{CaptureFailure::Limit=>"OUTPUT_LIMIT",CaptureFailure::Storage=>"AUDIT_STORAGE_FAILURE"});break;}
-            _=tokio::time::sleep_until(deadline)=>{interruption=Some("TIMEOUT_CLEANUP_UNCONFIRMED");break;}
+            _=tokio::time::sleep_until(deadline), if task.timeout_ms != 0 =>{interruption=Some("TIMEOUT_CLEANUP_UNCONFIRMED");break;}
             _=tick.tick()=>{
                 match journal.cancelled(&task.task_id){Ok(true)=>{interruption=Some("CANCEL_CLEANUP_UNCONFIRMED");break;},Ok(false)=>(),Err(_)=>{interruption=Some("AUDIT_STORAGE_FAILURE");break;}}
                 match process_identity(pid){Some(p) if p.start_ticks==identity.start_ticks && p.state=='Z'=>break,Some(p) if p.start_ticks==identity.start_ticks=>(),_=>{interruption=Some("PROCESS_IDENTITY_LOST");break;}}

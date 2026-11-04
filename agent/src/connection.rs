@@ -141,6 +141,13 @@ async fn connect(
     request
         .headers_mut()
         .insert("Authorization", format!("Bearer {}", access.token).parse()?);
+    if path == "/agent/ws" {
+        // Existing servers accept this optional handshake header without
+        // changing their bounded v1 hello capabilities list.
+        request
+            .headers_mut()
+            .insert("x-farhelm-script-timeout", "extended-v1".parse()?);
+    }
     let mut ws_config = WebSocketConfig::default();
     ws_config.max_message_size = Some(MAX_FRAME);
     ws_config.max_frame_size = Some(MAX_FRAME);

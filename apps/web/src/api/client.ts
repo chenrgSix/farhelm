@@ -154,6 +154,8 @@ export class ApiClient {
           ? `此操作已被 ${blockingActor} 的任务占用，请查看按钮上的执行信息。`
           : "此操作正在执行或等待核对。",
         SCRIPT_REVIEW_NOT_ALLOWED: "只能解除结果待核对的任务，请刷新执行状态。",
+        SCRIPT_AGENT_TIMEOUT_UNSUPPORTED:
+          "此设备需要升级 Agent 才能执行不限时或超过 60 分钟的操作。",
         SCRIPT_AGENT_UPDATE_REQUIRED: "此设备需要升级到支持逐行交互的 Agent。",
         SCRIPT_INPUT_CLOSED: "此任务已经停止接收输入。",
         SCRIPT_LINE_NOT_ACCEPTED: "这行回答未发送，任务状态或回答序号已改变。",

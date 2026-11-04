@@ -303,11 +303,26 @@ export class SshTargets {
         };
         const abort = () =>
           finish(submitted ? "SSH_SCRIPT_INTERRUPTED" : "SSH_SCRIPT_CANCELLED");
-        const timer = setTimeout(
-          () =>
-            finish(submitted ? "SSH_SCRIPT_TIMEOUT" : "SSH_CONNECT_TIMEOUT"),
-          timeoutMs,
-        );
+        // Node timers accept signed 32-bit delays. Re-arm long deadlines in
+        // chunks, using monotonic time so wall-clock changes do not extend them.
+        const startedAt = performance.now();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const armDeadline = () => {
+          const remaining = timeoutMs - (performance.now() - startedAt);
+          if (remaining <= 0)
+            finish(submitted ? "SSH_SCRIPT_TIMEOUT" : "SSH_CONNECT_TIMEOUT");
+          else
+            timer = setTimeout(armDeadline, Math.min(remaining, 2_147_483_647));
+        };
+        if (timeoutMs > 0) armDeadline();
+        else {
+          // Keep SSH setup bounded even when script execution has no deadline.
+          timer = setTimeout(
+            () =>
+              finish(submitted ? "SSH_SCRIPT_TIMEOUT" : "SSH_CONNECT_TIMEOUT"),
+            60_000,
+          );
+        }
         signal.addEventListener("abort", abort, { once: true });
         client.on("error", (e: any) =>
           finish(
@@ -350,6 +365,7 @@ export class SshTargets {
               finish("SSH_SCRIPT_EXEC_DENIED");
               return;
             }
+            if (timeoutMs === 0) clearTimeout(timer);
             const collect = (chunks: Buffer[], data: Buffer) => {
               bytes += data.length;
               if (bytes > SCRIPT_OUTPUT_LIMIT)

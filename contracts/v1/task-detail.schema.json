@@ -30,7 +30,7 @@
       "$ref": "common.schema.json#/$defs/timestamp"
     },
     "timeout_ms": {
-      "$ref": "common.schema.json#/$defs/timeout_ms"
+      "$ref": "common.schema.json#/$defs/task_timeout_ms"
     },
     "max_output_bytes": {
       "$ref": "common.schema.json#/$defs/max_output_bytes"

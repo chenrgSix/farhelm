@@ -88,7 +88,20 @@ it.each(["admin", "ops"] as const)(
     await wrapper
       .get("textarea")
       .setValue("cd /tmp\n/bin/sh /opt/ops/check.sh");
-    await wrapper.get('input[type="number"]').setValue("25");
+    if (role === "admin") {
+      await wrapper.get('input[type="number"]').setValue("180");
+    } else {
+      await wrapper
+        .findAll('input[type="checkbox"]')
+        .find((input) =>
+          input.element.closest("label")?.textContent?.includes("不限时"),
+        )!
+        .setValue(true);
+      expect(wrapper.get('input[type="number"]').element).toHaveProperty(
+        "disabled",
+        true,
+      );
+    }
     await wrapper.get("form").trigger("submit");
     await flushPromises();
     expect(request.mock.calls[1]).toEqual([
@@ -98,7 +111,7 @@ it.each(["admin", "ops"] as const)(
         body: {
           v: 1,
           name: "检查状态",
-          timeout_minutes: 25,
+          timeout_minutes: role === "admin" ? 180 : 0,
           script: "cd /tmp\n/bin/sh /opt/ops/check.sh",
         },
       },

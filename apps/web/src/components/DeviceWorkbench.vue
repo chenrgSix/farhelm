@@ -111,6 +111,7 @@ async function pollActivity() {
   }
 }
 const timeoutMinutes = ref<number | "">("");
+const unlimited = ref(false);
 const draft = ref<Button>(),
   task = ref<Task>(),
   selected = ref(""),
@@ -161,7 +162,8 @@ async function refresh() {
   }
 }
 function edit(row?: Button) {
-  timeoutMinutes.value = row?.timeout_minutes ?? "";
+  unlimited.value = row?.timeout_minutes === 0;
+  timeoutMinutes.value = row?.timeout_minutes || "";
   error.value = notice.value = "";
   draft.value = row
     ? { ...row }
@@ -187,8 +189,11 @@ async function change(remove = false) {
             v: 1,
             name: row.name.trim(),
             script: row.script,
-            timeout_minutes:
-              timeoutMinutes.value === "" ? null : timeoutMinutes.value,
+            timeout_minutes: unlimited.value
+              ? 0
+              : timeoutMinutes.value === ""
+                ? null
+                : timeoutMinutes.value,
             ...(row.interactive !== undefined
               ? { interactive: row.interactive }
               : {}),
@@ -476,13 +481,20 @@ onBeforeUnmount(() => {
             v-model.number="timeoutMinutes"
             type="number"
             min="1"
-            max="60"
+            :disabled="unlimited"
             step="1"
-            :placeholder="draft.interactive ? '默认 5' : '默认 1'"
+            :placeholder="
+              unlimited ? '不限时' : draft.interactive ? '默认 5' : '默认 1'
+            "
         /></label>
+        <label
+          ><span
+            ><input type="checkbox" v-model="unlimited" /> 不限时</span
+          ></label
+        >
         <p class="field-hint">
-          可填 1 至 60 的整数。留空时，普通脚本默认 1 分钟，逐行交互默认 5
-          分钟。等待回答也计入总时长。
+          可填正整数分钟。留空时，普通脚本默认 1 分钟，逐行交互默认 5
+          分钟。等待回答也计入总时长。勾选「不限时」会关闭本次脚本的执行计时。
         </p>
         <p class="field-hint">
           使用 /bin/sh，在 /tmp

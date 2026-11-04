@@ -295,6 +295,7 @@ function object(value: unknown): Record<string, unknown> {
     : {};
 }
 function format(key: string, value: unknown): string {
+  if (key === "timeout_minutes" && value === 0) return "不限时";
   if (key === "terminal_limit" && value === null) return "继承全局";
   if (value === null || value === undefined) return "未记录";
   if (typeof value === "boolean") return value ? "是" : "否";
