@@ -63,7 +63,7 @@ test("retired direct SSH account requests never contact the target; the default 
     const terminal = await f.web(f.admin, f.id);
     assert.deepEqual(await terminal.wait("terminal.ready"), {
       backend: "ssh",
-      sudo_allowed: false,
+      sudo_allowed: true,
       sudo_enforced: true,
     });
     await until(() => terminal.output().includes("TARGET_SSH_READY"));
@@ -1768,7 +1768,13 @@ test("password credentials survive server restart without returning plaintext", 
 test("restricted SSH fails closed when target cannot attest no_new_privs and never accepts input", async () => {
   const f = await fixture(15000, "linux-user", undefined, false);
   try {
-    const terminal = await f.web();
+    const user = f.store.seedUser({
+      username: "restricted-ssh-user",
+      password: "connection-test-password1",
+      role: "ops",
+      deviceScope: [f.id],
+    });
+    const terminal = await f.web(await f.login(user.username));
     assert.equal(
       (await terminal.wait("terminal.closed")).reason,
       "SSH_PRIVILEGE_POLICY_NOT_SUPPORTED",

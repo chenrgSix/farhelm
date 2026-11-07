@@ -353,6 +353,10 @@ try {
     'cd /tmp; printf \'__USER_%s__ __CWD_%s__\\n\' "$(id -un)" "$PWD"\r',
   );
   await text("__USER_terminal__ __CWD_/tmp__");
+  const privilegeProbe =
+    "printf '__NNP_%s__\\n' \"$(awk '/^NoNewPrivs:/ {print $2}' /proc/$$/status)\"";
+  await page.keyboard.type(privilegeProbe + "\r");
+  await text("__NNP_0__");
   await page.keyboard.type("printf '__WAIT_%s__\\n' BEGIN; sleep 30\r");
   await text("__WAIT_BEGIN__");
   await page.keyboard.press("Control+c");
@@ -483,11 +487,14 @@ try {
       text,
     });
   cli.stdin.write(
-    "stty -echo; printf '__OPENSSH_%s__\\n' \"$(id -un)\"; exit\r",
+    "stty -echo; printf '__OPENSSH_%s__\\n' \"$(id -un)\"; " +
+      privilegeProbe +
+      "; exit\r",
   );
   const [code] = await once(cli, "exit");
   assert.equal(code, 0, stderr);
   assert.ok(output.includes("__OPENSSH_terminal__"));
+  assert.ok(output.includes("__NNP_0__"));
   const sshSession = (await api("/terminal-sessions")).sessions.find(
     (s) => s.transport === "ssh",
   );

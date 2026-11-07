@@ -96,6 +96,7 @@
           },
           "sudo_reason": {
             "enum": [
+              "ADMIN_DEFAULT",
               "USER_DENIED",
               "USER_ALLOWED",
               "INHERITED",

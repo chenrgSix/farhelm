@@ -116,12 +116,70 @@ test("sudo migration keeps only previous user/device intersections, sources and 
     migrateDeviceSudo(s.db, (row) => s.user(row));
     s.close();
     s = new Store(dir);
-    assert.equal(deviceSudo(s.db, current(s, admin.id), "one").allowed, false);
+    assert.equal(
+      deviceSudo(s.db, current(s, admin.id), "one").reason,
+      "ADMIN_DEFAULT",
+    );
+    assert.equal(
+      s.db
+        .prepare("SELECT count(*) AS n FROM device_sudo_rules WHERE user_id=?")
+        .get(admin.id)!.n,
+      0,
+    );
     device(s, "new-server");
     assert.equal(
       deviceSudo(s.db, current(s, disabled.id), "new-server").allowed,
       false,
     );
+  } finally {
+    s.close();
+  }
+});
+
+test("administrator sudo defaults cover new devices and inherited admin roles, with explicit denial and demotion taking effect", () => {
+  const s = fresh();
+  try {
+    device(s, "existing");
+    const admin = s.seedUser({
+      username: "owner",
+      password,
+      role: "admin",
+      deviceScope: "*",
+    });
+    const user = s.seedUser({
+      username: "member",
+      password,
+      role: "business",
+      deviceScope: "*",
+    });
+    device(s, "new");
+    for (const id of ["existing", "new"]) {
+      assert.equal(
+        deviceSudo(s.db, current(s, admin.id), id).reason,
+        "ADMIN_DEFAULT",
+      );
+      assert.equal(deviceSudo(s.db, current(s, user.id), id).allowed, false);
+    }
+    rule(s, "deny", "existing", "user_id", admin.id, "deny");
+    assert.equal(
+      deviceSudo(s.db, current(s, admin.id), "existing").reason,
+      "USER_DENIED",
+    );
+    assert.equal(deviceSudo(s.db, current(s, admin.id), "new").allowed, true);
+    s.db.exec(
+      "INSERT INTO access_groups(id,name,description,device_scope,created_at,updated_at) VALUES('admins','admins','','[]',1,1); INSERT INTO group_roles VALUES('admins','admin')",
+    );
+    s.db.prepare("INSERT INTO group_members VALUES('admins',?)").run(user.id);
+    assert.equal(
+      deviceSudo(s.db, current(s, user.id), "new").reason,
+      "ADMIN_DEFAULT",
+    );
+    s.db.prepare("DELETE FROM group_members WHERE user_id=?").run(user.id);
+    assert.equal(deviceSudo(s.db, current(s, user.id), "new").allowed, false);
+    s.db
+      .prepare("DELETE FROM user_roles WHERE user_id=? AND role_id='admin'")
+      .run(admin.id);
+    assert.equal(deviceSudo(s.db, current(s, admin.id), "new").allowed, false);
   } finally {
     s.close();
   }
@@ -211,6 +269,19 @@ test("sudo configuration is admin-only, revisioned, audited, separate from ordin
       .body.access_token;
     device(s.store, "one");
     device(s.store, "two");
+    const adminId = (await api("GET", "/me")).body.id;
+    const adminEffective = (
+      await api("GET", `/access-authorizations/effective/${adminId}`)
+    ).body;
+    assertValid("effective-authorization-response", adminEffective);
+    assert.equal(adminEffective.accounts.length, 2);
+    for (const account of adminEffective.accounts) {
+      assert.equal(account.sudo_allowed, true);
+      assert.equal(account.sudo_reason, "ADMIN_DEFAULT");
+      assert.deepEqual(account.sudo_sources, [
+        "管理员默认拥有所有设备 sudo 权限",
+      ]);
+    }
     const user = s.store.seedUser({
       username: "operator",
       password,

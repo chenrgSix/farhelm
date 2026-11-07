@@ -338,14 +338,25 @@ try {
     }, "web-enabled setting survives Agent restart and env-disabled default");
   }
   const operatorId = (await api("GET", "/me")).id;
-  await api("POST", "/access-authorizations/sudo", {
-    v: 1,
-    device_id: device.id,
-    subject_type: "user",
-    subject_id: operatorId,
-    effect: "allow",
-    revision: 0,
-  });
+  const effective = await api(
+    "GET",
+    `/access-authorizations/effective/${operatorId}`,
+  );
+  assertValid("effective-authorization-response", effective);
+  const defaultSudo = effective.accounts.find(
+    (account) => account.device_id === device.id,
+  );
+  assert.equal(defaultSudo.sudo_allowed, true);
+  assert.equal(defaultSudo.sudo_reason, "ADMIN_DEFAULT");
+  assert.deepEqual(defaultSudo.sudo_sources, [
+    "管理员默认拥有所有设备 sudo 权限",
+  ]);
+  assert.equal(
+    server.store.db
+      .prepare("SELECT count(*) AS n FROM device_sudo_rules WHERE device_id=?")
+      .get(device.id).n,
+    0,
+  );
   // The everyday flow requires no target account or account authorization.
   const ordinary = await open(undefined, admin);
   await ordinary.ready();
@@ -415,6 +426,7 @@ try {
     );
     for (const [marker, command] of [
       ["__AUTO_UID__", "sudo -k id -u"],
+      ["__AUTO_LOGIN__", "sudo -k -i /usr/bin/id -u"],
       ["__AUTO_REPEAT__", "sudo -k id -u"],
       ["__AUTO_SU__", "sudo -k su - -c 'id -u'"],
       ["__AUTO_ENV__", "SUDO_ASKPASS=/bin/echo sudo -k id -u"],
@@ -655,7 +667,7 @@ try {
       subject_type: "user",
       subject_id: operatorId,
       effect: "deny",
-      revision: 1,
+      revision: 0,
     });
     const denied = await open();
     await denied.ready();
@@ -728,7 +740,7 @@ try {
       subject_type: "user",
       subject_id: operatorId,
       effect: "allow",
-      revision: 2,
+      revision: 1,
     });
   }
   assert.equal(

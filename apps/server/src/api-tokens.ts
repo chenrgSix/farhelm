@@ -65,7 +65,8 @@ export class ApiTokens {
         return (
           (user.device_scope === "*" || user.device_scope.includes(id)) &&
           policy.allowed(user, id, null) &&
-          deviceSudo(this.store.db, user, id).allowed
+          // Token capabilities follow explicit grants, not the owner's admin default.
+          deviceSudo(this.store.db, { ...user, role: "ops" }, id).allowed
         );
       });
   }

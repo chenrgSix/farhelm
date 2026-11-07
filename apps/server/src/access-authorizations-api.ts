@@ -408,13 +408,16 @@ export function registerAccessAuthorizations(
           missing,
           sudo_allowed: !missing.length && sudo.allowed,
           sudo_reason: missing.length ? "CONNECTION_DENIED" : sudo.reason,
-          sudo_sources: sudo.rules.map((r) => {
-            const v = sudoView(r);
-            return (
-              v.subject_name +
-              (r.origin === "legacy" ? "（迁移自原 sudo 权限）" : "")
-            );
-          }),
+          sudo_sources:
+            sudo.reason === "ADMIN_DEFAULT"
+              ? ["管理员默认拥有所有设备 sudo 权限"]
+              : sudo.rules.map((r) => {
+                  const v = sudoView(r);
+                  return (
+                    v.subject_name +
+                    (r.origin === "legacy" ? "（迁移自原 sudo 权限）" : "")
+                  );
+                }),
         },
       ];
     });

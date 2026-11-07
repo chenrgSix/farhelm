@@ -467,7 +467,8 @@ onBeforeUnmount(() => {
         <div>
           <h3>设备 sudo 授权</h3>
           <p class="field-hint">
-            用户明确禁止优先于所有允许；未配置用户规则时继承用户组、角色或迁移来源。设备提权开关和
+            管理员默认拥有所有设备 sudo
+            权限。用户明确禁止优先于默认授权和其他允许规则；普通用户按用户组、角色或个人规则授权。设备提权开关和
             Linux 系统权限仍是上限。
           </p>
         </div>
@@ -595,8 +596,8 @@ onBeforeUnmount(() => {
         </table>
       </div>
       <p v-else-if="!loading" class="field-hint">
-        没有匹配的 sudo
-        授权。新授权默认不允许提权，旧权限已按原用户、设备范围自动迁移。
+        没有匹配的单独 sudo 授权规则。管理员默认拥有所有设备 sudo
+        权限，普通用户需单独授权或继承已有规则。
       </p>
       <label class="authorization-search"
         >搜索授权<input

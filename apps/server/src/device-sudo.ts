@@ -31,6 +31,8 @@ export function deviceSudo(db: DatabaseSync, user: User, deviceId: string) {
   );
   if (deny.length)
     return { allowed: false, rules: deny, reason: "USER_DENIED" };
+  if (user.role === "admin" && !user.api_token_id)
+    return { allowed: true, rules: [] as SudoRule[], reason: "ADMIN_DEFAULT" };
   const direct = explicit.filter(
     (r) => r.user_id === user.id && r.effect === "allow",
   );

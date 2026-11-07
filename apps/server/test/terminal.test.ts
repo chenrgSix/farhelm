@@ -2258,7 +2258,7 @@ test("web terminal privilege settings require admin, report real state, gate sud
   }
 });
 
-test("device sudo rules control passwordless and manual sudo sessions and revoke active sessions and tickets without deleting recordings", async () => {
+test("admin sudo defaults and explicit device rules control sessions and revoke active sessions and tickets without deleting recordings", async () => {
   const f = await fixture();
   try {
     const me = (await f.api("GET", "/api/v1/me", undefined, f.admin)).body;
@@ -2276,13 +2276,27 @@ test("device sudo rules control passwordless and manual sudo sessions and revoke
         },
         f.admin,
       );
+    const initial = await f.create();
+    const initialBrowser = await f.attach(initial.body);
+    const initialRequest = await f.agent.wait("terminal.open");
+    assert.equal(initialRequest.allow_sudo, true);
+    f.agent.send("terminal.opened", { session_id: initialRequest.session_id });
+    assert.equal(
+      (await initialBrowser.wait("terminal.ready")).sudo_allowed,
+      true,
+    );
+    assert.equal((await policy("deny", 0)).status, 200);
+    assert.equal(
+      (await initialBrowser.wait("terminal.closed")).reason,
+      "AUTHORIZATION_EXPIRED",
+    );
     const restricted = await f.create();
     const browser = await f.attach(restricted.body);
     let request = await f.agent.wait("terminal.open");
     assert.equal(request.allow_sudo, false);
     f.agent.send("terminal.opened", { session_id: request.session_id });
     assert.equal((await browser.wait("terminal.ready")).sudo_allowed, false);
-    assert.equal((await policy("allow", 0)).status, 200);
+    assert.equal((await policy("allow", 1)).status, 200);
     assert.equal(
       (await browser.wait("terminal.closed")).reason,
       "AUTHORIZATION_EXPIRED",
@@ -2298,7 +2312,7 @@ test("device sudo rules control passwordless and manual sudo sessions and revoke
       (await grantedBrowser.wait("terminal.ready")).sudo_allowed,
       true,
     );
-    assert.equal((await policy("deny", 1)).status, 200);
+    assert.equal((await policy("deny", 2)).status, 200);
     assert.equal(
       (await grantedBrowser.wait("terminal.closed")).reason,
       "AUTHORIZATION_EXPIRED",
