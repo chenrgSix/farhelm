@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import AccessManagementPanel from "../src/components/AccessManagementPanel.vue";
+import DevicePicker from "../src/components/DevicePicker.vue";
 import { api } from "../src/api/client";
 import { hasPermission } from "../src/model";
 import type { AccessManagement, Device, User } from "../src/api/types";
@@ -18,6 +19,10 @@ const devices: Device[] = [
 ];
 const data: AccessManagement = {
   v: 1,
+  device_scope_sources: {
+    device_ids: ["one"],
+    grants: [{ device_id: "one", subject_type: "group", subject_id: "group" }],
+  },
   permissions: [
     { id: "devices.read", label: "查看设备", description: "设备" },
     { id: "tasks.read", label: "查看任务", description: "任务" },
@@ -114,11 +119,11 @@ const data: AccessManagement = {
   ],
 };
 afterEach(() => vi.restoreAllMocks());
-async function setup() {
+async function setup(fixture: AccessManagement = data) {
   const request = vi
     .spyOn(api, "request")
     .mockImplementation(async (_path, options) =>
-      options ? { v: 1, ok: true } : (structuredClone(data) as any),
+      options ? { v: 1, ok: true } : (structuredClone(fixture) as any),
     );
   const wrapper = mount(AccessManagementPanel, {
     props: { currentUserId: "admin", devices },
@@ -129,6 +134,114 @@ async function setup() {
     wrapper.findAll("button").find((b) => b.text() === text)!;
   return { wrapper, request, button };
 }
+it("previews group, role and personal grants live, deduplicates devices and saves only direct selections", async () => {
+  const fixture = structuredClone(data);
+  fixture.groups[0]!.device_scope = ["one", "revoked"];
+  fixture.device_scope_sources = {
+    device_ids: ["one", "two", "three"],
+    grants: [
+      { device_id: "two", subject_type: "role", subject_id: "ops" },
+      { device_id: "three", subject_type: "group", subject_id: "group" },
+      { device_id: "three", subject_type: "user", subject_id: "user" },
+      { device_id: "one", subject_type: "user", subject_id: "someone-else" },
+    ],
+  };
+  const { wrapper, request } = await setup(fixture);
+  await wrapper.get('[aria-label="编辑用户 operator"]').trigger("click");
+  const summary = () =>
+    wrapper.get(".access-scope-summary").text().replace(/\s+/g, " ");
+  expect(summary()).toBe("直接选择 0 台继承授权 3 台合计 3 台");
+  expect(wrapper.text()).not.toContain("已选 0 台");
+  await wrapper.get('[aria-label="加入用户组 运维组"]').setValue(false);
+  expect(summary()).toBe("直接选择 0 台继承授权 1 台合计 1 台");
+  await wrapper.get('[aria-label="分配角色 运维"]').setValue(true);
+  expect(summary()).toBe("直接选择 0 台继承授权 2 台合计 2 台");
+  wrapper
+    .getComponent(DevicePicker)
+    .vm.$emit("update:modelValue", ["two", "one"]);
+  await flushPromises();
+  expect(summary()).toBe("直接选择 2 台继承授权 2 台合计 3 台");
+  await wrapper.get('[aria-label="分配角色 运维"]').setValue(false);
+  expect(summary()).toBe("直接选择 2 台继承授权 1 台合计 3 台");
+  await wrapper.get("form").trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith("/users/user", {
+    method: "PUT",
+    body: expect.objectContaining({
+      device_scope: ["two", "one"],
+      role_ids: [],
+      group_ids: [],
+    }),
+  });
+  wrapper.unmount();
+});
+it("counts all-device and administrator grants against the full inventory, including when no devices exist", async () => {
+  const fixture = structuredClone(data);
+  fixture.device_scope_sources = {
+    device_ids: ["one", "two", "three"],
+    grants: [],
+  };
+  fixture.groups[0]!.device_scope = "*";
+  const { wrapper, button } = await setup(fixture);
+  await button("创建用户").trigger("click");
+  const summary = () => wrapper.get(".access-scope-summary").text();
+  expect(summary()).toContain("合计 0 台");
+  await wrapper.get('[aria-label="加入用户组 运维组"]').setValue(true);
+  expect(summary()).toContain("继承授权 3 台（全部设备）");
+  expect(summary()).toContain("合计 3 台");
+  await wrapper.get('[aria-label="加入用户组 运维组"]').setValue(false);
+  await wrapper.get('[aria-label="分配角色 管理员"]').setValue(true);
+  expect(summary()).toContain("继承授权 3 台（全部设备）");
+  await wrapper.get('[aria-label="分配角色 管理员"]').setValue(false);
+  const all = wrapper
+    .findAll("label")
+    .find((label) => label.text() === "全部设备（含以后添加的设备）")!
+    .get("input");
+  await all.setValue(true);
+  expect(summary()).toContain("直接选择 3 台（全部设备）");
+  expect(summary()).toContain("继承授权 0 台");
+  expect(summary()).toContain("合计 3 台");
+  wrapper.unmount();
+  fixture.device_scope_sources.device_ids = [];
+  const empty = await setup(fixture);
+  await empty.button("创建用户").trigger("click");
+  await empty.wrapper.get('[aria-label="分配角色 管理员"]').setValue(true);
+  expect(empty.wrapper.get(".access-scope-summary").text()).toContain(
+    "继承授权 0 台（全部设备）",
+  );
+  empty.wrapper.unmount();
+});
+it("previews a group's own device and role grants without inheriting its members' scopes", async () => {
+  const fixture = structuredClone(data);
+  fixture.device_scope_sources = {
+    device_ids: ["one", "two", "three"],
+    grants: [
+      { device_id: "one", subject_type: "group", subject_id: "group" },
+      { device_id: "two", subject_type: "role", subject_id: "ops" },
+      { device_id: "three", subject_type: "user", subject_id: "user" },
+    ],
+  };
+  const { wrapper } = await setup(fixture);
+  await wrapper.get('[role="tab"]:nth-child(3)').trigger("click");
+  await wrapper.get('[aria-label="编辑用户组 运维组"]').trigger("click");
+  expect(wrapper.get(".access-scope-summary").text()).toContain(
+    "继承授权 2 台",
+  );
+  await wrapper.get('[aria-label="批量选择设备组 生产组"]').setValue(true);
+  expect(wrapper.get(".access-scope-summary").text()).toContain("合计 2 台");
+  await wrapper.get('[aria-label="分配角色 运维"]').setValue(false);
+  expect(wrapper.get(".access-scope-summary").text()).toContain("合计 1 台");
+  wrapper.unmount();
+});
+it("does not report zero inherited devices when an older server omits scope sources", async () => {
+  const fixture = structuredClone(data);
+  delete fixture.device_scope_sources;
+  const { wrapper, button } = await setup(fixture);
+  await button("创建用户").trigger("click");
+  expect(wrapper.text()).toContain("暂无法统计继承授权和合计");
+  expect(wrapper.find(".access-scope-summary").exists()).toBe(false);
+  wrapper.unmount();
+});
 it("creates users with no implicit privileges, uses device-group tags to select concrete devices and clears passwords", async () => {
   const { wrapper, request, button } = await setup();
   await button("创建用户").trigger("click");

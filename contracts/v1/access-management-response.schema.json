@@ -7,6 +7,39 @@
     "v": {
       "const": 1
     },
+    "device_scope_sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "device_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "uniqueItems": true
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "device_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "subject_type": {
+                "enum": ["user", "group", "role"]
+              },
+              "subject_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              }
+            },
+            "required": ["device_id", "subject_type", "subject_id"]
+          }
+        }
+      },
+      "required": ["device_ids", "grants"]
+    },
     "permissions": {
       "type": "array",
       "items": {

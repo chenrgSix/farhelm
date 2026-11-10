@@ -401,6 +401,27 @@ export function registerAccessControl(
         .prepare("SELECT * FROM device_groups ORDER BY name")
         .all()
         .map(deviceGroupView),
+      device_scope_sources: {
+        device_ids: db
+          .prepare(
+            "SELECT id FROM devices WHERE revoked_at IS NULL ORDER BY id",
+          )
+          .all()
+          .map((row) => row.id),
+        // Keep the same visibility grants as grantedDevices(), including retained
+        // account grants. These counts do not imply permission to open a terminal.
+        grants: db
+          .prepare(
+            `SELECT DISTINCT a.device_id,
+               CASE WHEN a.user_id IS NOT NULL THEN 'user'
+                    WHEN a.group_id IS NOT NULL THEN 'group' ELSE 'role' END AS subject_type,
+               COALESCE(a.user_id,a.group_id,a.role_id) AS subject_id
+             FROM account_authorizations a JOIN devices d ON d.id=a.device_id
+             WHERE d.revoked_at IS NULL AND a.legacy_scope=0 AND a.inherit_scope=0
+             ORDER BY subject_type,subject_id,a.device_id`,
+          )
+          .all(),
+      },
     };
   });
   app.post("/api/v1/users", async (req) => {

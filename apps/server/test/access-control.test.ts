@@ -9,6 +9,10 @@ import { buildServer } from "../src/server.js";
 import { Store } from "../src/store.js";
 import { passwordHash } from "../src/util.js";
 import { assertValid } from "../../../tests/contracts/validate.mjs";
+import {
+  seedLegacyAccount,
+  seedLegacyGrant,
+} from "./legacy-account-fixture.js";
 
 const root = mkdtempSync(join(tmpdir(), "farhelm-access-test-"));
 execFileSync("bash", ["../../deploy/dev/generate-tls.sh", join(root, "tls")], {
@@ -90,6 +94,91 @@ async function fixture() {
     },
   };
 }
+test("scope preview sources match current visibility grants and exclude revoked and legacy-scoped devices", async () => {
+  const f = await fixture();
+  try {
+    for (const id of ["one", "two", "three", "revoked"]) f.device(id);
+    const role = (
+      await f.api("POST", "/roles", {
+        v: 1,
+        name: "Preview role",
+        description: "",
+        permissions: ["devices.read"],
+      })
+    ).body.role;
+    const group = (
+      await f.api("POST", "/groups", {
+        v: 1,
+        name: "Preview group",
+        description: "",
+        role_ids: [role.id],
+        member_ids: [],
+        device_scope: ["one"],
+      })
+    ).body.group;
+    const user = await f.user("preview-user", { group_ids: [group.id] });
+    for (const [subjectType, subjectId, deviceId] of [
+      ["group", group.id, "two"],
+      ["role", role.id, "two"],
+      ["user", user.id, "three"],
+      ["role", role.id, "revoked"],
+    ]) {
+      assert.equal(
+        (
+          await f.api("POST", "/access-authorizations", {
+            v: 1,
+            device_id: deviceId,
+            subject_type: subjectType,
+            subject_id: subjectId,
+          })
+        ).status,
+        200,
+      );
+    }
+    f.store.db
+      .prepare("UPDATE devices SET revoked_at=1 WHERE id='revoked'")
+      .run();
+    // A duplicate retained account grant contributes the same device scope once.
+    const retained = seedLegacyAccount(f.store, "three", {
+      name: "Retained account",
+      username: "root",
+      method: "sudo",
+    });
+    seedLegacyGrant(f.store, "three", retained.id, user.id);
+    f.store.db
+      .prepare(
+        "INSERT INTO account_authorizations(id,device_id,user_id,legacy_scope,inherit_scope) VALUES('legacy','one',?,1,0)",
+      )
+      .run(user.id);
+    const result = await f.all();
+    const sources = result.device_scope_sources;
+    assert.deepEqual(sources.device_ids, ["one", "three", "two"]);
+    assert.deepEqual(sources.grants, [
+      { device_id: "two", subject_type: "group", subject_id: group.id },
+      { device_id: "two", subject_type: "role", subject_id: role.id },
+      { device_id: "three", subject_type: "user", subject_id: user.id },
+    ]);
+    const effective = result.users.find(
+      (u: any) => u.id === user.id,
+    ).effective_device_scope;
+    assert.deepEqual(
+      effective.filter((id: string) => sources.device_ids.includes(id)),
+      ["one", "three", "two"],
+    );
+    assert.deepEqual(
+      result.users.find((u: any) => u.id === user.id).device_scope,
+      [],
+    );
+    const login = await f.login(user.username);
+    assert.equal(
+      (await f.api("GET", "/access", undefined, login.body.access_token))
+        .status,
+      403,
+    );
+  } finally {
+    await f.close();
+  }
+});
 test("legacy migration preserves accounts and device scope; existing devices stay ungrouped; migrations do not restore removed roles", () => {
   const dir = mkdtempSync(join(root, "legacy-")),
     db = new DatabaseSync(join(dir, "fleet.sqlite"));

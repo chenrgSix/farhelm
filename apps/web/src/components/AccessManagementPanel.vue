@@ -92,6 +92,55 @@ const adminGrant = computed(
 );
 const scope = () =>
   draft.value.all_devices ? ("*" as const) : [...draft.value.device_ids];
+const deviceScopeSummary = computed(() => {
+  const sources = data.value?.device_scope_sources;
+  if (!sources) return;
+  const available = new Set(sources.device_ids);
+  const groups =
+    mode.value === "user"
+      ? data.value!.groups.filter((g) => draft.value.group_ids.includes(g.id))
+      : [];
+  const groupIds = new Set(
+    mode.value === "user"
+      ? draft.value.group_ids
+      : editing.value
+        ? [editing.value.id]
+        : [],
+  );
+  const roles = new Set([
+    ...draft.value.role_ids,
+    ...groups.flatMap((g) => g.role_ids),
+  ]);
+  const inheritedAll =
+    roles.has("admin") || groups.some((g) => g.device_scope === "*");
+  const direct = new Set(
+    draft.value.all_devices
+      ? available
+      : draft.value.device_ids.filter((id) => available.has(id)),
+  );
+  const inherited = new Set(inheritedAll ? available : []);
+  for (const group of groups) {
+    if (group.device_scope !== "*")
+      for (const id of group.device_scope)
+        if (available.has(id)) inherited.add(id);
+  }
+  for (const grant of sources.grants) {
+    const matches =
+      grant.subject_type === "role"
+        ? roles.has(grant.subject_id)
+        : grant.subject_type === "group"
+          ? groupIds.has(grant.subject_id)
+          : mode.value === "user" && grant.subject_id === editing.value?.id;
+    if (matches && available.has(grant.device_id))
+      inherited.add(grant.device_id);
+  }
+  return {
+    direct: direct.size,
+    inherited: inherited.size,
+    total: new Set([...direct, ...inherited]).size,
+    inheritedAll,
+  };
+});
 function names(ids: string[], kind: "roles" | "groups") {
   return (
     ids
@@ -758,8 +807,8 @@ onBeforeUnmount(() => {
                 class="legacy-device-scope"
               >
                 <p class="field-hint">
-                  选择可访问的设备；角色决定是否可以连接终端及使用
-                  sudo。精确的普通连接规则可在「设备访问授权」中维护。
+                  选择可访问的设备；角色决定可执行的操作。普通连接和 sudo
+                  授权可在「设备访问授权」中维护。
                 </p>
                 <fieldset class="access-options">
                   <legend>允许访问的设备</legend>
@@ -808,7 +857,7 @@ onBeforeUnmount(() => {
                     <p class="field-hint">
                       只勾选组内当前设备，保存后调整设备组不会自动改变授权。
                     </p>
-                    <strong>已选设备与单台选择</strong>
+                    <strong>直接选择设备</strong>
                   </div>
                   <DevicePicker
                     v-if="!draft.all_devices"
@@ -816,9 +865,43 @@ onBeforeUnmount(() => {
                     label="授权设备"
                     :seed="devices"
                     :disabled="saving"
+                    :show-selection-summary="false"
                   />
+                  <div
+                    v-if="deviceScopeSummary"
+                    class="access-scope-summary"
+                    role="status"
+                  >
+                    <span
+                      >直接选择
+                      <strong>{{ deviceScopeSummary.direct }} 台</strong
+                      ><small v-if="draft.all_devices"
+                        >（全部设备）</small
+                      ></span
+                    >
+                    <span
+                      >继承授权
+                      <strong>{{ deviceScopeSummary.inherited }} 台</strong
+                      ><small v-if="deviceScopeSummary.inheritedAll"
+                        >（全部设备）</small
+                      ></span
+                    >
+                    <span
+                      >合计
+                      <strong>{{ deviceScopeSummary.total }} 台</strong></span
+                    >
+                  </div>
+                  <p v-else class="field-hint" role="status">
+                    暂无法统计继承授权和合计，请更新服务端后刷新。当前直接选择已保留。
+                  </p>
+                  <p
+                    v-if="draft.all_devices || deviceScopeSummary?.inheritedAll"
+                    class="field-hint"
+                  >
+                    全部设备包含以后新增的设备；上方数量为当前设备数。
+                  </p>
                   <p class="field-hint">
-                    未选择设备时，仅保留其他来源的设备授权。组角色与直接角色合并后，可用于所有已授权设备。
+                    继承授权包含用户组、角色及「设备访问授权」中的其他设备范围。仅统计当前未撤销的设备，合计已去重；实际操作仍需相应权限。
                   </p>
                 </fieldset>
               </div>
@@ -870,6 +953,14 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
+}
+.access-scope-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--surface-soft, #f3f7fa);
 }
 .access-heading h2 {
   margin: 0;

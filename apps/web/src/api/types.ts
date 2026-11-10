@@ -406,6 +406,14 @@ export interface AccessManagement {
   groups: ManagedGroup[];
   device_groups: ManagedDeviceGroup[];
   permissions: { id: Permission; label: string; description: string }[];
+  device_scope_sources?: {
+    device_ids: string[];
+    grants: {
+      device_id: string;
+      subject_type: "user" | "group" | "role";
+      subject_id: string;
+    }[];
+  };
 }
 
 export interface DevicePage {

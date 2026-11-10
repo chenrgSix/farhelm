@@ -15,8 +15,15 @@ const props = withDefaults(
     max?: number;
     emptyLabel?: string;
     appearance?: "inline" | "field";
+    showSelectionSummary?: boolean;
   }>(),
-  { multiple: true, purpose: "read", max: 1000, emptyLabel: "未选择" },
+  {
+    multiple: true,
+    purpose: "read",
+    max: 1000,
+    emptyLabel: "未选择",
+    showSelectionSummary: true,
+  },
 );
 const emit = defineEmits<{ "update:modelValue": [ids: string[]] }>();
 const open = ref(false),
@@ -222,13 +229,15 @@ onBeforeUnmount(() => {
         </template>
         <template v-else>{{ open ? "收起" : "选择" }}{{ label }}</template>
       </button>
-      <span v-if="multiple && appearance !== 'field'" role="status"
+      <span
+        v-if="showSelectionSummary && multiple && appearance !== 'field'"
+        role="status"
         >已选 {{ modelValue.length }} 台<span v-if="open && hiddenCount"
           >（{{ hiddenCount }} 台不在当前页）</span
         ></span
       >
       <span
-        v-else-if="appearance !== 'field'"
+        v-else-if="showSelectionSummary && appearance !== 'field'"
         class="picker-selected"
         role="status"
         >{{ selectedLabel }}</span
