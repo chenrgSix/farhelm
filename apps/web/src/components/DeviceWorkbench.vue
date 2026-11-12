@@ -470,12 +470,10 @@ onBeforeUnmount(() => {
             placeholder="/bin/sh /opt/ops/check-service.sh"
           ></textarea>
         </label>
-        <label
-          ><span
-            ><input type="checkbox" v-model="draft.interactive" />
-            允许执行人逐行回答</span
-          ></label
-        >
+        <label class="checkbox-option">
+          <input type="checkbox" v-model="draft.interactive" />
+          <span>允许执行人逐行回答</span>
+        </label>
         <label
           >执行超时（分钟）<input
             v-model.number="timeoutMinutes"
@@ -487,11 +485,10 @@ onBeforeUnmount(() => {
               unlimited ? '不限时' : draft.interactive ? '默认 5' : '默认 1'
             "
         /></label>
-        <label
-          ><span
-            ><input type="checkbox" v-model="unlimited" /> 不限时</span
-          ></label
-        >
+        <label class="checkbox-option">
+          <input type="checkbox" v-model="unlimited" />
+          <span>不限时</span>
+        </label>
         <p class="field-hint">
           可填正整数分钟。留空时，普通脚本默认 1 分钟，逐行交互默认 5
           分钟。等待回答也计入总时长。勾选「不限时」会关闭本次脚本的执行计时。
@@ -614,6 +611,22 @@ onBeforeUnmount(() => {
 }
 .editor legend {
   font-weight: 600;
+}
+.editor .checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  cursor: pointer;
+}
+.editor .checkbox-option input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  cursor: inherit;
 }
 .controls {
   margin-top: 8px;
