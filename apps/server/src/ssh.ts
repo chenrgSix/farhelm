@@ -302,12 +302,25 @@ export function createSshGateway(
               ready = true;
               if (size) handle?.input("terminal.resize", size);
               channel.resume();
+            } else if (type === "terminal.reconnecting") {
+              ready = false;
+              channel.stderr.write(
+                "\r\n[Farhelm] Agent 连接中断，正在自动重连（最多 60 秒）。暂停输入，请等待恢复。\r\n",
+              );
+            } else if (type === "terminal.resumed") {
+              ready = true;
+              if (size) handle?.input("terminal.resize", size);
+              channel.stderr.write("\r\n[Farhelm] 已恢复原终端连接。\r\n");
             } else if (type === "terminal.output") {
               if (channel.writableLength > 262144) return false;
               channel.write(Buffer.from(body.data, "base64"));
             } else if (type === "terminal.closed") {
               closed = true;
               const errors: Record<string, string> = {
+                AGENT_RECONNECT_TIMEOUT:
+                  "Agent 在 60 秒内未能恢复，终端已结束。",
+                AGENT_RESTARTED: "Agent 已重启或被替换，原终端无法恢复。",
+                AGENT_SESSION_LOST: "Agent 上的原终端已不存在，无法恢复。",
                 SSH_PRIVILEGE_POLICY_NOT_SUPPORTED:
                   "目标 SSH 环境无法落实 sudo 限制，请联系管理员检查 Linux setpriv 支持。",
                 SUDO_NOT_AUTHORIZED: "当前用户未获该设备的 sudo 授权。",

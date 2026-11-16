@@ -61,6 +61,8 @@
         "terminal.created",
         "terminal.opened",
         "terminal.closed",
+        "terminal.reconnecting",
+        "terminal.resumed",
         "terminal.recording_viewed",
         "terminal.recording_exported",
         "health.configured",
@@ -148,6 +150,9 @@
     },
     "detail": {
       "anyOf": [
+        {"type": "object", "additionalProperties": false, "properties": {"session_id": {"$ref": "common.schema.json#/$defs/uuid"}, "disconnected_ms": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}, "required": ["session_id", "disconnected_ms"]},
+        {"type": "object", "additionalProperties": false, "properties": {"session_id": {"$ref": "common.schema.json#/$defs/uuid"}, "reason": {"type": "string", "minLength": 1, "maxLength": 128}, "grace_ms": {"const": 60000}}, "required": ["session_id", "reason", "grace_ms"]},
+
         {"$ref":"device-script-audit-detail.schema.json"},
         {"$ref":"tcp-mapping-audit-detail.schema.json"},
         {"$ref":"tcp-mapping-audit-detail.schema.json#/$defs/legacyDenial"},
@@ -1464,6 +1469,9 @@
     "detail"
   ],
   "allOf": [
+    {"if": {"properties": {"action": {"const": "terminal.resumed"}}}, "then": {"properties": {"detail": {"type": "object", "additionalProperties": false, "properties": {"session_id": {"$ref": "common.schema.json#/$defs/uuid"}, "disconnected_ms": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}, "required": ["session_id", "disconnected_ms"]}}}},
+    {"if": {"properties": {"action": {"const": "terminal.reconnecting"}}}, "then": {"properties": {"detail": {"type": "object", "additionalProperties": false, "properties": {"session_id": {"$ref": "common.schema.json#/$defs/uuid"}, "reason": {"type": "string", "minLength": 1, "maxLength": 128}, "grace_ms": {"const": 60000}}, "required": ["session_id", "reason", "grace_ms"]}}}},
+
     {
       "if": {
         "properties": {

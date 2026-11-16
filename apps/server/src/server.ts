@@ -128,6 +128,8 @@ interface Connection {
   scriptLines?: boolean;
   extendedScriptTimeout: boolean;
   configurableTerminalDuration: boolean;
+  terminalResumeId?: string;
+  terminalResumeReady: boolean;
   sudo: boolean;
   sudoNopasswd: boolean;
   sudoCommands: boolean;
@@ -944,7 +946,11 @@ export async function buildServer(config: ServerConfig) {
       )
         return undefined;
       return {
-        terminal: c.terminal && networkRoutes.allowed(id),
+        terminal:
+          c.terminal &&
+          networkRoutes.allowed(id) &&
+          (!c.terminalResumeId || c.terminalResumeReady),
+        resumeId: c.terminalResumeId,
         configurableDuration: c.configurableTerminalDuration,
         sudo: c.sudo,
         sudoNopasswd: c.sudoNopasswd,
@@ -2475,12 +2481,21 @@ export async function buildServer(config: ServerConfig) {
     },
     (socket, req) => {
       const auth = deviceAuth(req);
+      const resumeHeader = req.headers["x-farhelm-terminal-resume"];
       const c: Connection = {
         webIngress: isWebRequest(req.raw),
         extendedScriptTimeout:
           req.headers["x-farhelm-script-timeout"] === "extended-v1",
         configurableTerminalDuration:
           req.headers["x-farhelm-terminal-duration"] === "configurable-v1",
+        terminalResumeId:
+          typeof resumeHeader === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+            resumeHeader,
+          )
+            ? resumeHeader
+            : undefined,
+        terminalResumeReady: false,
         socket,
         deviceId: auth.id,
         tokenHash: auth.token_hash,
@@ -2507,7 +2522,7 @@ export async function buildServer(config: ServerConfig) {
       };
       const old = connections.get(auth.id);
       if (old) {
-        terminals.disconnect(auth.id);
+        terminals.disconnect(auth.id, "AGENT_CONNECTION_REPLACED");
         forwarding.disconnect(auth.id);
         disks.disconnect(auth.id, old.healthSession);
       }
@@ -2621,6 +2636,9 @@ export async function buildServer(config: ServerConfig) {
               dispatch(c.deviceId, true);
               if (c.health)
                 send(c, "health.config", health.snapshot(c.deviceId));
+              if (c.terminalResumeId)
+                send(c, "agent.terminal.resume.ready", {});
+              else terminals.reconcile(c.deviceId, "", []);
             }
           } else if (env.type === "agent.terminal.status") {
             if (!c.ready || !c.terminalConfig) fail(400, "HELLO_REQUIRED");
@@ -2687,6 +2705,30 @@ export async function buildServer(config: ServerConfig) {
             // separately so bulk database transfers cannot exhaust the control budget.
             if (!forwarding.receive(c.deviceId, c.healthSession, env.type, b))
               rate.check("tcp-stale:" + c.deviceId, 12000);
+          } else if (env.type === "terminal.resume.list") {
+            if (
+              !c.ready ||
+              !c.terminalResumeId ||
+              c.terminalResumeReady ||
+              (c.terminalConfig && !c.terminalConfigReported)
+            )
+              fail(400, "TERMINAL_RESUME_NOT_NEGOTIATED");
+            keys(b, ["session_ids"]);
+            if (
+              !Array.isArray(b.session_ids) ||
+              b.session_ids.length > 128 ||
+              new Set(b.session_ids).size !== b.session_ids.length ||
+              b.session_ids.some(
+                (id: unknown) =>
+                  typeof id !== "string" ||
+                  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+                    id,
+                  ),
+              )
+            )
+              fail(400, "INVALID_TERMINAL_RESUME_LIST");
+            c.terminalResumeReady = true;
+            terminals.reconcile(c.deviceId, c.terminalResumeId, b.session_ids);
           } else if (String(env.type).startsWith("terminal.")) {
             if (!c.ready) fail(400, "HELLO_REQUIRED");
             terminals.receive(c.deviceId, env.type, b);
@@ -2784,7 +2826,12 @@ export async function buildServer(config: ServerConfig) {
       upgrades.tick();
       for (const c of connections.values()) {
         if (!live(c) || now - c.lastHeartbeat > heartbeatTimeout) {
-          terminals.disconnect(c.deviceId);
+          terminals.disconnect(
+            c.deviceId,
+            now - c.lastHeartbeat > heartbeatTimeout
+              ? "AGENT_HEARTBEAT_TIMEOUT"
+              : "AGENT_AUTH_OR_TRANSPORT_EXPIRED",
+          );
           forwarding.disconnect(c.deviceId);
           c.socket.close(4003, "Authorization or heartbeat expired");
           if (connections.get(c.deviceId) === c) connections.delete(c.deviceId);

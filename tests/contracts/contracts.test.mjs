@@ -350,3 +350,49 @@ test("network probe rejection is an explicit bounded response", () => {
     false,
   );
 });
+
+test("terminal reconnect protocol has bounded inventories and sequences, and closed message shapes", () => {
+  const id = "64b17f72-3163-49d4-bf6d-88453dd8af29";
+  const frames = [
+    ["terminal.resume.list", { session_ids: [id] }],
+    ["terminal.resume", { session_id: id, seq: 0 }],
+    ["terminal.resumed", { session_id: id, input_seq: 0 }],
+    ["terminal.resumed", {}],
+    ["terminal.input_ack", { session_id: id, seq: 1 }],
+    ["terminal.reconnecting", { retry_until: 1794800000000 }],
+  ];
+  for (const [type, body] of frames) {
+    assertValid("terminal-envelope", { v: 1, type, body });
+    assert.equal(
+      validate("terminal-envelope", {
+        v: 1,
+        type,
+        body: { ...body, unknown: true },
+      }),
+      false,
+    );
+  }
+  assertValid("agent-terminal-envelope", {
+    v: 1,
+    type: "agent.terminal.resume.ready",
+    body: {},
+  });
+  for (const session_ids of [[id, id], ["not-a-uuid"], Array(129).fill(id)])
+    assert.equal(
+      validate("terminal-envelope", {
+        v: 1,
+        type: "terminal.resume.list",
+        body: { session_ids },
+      }),
+      false,
+    );
+  for (const seq of [-1, 0.1, 9007199254740992])
+    assert.equal(
+      validate("terminal-envelope", {
+        v: 1,
+        type: "terminal.resume",
+        body: { session_id: id, seq },
+      }),
+      false,
+    );
+});

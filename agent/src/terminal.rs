@@ -1,4 +1,4 @@
-//! Ephemeral PTYs: a lost control connection closes shells, never replays input.
+//! In-memory PTYs with bounded transport recovery; never recreate a lost shell.
 use crate::config::Config;
 use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -13,7 +13,7 @@ use std::{
         unix::{fs::MetadataExt, process::CommandExt},
     },
     process::Stdio,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::{
@@ -25,14 +25,18 @@ use tokio::{
 
 pub type Output = (String, Value);
 enum Control {
-    Input(Vec<u8>),
+    Input(Vec<u8>, Option<u64>),
     Resize(u16, u16),
     Ack(u64),
     Close,
+    Suspend,
+    Resume(u64),
 }
 struct Entry {
     input: mpsc::Sender<Control>,
     task: JoinHandle<()>,
+    resumable: bool,
+    closed: Arc<Mutex<Option<&'static str>>>,
 }
 struct SudoCommands(JoinHandle<Result<()>>);
 impl Drop for SudoCommands {
@@ -68,6 +72,8 @@ struct Open {
     #[serde(default)]
     max_duration_ms: Option<u64>,
     #[serde(default)]
+    reconnect_grace_ms: Option<u64>,
+    #[serde(default)]
     username: Option<String>,
 }
 #[derive(Deserialize)]
@@ -75,6 +81,8 @@ struct Open {
 struct Input {
     session_id: String,
     data: String,
+    #[serde(default)]
+    seq: Option<u64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -89,6 +97,26 @@ struct Close {
 }
 
 impl Terminals {
+    pub fn connected(&mut self) {
+        // Keep the per-transport duplicate-open bound without accumulating every
+        // historical terminal for the lifetime of this Agent process.
+        self.seen = self.entries.keys().cloned().collect();
+    }
+    pub fn disconnected(&mut self) {
+        self.entries.retain(|_, entry| {
+            if !entry.resumable {
+                return false;
+            }
+            entry.task.is_finished() || entry.input.try_send(Control::Suspend).is_ok()
+        });
+    }
+    pub fn resumable_ids(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|(_, e)| e.resumable)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
     pub fn is_idle(&self) -> bool {
         self.entries.values().all(|e| e.task.is_finished())
     }
@@ -106,8 +134,8 @@ impl Terminals {
         }
     }
     pub async fn receive(&mut self, kind: &str, body: Value) -> Result<()> {
-        self.entries.retain(|_, e| !e.task.is_finished());
         if kind == "terminal.open" || kind == "terminal.sudo.open" {
+            self.entries.retain(|_, e| !e.task.is_finished());
             let mut open: Open = serde_json::from_value(body)?;
             ensure!(
                 (kind == "terminal.sudo.open") == open.sudo_password.is_some(),
@@ -150,6 +178,10 @@ impl Terminals {
             );
             size(open.cols, open.rows)?;
             ensure!(
+                open.reconnect_grace_ms.is_none() || open.reconnect_grace_ms == Some(60_000),
+                "invalid terminal reconnect grace"
+            );
+            ensure!(
                 open.max_duration_ms.unwrap_or(3_600_000) <= 9_007_199_254_740_991,
                 "invalid terminal duration"
             );
@@ -185,6 +217,9 @@ impl Terminals {
             let id = open.session_id.clone();
             let (input, receiver) = mpsc::channel(32);
             let output = self.output.clone();
+            let resumable = open.reconnect_grace_ms.is_some();
+            let closed = Arc::new(Mutex::new(None));
+            let closed_task = closed.clone();
             let allow_privilege_escalation =
                 self.cfg.terminal_allow_privilege_escalation && allow_sudo;
             let task = tokio::spawn(async move {
@@ -198,6 +233,7 @@ impl Terminals {
                 )
                 .await
                 .unwrap_or("PTY_FAILURE");
+                *closed_task.lock().unwrap() = Some(reason);
                 let _ = output
                     .send((
                         "terminal.closed".into(),
@@ -205,7 +241,15 @@ impl Terminals {
                     ))
                     .await;
             });
-            self.entries.insert(id, Entry { input, task });
+            self.entries.insert(
+                id,
+                Entry {
+                    input,
+                    task,
+                    resumable,
+                    closed,
+                },
+            );
             return Ok(());
         }
         let (id, message) = match kind {
@@ -219,7 +263,14 @@ impl Terminals {
                         && STANDARD.encode(&bytes) == input.data,
                     "invalid terminal input"
                 );
-                (input.session_id, Control::Input(bytes))
+                ensure!(
+                    input.seq.is_none()
+                        || input
+                            .seq
+                            .is_some_and(|s| (1..=9_007_199_254_740_991).contains(&s)),
+                    "invalid terminal input sequence"
+                );
+                (input.session_id, Control::Input(bytes, input.seq))
             }
             "terminal.resize" => {
                 let s: Open = serde_json::from_value(body)?;
@@ -234,9 +285,38 @@ impl Terminals {
                 let close: Close = serde_json::from_value(body)?;
                 (close.session_id, Control::Close)
             }
+            "terminal.resume" => {
+                let ack: Ack = serde_json::from_value(body)?;
+                if let Some(entry) = self.entries.get(&ack.session_id) {
+                    ensure!(entry.resumable, "terminal cannot resume");
+                    let reason = *entry.closed.lock().unwrap();
+                    if let Some(reason) = reason {
+                        self.output
+                            .send((
+                                "terminal.closed".into(),
+                                json!({"session_id":ack.session_id,"reason":reason}),
+                            ))
+                            .await?;
+                        return Ok(());
+                    }
+                } else {
+                    self.output
+                        .send((
+                            "terminal.closed".into(),
+                            json!({"session_id":ack.session_id,"reason":"AGENT_SESSION_LOST"}),
+                        ))
+                        .await?;
+                    return Ok(());
+                }
+                (ack.session_id, Control::Resume(ack.seq))
+            }
             _ => anyhow::bail!("unknown terminal message"),
         };
         if let Some(entry) = self.entries.get(&id) {
+            if kind == "terminal.close" && entry.task.is_finished() {
+                self.entries.remove(&id);
+                return Ok(());
+            }
             // A full input queue closes only this PTY; it must not block heartbeats.
             if entry.input.try_send(message).is_err() {
                 self.entries.remove(&id);
@@ -533,6 +613,9 @@ async fn run(
     let mut queue = VecDeque::<u8>::new();
     let mut seq = 0u64;
     let mut pending = None::<Instant>;
+    let mut pending_data = None::<String>;
+    let mut input_seq = 0u64;
+    let mut offline = None::<Instant>;
     let start = Instant::now();
     let max_duration_ms = open.max_duration_ms.unwrap_or(3_600_000);
     let mut timer = tokio::time::interval(Duration::from_millis(250));
@@ -540,24 +623,60 @@ async fn run(
         let writing: Vec<u8> = queue.iter().take(8192).copied().collect();
         tokio::select! {
             message = input.recv() => match message {
-                Some(Control::Input(bytes)) => { ensure!(queue.len()+bytes.len() <= 65536,"terminal input queue exceeded"); queue.extend(bytes); }
+                Some(Control::Input(bytes, received_seq)) => {
+                    if open.reconnect_grace_ms.is_some() {
+                        let received_seq = received_seq.context("missing terminal input sequence")?;
+                        ensure!(received_seq <= input_seq + 1, "terminal input sequence gap");
+                        if received_seq == input_seq + 1 {
+                            ensure!(queue.len()+bytes.len() <= 65536,"terminal input queue exceeded");
+                            queue.extend(bytes); input_seq = received_seq;
+                        }
+                        output.send(("terminal.input_ack".into(),json!({"session_id":open.session_id,"seq":input_seq}))).await?;
+                    } else {
+                        ensure!(received_seq.is_none(), "unexpected terminal input sequence");
+                        ensure!(queue.len()+bytes.len() <= 65536,"terminal input queue exceeded"); queue.extend(bytes);
+                    }
+                }
                 Some(Control::Resize(cols,rows)) => {
                     let dimensions = libc::winsize { ws_col:cols,ws_row:rows,ws_xpixel:0,ws_ypixel:0 };
                     ensure!(unsafe { libc::ioctl(pty.master.as_raw_fd(),libc::TIOCSWINSZ,&dimensions) } == 0,"cannot resize PTY");
                 }
-                Some(Control::Ack(ack)) => { ensure!(pending.is_some() && ack==seq,"terminal ACK mismatch"); pending=None; }
+                Some(Control::Ack(ack)) => {
+                    ensure!(if open.reconnect_grace_ms.is_some() { ack <= seq } else { pending.is_some() && ack == seq }, "terminal ACK mismatch");
+                    if ack == seq { pending=None; pending_data=None; }
+                }
+                Some(Control::Suspend) => { if offline.is_none() { offline=Some(Instant::now()); } }
+                Some(Control::Resume(ack)) => {
+                    ensure!(open.reconnect_grace_ms.is_some() && ack <= seq && (ack == seq || (ack+1 == seq && pending_data.is_some())), "terminal resume sequence mismatch");
+                    if offline.is_some_and(|at| at.elapsed() >= Duration::from_millis(open.reconnect_grace_ms.unwrap())) { return Ok("AGENT_RECONNECT_TIMEOUT"); }
+                    offline=None;
+                    if ack == seq { pending=None; pending_data=None; }
+                    output.send(("terminal.resumed".into(),json!({"session_id":open.session_id,"input_seq":input_seq}))).await?;
+                    if let Some(data) = &pending_data {
+                        output.send(("terminal.output".into(),json!({"session_id":open.session_id,"seq":seq,"data":data}))).await?;
+                        pending=Some(Instant::now());
+                    }
+                }
                 Some(Control::Close) | None => return Ok("CONTROL_CLOSED"),
             },
-            result = read(&pty.master,&mut buffer), if pending.is_none() => {
+            result = read(&pty.master,&mut buffer), if pending.is_none() && offline.is_none() => {
                 let count = match result { Ok(0)=>return Ok("SHELL_EXIT"),Ok(n)=>n,Err(e) if e.raw_os_error()==Some(libc::EIO)=>return Ok("SHELL_EXIT"),Err(e)=>return Err(e.into()) };
                 seq += 1;
-                output.send(("terminal.output".into(),json!({"session_id":open.session_id,"seq":seq,"data":STANDARD.encode(&buffer[..count])}))).await?;
+                let data=STANDARD.encode(&buffer[..count]);
+                pending_data=Some(data.clone());
+                output.send(("terminal.output".into(),json!({"session_id":open.session_id,"seq":seq,"data":data}))).await?;
                 pending=Some(Instant::now());
             },
-            result = write(&pty.master,&writing), if !writing.is_empty() => { let count=result?; ensure!(count>0,"PTY write returned zero"); queue.drain(..count); },
+            result = write(&pty.master,&writing), if !writing.is_empty() && offline.is_none() => { let count=result?; ensure!(count>0,"PTY write returned zero"); queue.drain(..count); },
             _=timer.tick()=>{
                 if commands.as_ref().is_some_and(|task| task.0.is_finished()) { return Ok("SUDO_AUTH_FAILED"); }
-                if pending.is_some_and(|time| time.elapsed()>Duration::from_secs(10)) { return Ok("RECORDING_ACK_TIMEOUT"); }
+                if let Some(grace) = open.reconnect_grace_ms {
+                    if offline.is_some_and(|at| at.elapsed() >= Duration::from_millis(grace)) { return Ok("AGENT_RECONNECT_TIMEOUT"); }
+                    if offline.is_none() && pending.is_some_and(|time| time.elapsed()>Duration::from_secs(10)) {
+                        offline=Some(Instant::now());
+                        output.send(("terminal.transport_stalled".into(),json!({}))).await?;
+                    }
+                } else if pending.is_some_and(|time| time.elapsed()>Duration::from_secs(10)) { return Ok("RECORDING_ACK_TIMEOUT"); }
                 if max_duration_ms > 0 && start.elapsed() >= Duration::from_millis(max_duration_ms) { return Ok("SESSION_EXPIRED"); }
             }
         }
@@ -700,7 +819,13 @@ mod tests {
                         }
                     }
                 } else {
-                    assert_eq!(kind, "terminal.opened", "unexpected PTY close: {body}");
+                    assert!(
+                        matches!(
+                            kind.as_str(),
+                            "terminal.opened" | "terminal.input_ack" | "terminal.resumed"
+                        ),
+                        "unexpected PTY close: {kind} {body}"
+                    );
                 }
             }
         })
@@ -713,6 +838,89 @@ mod tests {
         });
         String::from_utf8(all).unwrap()
     }
+    #[tokio::test]
+    async fn resume_keeps_real_shell_deduplicates_input_and_reconciles_lost_output_ack() {
+        for recorded in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let cfg = Config {
+                connect_ip: None,
+                server: url::Url::parse("https://localhost:8444").unwrap(),
+                state: temp.path().into(),
+                ca_pem: None,
+                enrollment_token: None,
+                name: "resume-test".into(),
+                execution_enabled: true,
+                terminal_allow_privilege_escalation: false,
+                heartbeat_ms: 1000,
+                fault: None,
+            };
+            let (output, mut events) = mpsc::channel(32);
+            let mut manager = Terminals::new(cfg, output);
+            let id = uuid::Uuid::new_v4().to_string();
+            manager
+                .receive(
+                    "terminal.open",
+                    json!({"session_id":id,"cols":80,"rows":24,"reconnect_grace_ms":60000}),
+                )
+                .await
+                .unwrap();
+            let original = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let (kind, body) = events.recv().await.unwrap();
+                    if kind == "terminal.output" {
+                        break body;
+                    }
+                    assert_eq!(kind, "terminal.opened");
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(original["seq"], 1);
+            let command = json!({"session_id":id,"seq":1,"data":STANDARD.encode("stty -echo; original_pid=$$; n=$(( ${n:-0} + 1 )); cd /tmp; printf '\\136READY\\136\\n'\r")});
+            manager
+                .receive("terminal.input", command.clone())
+                .await
+                .unwrap();
+            // Pretend the input acknowledgement was lost with the transport.
+            let (kind, body) = events.recv().await.unwrap();
+            assert_eq!(kind, "terminal.input_ack");
+            assert_eq!(body["seq"], 1);
+            manager.disconnected();
+            assert_eq!(manager.resumable_ids(), vec![id.clone()]);
+            manager.seen.insert("closed-on-previous-transport".into());
+            manager.connected();
+            assert_eq!(manager.seen, HashSet::from([id.clone()]));
+            manager
+                .receive(
+                    "terminal.resume",
+                    json!({"session_id":id,"seq":if recorded {1} else {0}}),
+                )
+                .await
+                .unwrap();
+            let (kind, body) = events.recv().await.unwrap();
+            assert_eq!(kind, "terminal.resumed");
+            assert_eq!(body["input_seq"], 1);
+            if !recorded {
+                let (kind, replay) = events.recv().await.unwrap();
+                assert_eq!(kind, "terminal.output");
+                assert_eq!(replay, original);
+                manager
+                    .receive("terminal.ack", json!({"session_id":id,"seq":1}))
+                    .await
+                    .unwrap();
+            }
+            manager.receive("terminal.input", command).await.unwrap();
+            until(&mut manager, &mut events, "^READY^").await;
+            manager.receive("terminal.input", json!({"session_id":id,"seq":2,"data":STANDARD.encode("test $$ = $original_pid && printf 'SAME_SHELL:%s:%s\\n' $n $PWD; printf '\\136CHECKED\\136\\n'\r")})).await.unwrap();
+            let result = until(&mut manager, &mut events, "^CHECKED^").await;
+            assert!(result.contains("SAME_SHELL:1:/tmp"), "{result}");
+            manager
+                .receive("terminal.close", json!({"session_id":id}))
+                .await
+                .unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn real_pty_keeps_cwd_resizes_supports_unicode_and_ctrl_c() {
         let temp = tempfile::tempdir().unwrap();

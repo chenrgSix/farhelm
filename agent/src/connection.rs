@@ -41,6 +41,12 @@ pub async fn run(
     let mut failures = 0u32;
     let running_hash = upgrade::current_hash()?;
     let mut network = Monitor::start(journal.clone())?;
+    let resume_id = uuid::Uuid::new_v4().to_string();
+    let (terminal_output, mut terminal_events) = tokio::sync::mpsc::channel(512);
+    let mut terminal_cfg = cfg.clone();
+    terminal_cfg.terminal_allow_privilege_escalation =
+        crate::terminal_privilege::State::load(&cfg, &journal)?.enabled();
+    let mut terminals = crate::terminal::Terminals::new(terminal_cfg, terminal_output);
     loop {
         let route = crate::routes::Settings::load(&journal)?;
         let base = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
@@ -76,6 +82,9 @@ pub async fn run(
                 script_io: &script_io,
                 route: &route,
                 channel,
+                resume_id: &resume_id,
+                terminals: &mut terminals,
+                terminal_events: &mut terminal_events,
             })
             .await
         };
@@ -83,6 +92,7 @@ pub async fn run(
             result = attempt => result,
             _ = watch_connection(&mut observed) => Err(anyhow::anyhow!("platform heartbeat timeout")),
         };
+        terminals.disconnected();
         if matches!(result, Ok(SessionEnd::Upgrade)) {
             return Ok(upgrade::RESTART_EXIT);
         }
@@ -106,7 +116,9 @@ pub async fn run(
         } else {
             failures = 0;
         }
-        let base = 250u64.saturating_mul(1u64 << failures).min(15_000);
+        // Retry promptly while a retained shell is spending its recovery budget.
+        let cap = if terminals.is_idle() { 15_000 } else { 2_000 };
+        let base = 250u64.saturating_mul(1u64 << failures).min(cap);
         let jitter = rand::thread_rng().gen_range(0..=base / 2);
         tokio::time::sleep(Duration::from_millis(base + jitter)).await;
     }
@@ -133,6 +145,7 @@ async fn connect(
     access: &Access,
     tls: Arc<rustls::ClientConfig>,
     path: &str,
+    resume_id: Option<&str>,
 ) -> Result<Socket> {
     let mut url = cfg.url(path)?;
     url.set_scheme("wss")
@@ -150,6 +163,11 @@ async fn connect(
         request
             .headers_mut()
             .insert("x-farhelm-terminal-duration", "configurable-v1".parse()?);
+        if let Some(id) = resume_id {
+            request
+                .headers_mut()
+                .insert("x-farhelm-terminal-resume", id.parse()?);
+        }
     }
     let mut ws_config = WebSocketConfig::default();
     ws_config.max_message_size = Some(MAX_FRAME);
@@ -203,7 +221,14 @@ async fn probe_candidate(cfg: &Config, journal: &Journal, identity: Arc<Identity
     tokio::time::timeout(Duration::from_secs(5), async {
         let http = cfg.http_client()?;
         let access = identity.authenticate(&http, cfg, journal).await?;
-        let mut socket = connect(cfg, &access, cfg.tls_config()?, "/agent/address-probe").await?;
+        let mut socket = connect(
+            cfg,
+            &access,
+            cfg.tls_config()?,
+            "/agent/address-probe",
+            None,
+        )
+        .await?;
         ready(&mut socket, journal).await?;
         let _ = socket.close(None).await;
         Ok::<_, anyhow::Error>(())
@@ -221,7 +246,14 @@ async fn probe(
     let http = next.http_client()?;
     // Authentication checks the existing server_instance and device identity before signing.
     let access = identity.authenticate(&http, &next, &journal).await?;
-    let mut socket = connect(&next, &access, next.tls_config()?, "/agent/address-probe").await?;
+    let mut socket = connect(
+        &next,
+        &access,
+        next.tls_config()?,
+        "/agent/address-probe",
+        None,
+    )
+    .await?;
     ready(&mut socket, &journal).await?;
     let _ = socket.close(None).await;
     Ok(())
@@ -240,6 +272,9 @@ struct Session<'a> {
     script_io: &'a crate::script_io::ScriptIo,
     route: &'a crate::routes::Settings,
     channel: &'a str,
+    resume_id: &'a str,
+    terminals: &'a mut crate::terminal::Terminals,
+    terminal_events: &'a mut tokio::sync::mpsc::Receiver<crate::terminal::Output>,
 }
 async fn session(context: Session<'_>) -> Result<SessionEnd> {
     let Session {
@@ -256,11 +291,17 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         script_io,
         route,
         channel,
+        resume_id,
+        terminals,
+        terminal_events,
     } = context;
     let mut access = access.clone();
     let mut http = http.clone();
     let mut trust_receipt: Option<crate::trust::Receipt> = None;
-    let mut socket = connect(cfg, &access, tls, "/agent/ws").await?;
+    // Workers retain their unacknowledged output. Drop stale transport frames;
+    // only the platform-approved resume exchange can replay them.
+    while terminal_events.try_recv().is_ok() {}
+    let mut socket = connect(cfg, &access, tls, "/agent/ws", Some(resume_id)).await?;
     socket
         .send(Message::Text(
             envelope(
@@ -271,6 +312,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         ))
         .await?;
     ready(&mut socket, journal).await?;
+    terminals.connected();
     network.connected(now_ms())?;
     probes.wake();
     contact.send_replace(Some(tokio::time::Instant::now()));
@@ -317,11 +359,10 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
     let mut uploads = tokio::task::JoinSet::<Result<Event>>::new();
     let (tcp_output, mut tcp_events) = tokio::sync::mpsc::channel(64);
     let mut forwards = crate::tcp_forward::Forwards::new(tcp_output);
-    let (terminal_output, mut terminal_events) = tokio::sync::mpsc::channel(128);
     let mut terminal_privilege = crate::terminal_privilege::State::load(cfg, journal)?;
-    let mut terminal_cfg = cfg.clone();
-    terminal_cfg.terminal_allow_privilege_escalation = terminal_privilege.enabled();
-    let mut terminals = crate::terminal::Terminals::new(terminal_cfg, terminal_output);
+    if terminals.is_idle() {
+        terminals.set_privilege(terminal_privilege.enabled())?;
+    }
     socket
         .send(Message::Text(
             envelope(
@@ -434,7 +475,10 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                 access=renewed;
             }
             Some((kind,body))=tcp_events.recv()=>{socket.send(Message::Text(envelope(&kind,body)?.into())).await?;}
-            Some((kind,body))=terminal_events.recv()=>{socket.send(Message::Text(envelope(&kind,body)?.into())).await?;}
+            Some((kind,body))=terminal_events.recv()=>{
+                ensure!(kind != "terminal.transport_stalled", "terminal acknowledgement timeout; reconnecting control transport");
+                socket.send(Message::Text(envelope(&kind,body)?.into())).await?;
+            }
             Some(body)=health_events.recv()=>{socket.send(Message::Text(envelope("health.result",body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
             _=outbox.tick(), if uploads.is_empty()=>{
@@ -481,6 +525,9 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                     Message::Text(text)=>{
                         let envelope=Envelope::parse(text.as_bytes())?;
                         match envelope.r#type.as_str(){
+                            "agent.terminal.resume.ready"=>{
+                                socket.send(Message::Text(crate::protocol::envelope("terminal.resume.list",json!({"session_ids":terminals.resumable_ids()}))?.into())).await?;
+                            }
                             "agent.disk.request"=>{
                                 let request:crate::disk::Request=serde_json::from_value(envelope.body)?;
                                 uuid::Uuid::parse_str(&request.request_id)?;

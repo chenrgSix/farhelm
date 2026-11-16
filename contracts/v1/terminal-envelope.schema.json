@@ -48,6 +48,9 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 128
+            },
+            "reconnect_grace_ms": {
+              "const": 60000
             }
           },
           "required": [
@@ -232,6 +235,11 @@
                   "maxLength": 10924
                 }
               ]
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
             }
           },
           "required": [
@@ -609,6 +617,199 @@
             "rows",
             "username",
             "sudo_password"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.resume.list"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_ids": {
+              "type": "array",
+              "maxItems": 128,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              }
+            }
+          },
+          "required": [
+            "session_ids"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.resume"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "session_id",
+            "seq"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.resumed"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "input_seq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "session_id",
+            "input_seq"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.resumed"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.input_ack"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "session_id",
+            "seq"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "terminal.reconnecting"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "retry_until": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "retry_until"
           ]
         }
       },

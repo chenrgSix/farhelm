@@ -6,6 +6,21 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "v": { "const": 1 },
+        "type": { "const": "agent.terminal.resume.ready" },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        }
+      },
+      "required": ["v", "type", "body"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
         "v": {
           "const": 1
         },

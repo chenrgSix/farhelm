@@ -17,6 +17,7 @@ const emit = defineEmits<{ close: []; changed: [] }>();
 const host = ref<HTMLDivElement>();
 const state = ref("正在连接…");
 const connected = ref(false);
+const reconnecting = ref(false);
 const sudoAuto = ref(false);
 const sudoAllowed = ref<boolean>();
 const backend = ref<"agent" | "ssh" | undefined>(props.recording?.backend);
@@ -27,6 +28,9 @@ const records = ref<
 const speed = ref(2);
 const playing = ref(false);
 const sudoErrors: Record<string, string> = {
+  AGENT_RECONNECT_TIMEOUT: "Agent 在 60 秒内未能恢复，终端已结束。",
+  AGENT_RESTARTED: "Agent 已重启或被替换，原终端无法恢复。",
+  AGENT_SESSION_LOST: "Agent 上的原终端已不存在，无法恢复。",
   USER_CONNECTION_LIMIT:
     "该用户的并发连接数已达上限，请关闭其他网页终端或 SSH 连接。",
   DEVICE_TERMINAL_LIMIT: "该设备的终端数已达上限，请关闭其他会话。",
@@ -170,6 +174,7 @@ async function connect() {
   const run = ++generation;
   socket?.close();
   connected.value = false;
+  reconnecting.value = false;
   terminal.options.disableStdin = true;
   terminal.reset();
   error.value = "";
@@ -235,9 +240,25 @@ async function connect() {
           });
           terminal.focus();
           emit("changed");
+        } else if (message.type === "terminal.reconnecting") {
+          connected.value = false;
+          reconnecting.value = true;
+          terminal.options.disableStdin = true;
+          state.value = "Agent 断连，正在自动重连（最多 60 秒）…";
+        } else if (message.type === "terminal.resumed") {
+          connected.value = true;
+          reconnecting.value = false;
+          terminal.options.disableStdin = false;
+          state.value = "已恢复原终端连接";
+          fit.fit();
+          send("terminal.resize", {
+            cols: Math.max(20, Math.min(500, terminal.cols)),
+            rows: Math.max(5, Math.min(200, terminal.rows)),
+          });
         } else if (message.type === "terminal.output")
           output(message.body.data);
         else if (message.type === "terminal.closed") {
+          reconnecting.value = false;
           state.value = ["SHELL_EXIT", "USER_DISCONNECTED"].includes(
             message.body.reason,
           )
@@ -277,9 +298,10 @@ async function connect() {
     };
     ws.onclose = () => {
       if (run !== generation || disposed) return;
-      if (connected.value || state.value === "正在连接…")
+      if (connected.value || state.value === "正在连接…" || reconnecting.value)
         state.value = "连接已断开";
       connected.value = false;
+      reconnecting.value = false;
       terminal.options.disableStdin = true;
       emit("changed");
     };
@@ -425,7 +447,7 @@ onBeforeUnmount(() => {
             </button>
           </template>
           <button
-            v-else-if="!connected && state !== '正在连接…'"
+            v-else-if="!connected && !reconnecting && state !== '正在连接…'"
             class="button secondary small"
             @click="connect"
           >
@@ -436,7 +458,7 @@ onBeforeUnmount(() => {
             aria-label="关闭终端"
             @click="close"
           >
-            {{ connected ? "断开并关闭" : "关闭" }}
+            {{ connected || reconnecting ? "断开并关闭" : "关闭" }}
           </button>
         </div>
       </header>

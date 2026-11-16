@@ -44,6 +44,14 @@ interface Session {
   expires: number;
   created: number;
   maxDurationMs: number;
+  resumeId?: string;
+  reconnectUntil?: number;
+  reconnectStarted?: number;
+  resuming?: boolean;
+  inputSeq: number;
+  inputAck: number;
+  pendingInput: { seq: number; data: string }[];
+  outputDigest?: string;
   socket?: WebSocket;
   peer?: TerminalPeer;
   ready: boolean;
@@ -87,6 +95,7 @@ interface Dependencies {
         send(type: string, body: unknown): boolean;
         terminal: boolean;
         configurableDuration?: boolean;
+        resumeId?: string;
         policy?: boolean;
         sudo?: boolean;
         sudoNopasswd?: boolean;
@@ -100,6 +109,7 @@ interface Dependencies {
 }
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_CHUNK = 8192;
+const RECONNECT_GRACE_MS = 60000;
 function bytes(value: unknown) {
   const encoded = str(value, 1, Math.ceil(MAX_CHUNK / 3) * 4);
   const decoded = Buffer.from(encoded, "base64");
@@ -164,7 +174,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       policyControlled?: boolean;
       sudoAuto?: boolean;
       sudoCredentialHash?: string;
+      reconnectUntil?: number;
     },
+    verifyAgent = false,
   ) {
     const user = d.credentialUser(s.userSession);
     if (
@@ -188,11 +200,13 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     if (
       s.policyControlled &&
       s.backend === "agent" &&
+      (!s.reconnectUntil || verifyAgent) &&
       !d.agent(s.deviceId)?.policy
     )
       return false;
     if (
       s.backend === "agent" &&
+      (!s.reconnectUntil || verifyAgent) &&
       s.allowPrivilege !== undefined &&
       s.allowPrivilege !==
         (s.sudoGranted === true && d.agent(s.deviceId)?.sudoEnabled !== false)
@@ -204,8 +218,9 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         if (
           !password ||
           hash(password) !== s.sudoCredentialHash ||
-          d.agent(s.deviceId)?.sudoCommands !== true ||
-          d.agent(s.deviceId)?.sudoEnabled !== true
+          ((!s.reconnectUntil || verifyAgent) &&
+            (d.agent(s.deviceId)?.sudoCommands !== true ||
+              d.agent(s.deviceId)?.sudoEnabled !== true))
         )
           return false;
       } catch {
@@ -269,6 +284,31 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     } catch {
       s.socket?.terminate();
       s.peer?.terminate();
+    }
+  }
+  function suspend(s: Session, reason = "AGENT_TRANSPORT_CLOSED") {
+    if (!sessions.has(s.id) || s.backend !== "agent") return;
+    if (!s.resumeId || !s.ready) return safeEnd(s, "AGENT_DISCONNECTED");
+    if (s.reconnectUntil) return;
+    s.reconnectStarted = Date.now();
+    s.reconnectUntil = Date.now() + RECONNECT_GRACE_MS;
+    s.resuming = false;
+    try {
+      store.transaction(() =>
+        store.audit("terminal.reconnecting", s.actorId, s.deviceId, null, {
+          session_id: s.id,
+          reason,
+          grace_ms: RECONNECT_GRACE_MS,
+        }),
+      );
+      if (
+        !sendClient(s, "terminal.reconnecting", {
+          retry_until: s.reconnectUntil,
+        })
+      )
+        safeEnd(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
+    } catch {
+      safeEnd(s, "AUDIT_STORAGE_FAILURE");
     }
   }
   function lookup(req: FastifyRequest, permission?: Permission) {
@@ -412,6 +452,11 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       expires: now + 30000,
       created: now,
       maxDurationMs,
+      resumeId:
+        selectedBackend === "agent" ? d.agent(deviceId)?.resumeId : undefined,
+      inputSeq: 0,
+      inputAck: 0,
+      pendingInput: [],
       ready: false,
       backend: selectedBackend,
       sudoGranted,
@@ -530,12 +575,30 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     return { v: 1, ok: true };
   });
   function input(s: Session, type: string, b: Record<string, any>) {
+    if (s.resumeId && !d.agent(s.deviceId)) suspend(s);
     if (!sessions.has(s.id) || !s.ready || !authorized(s))
       fail(403, "TERMINAL_NOT_AUTHORIZED");
     rate.check("terminal-input:" + s.id, 12000);
     if (type === "terminal.input") {
       keys(b, ["data"]);
       bytes(b.data);
+      // Keystrokes typed while reconnecting are discarded, not deferred commands.
+      if (s.reconnectUntil) return;
+      if (s.resumeId) {
+        if (
+          s.pendingInput.reduce(
+            (n, frame) => n + Buffer.from(frame.data, "base64").length,
+            0,
+          ) +
+            Buffer.from(b.data, "base64").length >
+          65536
+        )
+          return safeEnd(s, "TERMINAL_INPUT_QUEUE_FULL");
+        const frame = { seq: ++s.inputSeq, data: b.data as string };
+        s.pendingInput.push(frame);
+        if (!sendTarget(s, "terminal.input", frame)) suspend(s);
+        return;
+      }
       // Never record raw keystrokes: PTY echo determines what appears in output.
       if (!sendTarget(s, "terminal.input", { data: b.data }))
         safeEnd(s, "DEVICE_OFFLINE");
@@ -547,7 +610,15 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       };
       d.availableStorage();
       store.transaction(() => record(s.id, "resize", size));
-      if (!sendTarget(s, "terminal.resize", size)) safeEnd(s, "DEVICE_OFFLINE");
+      db.prepare("UPDATE terminal_sessions SET cols=?,rows=? WHERE id=?").run(
+        size.cols,
+        size.rows,
+        s.id,
+      );
+      if (!s.reconnectUntil && !sendTarget(s, "terminal.resize", size)) {
+        if (s.resumeId) suspend(s);
+        else safeEnd(s, "DEVICE_OFFLINE");
+      }
     } else if (type === "terminal.close") {
       keys(b, []);
       end(s, "USER_DISCONNECTED");
@@ -588,6 +659,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         session_id: s.id,
         cols,
         rows,
+        ...(s.resumeId ? { reconnect_grace_ms: RECONNECT_GRACE_MS } : {}),
         ...(agent.configurableDuration
           ? { max_duration_ms: s.maxDurationMs }
           : {}),
@@ -681,8 +753,53 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     const s = sessions.get(str(b.session_id, 1, 128));
     if (!s || s.deviceId !== deviceId || s.backend !== backend) return; // Late frames or wrong backend.
     try {
+      if (s.reconnectUntil && Date.now() >= s.reconnectUntil)
+        return safeEnd(s, "AGENT_RECONNECT_TIMEOUT");
       if (!authorized(s)) return end(s, "AUTHORIZATION_EXPIRED");
-      if (type === "terminal.opened") {
+      if (type === "terminal.resumed") {
+        keys(b, ["session_id", "input_seq"]);
+        if (
+          !s.resuming ||
+          !s.reconnectUntil ||
+          !s.resumeId ||
+          d.agent(deviceId)?.resumeId !== s.resumeId
+        )
+          fail(409, "TERMINAL_RESUME_MISMATCH");
+        if (!authorized(s, true)) return end(s, "AUTHORIZATION_EXPIRED");
+        const ack = integer(b.input_seq, s.inputAck, s.inputSeq);
+        s.inputAck = ack;
+        s.pendingInput = s.pendingInput.filter((frame) => frame.seq > ack);
+        const disconnectedMs = Date.now() - s.reconnectStarted!;
+        store.transaction(() =>
+          store.audit("terminal.resumed", s.actorId, s.deviceId, null, {
+            session_id: s.id,
+            disconnected_ms: disconnectedMs,
+          }),
+        );
+        s.reconnectUntil = undefined;
+        s.resuming = false;
+        for (const frame of s.pendingInput)
+          if (!sendTarget(s, "terminal.input", frame)) {
+            suspend(s);
+            return;
+          }
+        const size = db
+          .prepare("SELECT cols,rows FROM terminal_sessions WHERE id=?")
+          .get(s.id)!;
+        if (!sendTarget(s, "terminal.resize", size)) {
+          suspend(s);
+          return;
+        }
+        if (!sendClient(s, "terminal.resumed", {}))
+          safeEnd(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
+      } else if (type === "terminal.input_ack") {
+        keys(b, ["session_id", "seq"]);
+        if (!s.resumeId) fail(400, "TERMINAL_RESUME_NOT_NEGOTIATED");
+        if (s.reconnectUntil) return;
+        const ack = integer(b.seq, s.inputAck, s.inputSeq);
+        s.inputAck = ack;
+        s.pendingInput = s.pendingInput.filter((frame) => frame.seq > ack);
+      } else if (type === "terminal.opened") {
         keys(b, ["session_id"]);
         if (s.ready) fail(409, "TERMINAL_ALREADY_OPEN");
         store.transaction(() => {
@@ -710,8 +827,20 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       } else if (type === "terminal.output") {
         keys(b, ["session_id", "seq", "data"]);
         if (!s.ready) fail(409, "TERMINAL_NOT_OPEN");
+        if (s.reconnectUntil) return;
         const seq = integer(b.seq, 1, Number.MAX_SAFE_INTEGER),
           chunk = bytes(b.data);
+        const previous = db
+          .prepare("SELECT output_seq FROM terminal_sessions WHERE id=?")
+          .get(s.id)!;
+        if (
+          s.resumeId &&
+          seq === previous.output_seq &&
+          s.outputDigest === hash(chunk)
+        ) {
+          if (!sendTarget(s, "terminal.ack", { seq })) suspend(s);
+          return;
+        }
         const events = s.commands.push(chunk);
         const visible: Buffer[] = [];
         d.availableStorage();
@@ -778,6 +907,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
             "UPDATE terminal_sessions SET output_seq=?,output_bytes=output_bytes+? WHERE id=?",
           ).run(seq, chunk.length, s.id);
         });
+        s.outputDigest = hash(chunk);
         // SQLite FULL commit precedes both display and Agent ACK.
         for (const part of visible)
           if (
@@ -788,7 +918,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           s.backend === "agent" &&
           !d.agent(deviceId)?.send("terminal.ack", { session_id: s.id, seq })
         )
-          end(s, "DEVICE_OFFLINE");
+          if (s.resumeId) suspend(s);
+          else end(s, "DEVICE_OFFLINE");
       } else if (type === "terminal.closed") {
         keys(b, ["session_id", "reason"]);
         const reason = str(b.reason, 1, 128);
@@ -835,10 +966,43 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     receive(deviceId: string, type: string, b: Record<string, any>) {
       receive(deviceId, type, b, "agent");
     },
-    disconnect(deviceId: string) {
+    disconnect(deviceId: string, reason?: string) {
       for (const s of [...sessions.values()])
         if (s.deviceId === deviceId && s.backend === "agent")
-          safeEnd(s, "AGENT_DISCONNECTED");
+          suspend(s, reason);
+    },
+    reconcile(deviceId: string, resumeId: string, ids: string[]) {
+      const available = new Set(ids);
+      for (const s of [...sessions.values()]) {
+        if (s.deviceId !== deviceId || s.backend !== "agent") continue;
+        if (!s.reconnectUntil) continue;
+        if (Date.now() >= s.reconnectUntil) {
+          safeEnd(s, "AGENT_RECONNECT_TIMEOUT");
+          continue;
+        }
+        if (s.resumeId !== resumeId) {
+          safeEnd(s, "AGENT_RESTARTED");
+          continue;
+        }
+        if (!available.has(s.id)) {
+          safeEnd(s, "AGENT_SESSION_LOST");
+          continue;
+        }
+        if (!authorized(s, true)) {
+          safeEnd(s, "AUTHORIZATION_EXPIRED");
+          continue;
+        }
+        available.delete(s.id);
+        const row = db
+          .prepare("SELECT output_seq FROM terminal_sessions WHERE id=?")
+          .get(s.id)!;
+        s.resuming = true;
+        if (!sendTarget(s, "terminal.resume", { seq: row.output_seq }))
+          s.resuming = false;
+      }
+      // A platform restart/revocation never adopts orphan shells.
+      for (const id of available)
+        d.agent(deviceId)?.send("terminal.close", { session_id: id });
     },
     revoke(deviceId: string) {
       for (const s of [...sessions.values()])
@@ -850,6 +1014,12 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     },
     tick() {
       for (const s of [...sessions.values()]) {
+        if (s.resumeId && !d.agent(s.deviceId)) suspend(s);
+        if (!sessions.has(s.id)) continue;
+        if (s.reconnectUntil && Date.now() >= s.reconnectUntil) {
+          safeEnd(s, "AGENT_RECONNECT_TIMEOUT");
+          continue;
+        }
         if (!authorized(s)) safeEnd(s, "AUTHORIZATION_EXPIRED");
         else if (
           (!s.ready && Date.now() > s.expires) ||
