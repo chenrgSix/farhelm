@@ -271,13 +271,16 @@ try {
     }
     const reconnects = c.err.split("重连").length,
       resumes = c.err.split("已恢复").length;
-    for (const socket of connections) socket.pause();
+    // Only disrupt the original transport. The Agent may already have opened
+    // a healthy replacement by the time OpenSSH delivers the reconnect notice.
+    const interrupted = [...connections];
+    for (const socket of interrupted) socket.pause();
     await until(
       () => c.err.split("重连").length > reconnects,
       "detect silent loss",
       30000,
     );
-    for (const socket of connections) socket.destroy();
+    for (const socket of interrupted) socket.destroy();
     await until(
       () => c.err.split("已恢复").length > resumes,
       "resume after silent loss",
@@ -334,7 +337,8 @@ try {
   );
   mkdirSync(join(root, ".test-output"), { recursive: true });
   writeFileSync(
-    join(root, ".test-output/terminal-reconnect-e2e.json"),
+    process.env.FLEET_TEST_REPORT_FILE ??
+      join(root, ".test-output/terminal-reconnect-e2e.json"),
     JSON.stringify({ at: new Date().toISOString(), checks }, null, 2) + "\n",
   );
   console.log(JSON.stringify({ checks }, null, 2));
