@@ -45,7 +45,7 @@ function client(
   }
   return { ws, messages, send, wait };
 }
-async function fixture() {
+async function fixture(configurableDuration = false) {
   const s = await buildServer({
     dataDir: mkdtempSync(join(root, "data-")),
     tlsCert: join(root, "tls/server.crt"),
@@ -87,7 +87,12 @@ async function fixture() {
     )
     .run(hash(access), Date.now() + 60000);
   const agent = client(wsUrl + "/agent/ws", {
-    headers: { authorization: "Bearer " + access },
+    headers: {
+      authorization: "Bearer " + access,
+      ...(configurableDuration
+        ? { "x-farhelm-terminal-duration": "configurable-v1" }
+        : {}),
+    },
   });
   await once(agent.ws, "open");
   agent.send("agent.hello", {
@@ -2519,5 +2524,54 @@ test("device overrides replace the global default for admission and Agent capaci
   } finally {
     second?.ws.terminate();
     await f.close();
+  }
+});
+
+test("web terminals negotiate configured duration and preserve old Agent compatibility", async () => {
+  for (const supported of [false, true]) {
+    const f = await fixture(supported);
+    try {
+      for (const minutes of [60, 1, 120, 0]) {
+        f.store.db
+          .prepare(
+            "UPDATE connection_limits SET terminal_max_minutes=? WHERE id=1",
+          )
+          .run(minutes);
+        const created = await f.create();
+        if (!supported && (minutes === 0 || minutes > 60)) {
+          assert.equal(created.status, 409);
+          assert.equal(
+            created.body.error,
+            "TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT",
+          );
+          continue;
+        }
+        assert.equal(created.status, 200, JSON.stringify(created.body));
+        const browser = await f.attach(created.body);
+        const opening = await f.agent.wait("terminal.open");
+        assert.equal(
+          opening.max_duration_ms,
+          supported ? minutes * 60000 : undefined,
+        );
+        assertValid("terminal-envelope", {
+          v: 1,
+          type: "terminal.open",
+          body: opening,
+        });
+        f.agent.send("terminal.opened", { session_id: opening.session_id });
+        await browser.wait("terminal.ready");
+        f.agent.send("terminal.closed", {
+          session_id: opening.session_id,
+          reason: "SHELL_EXIT",
+        });
+        await browser.wait("terminal.closed");
+      }
+      assertValid(
+        "audit-response",
+        (await f.api("GET", "/api/v1/audit", undefined, f.admin)).body,
+      );
+    } finally {
+      await f.close();
+    }
   }
 });

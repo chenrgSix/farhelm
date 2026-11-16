@@ -127,6 +127,7 @@ interface Connection {
   tcpForward: boolean;
   scriptLines?: boolean;
   extendedScriptTimeout: boolean;
+  configurableTerminalDuration: boolean;
   sudo: boolean;
   sudoNopasswd: boolean;
   sudoCommands: boolean;
@@ -944,6 +945,7 @@ export async function buildServer(config: ServerConfig) {
         return undefined;
       return {
         terminal: c.terminal && networkRoutes.allowed(id),
+        configurableDuration: c.configurableTerminalDuration,
         sudo: c.sudo,
         sudoNopasswd: c.sudoNopasswd,
         sudoCommands: c.sudoCommands,
@@ -2477,6 +2479,8 @@ export async function buildServer(config: ServerConfig) {
         webIngress: isWebRequest(req.raw),
         extendedScriptTimeout:
           req.headers["x-farhelm-script-timeout"] === "extended-v1",
+        configurableTerminalDuration:
+          req.headers["x-farhelm-terminal-duration"] === "configurable-v1",
         socket,
         deviceId: auth.id,
         tokenHash: auth.token_hash,

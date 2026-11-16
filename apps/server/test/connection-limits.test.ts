@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
+import { Store } from "../src/store.js";
 import { buildServer } from "../src/server.js";
 import { assertValid } from "../../../tests/contracts/validate.mjs";
 const root = mkdtempSync(join(tmpdir(), "farhelm-limits-"));
@@ -71,8 +73,9 @@ test("connection limits are admin-only, strictly bounded, optimistic, atomic and
         initial.terminal_total,
         initial.ssh_total,
         initial.ssh_per_ip,
+        initial.terminal_max_minutes,
       ],
-      [4, 4, 32, 64, 16],
+      [4, 4, 32, 64, 16, 60],
     );
     const { updated_at, ...input } = initial;
     const network = JSON.stringify(
@@ -86,6 +89,9 @@ test("connection limits are admin-only, strictly bounded, optimistic, atomic and
       { terminal_total: "64" },
       { per_user: null },
       { unexpected: 1 },
+      ...[-1, 0.5, "60", null, false, 150119987580].map(
+        (terminal_max_minutes) => ({ terminal_max_minutes }),
+      ),
     ])
       assert.equal(
         (await api("PUT", "/settings/connections", { ...input, ...change }))
@@ -103,6 +109,7 @@ test("connection limits are admin-only, strictly bounded, optimistic, atomic and
       terminal_total: 64,
       ssh_total: 128,
       ssh_per_ip: 64,
+      terminal_max_minutes: 120,
     };
     const audit = s.store.audit;
     s.store.audit = function (action, ...args) {
@@ -119,6 +126,7 @@ test("connection limits are admin-only, strictly bounded, optimistic, atomic and
     const saved = await api("PUT", "/settings/connections", draft);
     assert.equal(saved.status, 200);
     assertValid("connection-limits", saved.body);
+    assert.equal(saved.body.terminal_max_minutes, 120);
     assert.equal(
       (await api("PUT", "/settings/connections", draft)).status,
       409,
@@ -133,6 +141,34 @@ test("connection limits are admin-only, strictly bounded, optimistic, atomic and
     assert.deepEqual(
       (await api("GET", "/settings/connections")).body,
       saved.body,
+    );
+    const {
+      updated_at: _at,
+      terminal_max_minutes: _minutes,
+      ...legacy
+    } = saved.body;
+    const legacySaved = await api("PUT", "/settings/connections", {
+      ...legacy,
+      per_user: 7,
+    });
+    assert.equal(legacySaved.status, 200);
+    assert.equal(
+      legacySaved.body.terminal_max_minutes,
+      120,
+      "older clients preserve duration",
+    );
+    const unlimited = await api("PUT", "/settings/connections", {
+      ...legacy,
+      revision: legacySaved.body.revision,
+      terminal_max_minutes: 0,
+    });
+    assert.equal(unlimited.status, 200);
+    assert.equal(unlimited.body.terminal_max_minutes, 0);
+    await s.close();
+    s = await buildServer(config);
+    assert.equal(
+      (await api("GET", "/settings/connections")).body.terminal_max_minutes,
+      0,
     );
   } finally {
     await s.close();
@@ -313,5 +349,29 @@ test("device terminal overrides inherit dynamically, isolate devices, reset with
     );
   } finally {
     await s.close();
+  }
+});
+
+test("existing connection limits gain the 60-minute default without changing counts or revision", () => {
+  const dir = join(root, "migration-data");
+  const initial = new Store(dir);
+  initial.db.exec(
+    "UPDATE connection_limits SET per_user=9,revision=7,updated_at=123 WHERE id=1",
+  );
+  initial.close();
+  const old = new DatabaseSync(join(dir, "fleet.sqlite"));
+  old.exec("ALTER TABLE connection_limits DROP COLUMN terminal_max_minutes");
+  old.close();
+  const migrated = new Store(dir);
+  try {
+    const row = migrated.db
+      .prepare("SELECT * FROM connection_limits WHERE id=1")
+      .get()!;
+    assert.deepEqual(
+      [row.per_user, row.revision, row.updated_at, row.terminal_max_minutes],
+      [9, 7, 123, 60],
+    );
+  } finally {
+    migrated.close();
   }
 });

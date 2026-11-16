@@ -17,6 +17,7 @@ type Limits = {
   terminal_total: number;
   ssh_total: number;
   ssh_per_ip: number;
+  terminal_max_minutes: number;
 };
 const current = ref<Limits>(),
   draft = ref<Limits>(),
@@ -24,6 +25,13 @@ const current = ref<Limits>(),
   conflict = ref(false),
   error = ref(""),
   notice = ref("");
+const unlimited = ref(false),
+  durationMinutes = ref<number | string>(60);
+const maxDurationMinutes = Math.floor(Number.MAX_SAFE_INTEGER / 60000);
+function setDuration(result: Limits) {
+  unlimited.value = result.terminal_max_minutes === 0;
+  durationMinutes.value = result.terminal_max_minutes || 60;
+}
 let disposed = false;
 async function load() {
   if (busy.value) return;
@@ -35,6 +43,7 @@ async function load() {
     if (disposed) return;
     current.value = result;
     draft.value = { ...result };
+    setDuration(result);
     conflict.value = false;
   } catch (e) {
     if (!disposed)
@@ -45,6 +54,15 @@ async function load() {
 }
 async function save() {
   if (busy.value || conflict.value || !current.value || !draft.value) return;
+  if (
+    !unlimited.value &&
+    (!Number.isSafeInteger(durationMinutes.value) ||
+      Number(durationMinutes.value) < 1 ||
+      Number(durationMinutes.value) > maxDurationMinutes)
+  ) {
+    error.value = "终端最长连接时长请填写有效的正整数分钟，或选择不限时。";
+    return;
+  }
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -54,12 +72,14 @@ async function save() {
       body: {
         v: 1,
         revision: current.value.revision,
+        terminal_max_minutes: unlimited.value ? 0 : durationMinutes.value,
         ...Object.fromEntries(fields.map((f) => [f.key, draft.value![f.key]])),
       },
     });
     if (disposed) return;
     current.value = result;
     draft.value = { ...result };
+    setDuration(result);
     notice.value = "连接限额已保存，对新连接立即生效。";
   } catch (e) {
     if (disposed) return;
@@ -107,6 +127,32 @@ onBeforeUnmount(() => {
               step="1"
               required
           /></label>
+        </div>
+        <div class="terminal-duration">
+          <label for="terminal-max-minutes">终端最长连接时长（分钟）</label>
+          <div class="duration-controls">
+            <input
+              id="terminal-max-minutes"
+              v-model.number="durationMinutes"
+              type="number"
+              min="1"
+              :max="maxDurationMinutes"
+              step="1"
+              :required="!unlimited"
+              :disabled="unlimited"
+              aria-describedby="terminal-duration-hint"
+            />
+            <label class="duration-unlimited"
+              ><input v-model="unlimited" type="checkbox" />不限时</label
+            >
+          </div>
+          <p id="terminal-duration-hint" class="field-hint">
+            默认 60
+            分钟，从创建会话开始计时，持续操作也计入时长。保存后仅对新终端生效，适用于网页和
+            SSH 入口。 超过 60 分钟或不限时需要支持此功能的新版 Agent；纯 SSH
+            设备直接生效。
+            不限时仅取消终端时长上限，登录失效、权限撤销、连接断开及录制限额仍会结束会话。
+          </p>
         </div>
       </fieldset>
       <div class="limit-actions">
@@ -157,6 +203,34 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 16px;
+}
+.terminal-duration {
+  margin-top: 24px;
+}
+.duration-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-top: 8px;
+}
+.duration-controls > input {
+  width: 240px;
+  max-width: 100%;
+  min-width: 0;
+}
+.duration-unlimited {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 0;
+}
+.duration-unlimited input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 16px;
 }
 fieldset {
   border: 0;

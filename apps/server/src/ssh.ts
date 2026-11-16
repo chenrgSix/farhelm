@@ -319,6 +319,8 @@ export function createSshGateway(
                 SUDO_PASSWORD_REQUIRED: "未配置 sudo 密码，请联系管理员。",
                 SUDO_NOT_SUPPORTED_UPDATE_AGENT:
                   "Agent 版本不支持账号切换，请升级。",
+                TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT:
+                  "当前终端时长超过旧 Agent 的支持范围，请升级 Agent。",
               };
               if (errors[body.reason])
                 channel.stderr.write(errors[body.reason] + "\r\n");
@@ -362,14 +364,22 @@ export function createSshGateway(
           );
           authenticated.deviceId = deviceId;
           menu = undefined;
-          if (!closed) deadline(socket, 3600000);
+          // The terminal manager owns this session's configured lifetime.
+          // Keep handshake/menu/forward-only deadlines, but no second shell timer.
+          if (!closed) {
+            clearTimeout(deadlines.get(socket));
+            deadlines.delete(socket);
+          }
         }
         if (authenticated.deviceId) {
           try {
             connect(authenticated.deviceId);
-          } catch {
+          } catch (error) {
             channel.stderr.end(
-              "Farhelm terminal unavailable; check device status and permissions in the console.\r\n",
+              error instanceof ApiError &&
+                error.code === "TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT"
+                ? "当前终端时长超过旧 Agent 的支持范围，请升级 Agent。\r\n"
+                : "Farhelm terminal unavailable; check device status and permissions in the console.\r\n",
             );
             channel.exit(1);
             peer.close();
@@ -384,6 +394,8 @@ export function createSshGateway(
                 return undefined;
               } catch (error) {
                 const messages: Record<string, string> = {
+                  TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT:
+                    "当前终端时长超过旧 Agent 的支持范围，请升级 Agent。",
                   TERMINAL_POLICY_NOT_SUPPORTED_UPDATE_AGENT:
                     "该 Agent 无法落实 sudo 限制，请先升级。",
                   DEVICE_OFFLINE: "设备离线，请刷新列表或选择其他设备。",

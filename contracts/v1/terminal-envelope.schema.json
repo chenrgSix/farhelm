@@ -38,6 +38,12 @@
             "allow_sudo": {
               "type": "boolean"
             },
+            "max_duration_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Sent only after configurable-v1 duration negotiation; omitted defaults to 3600000, 0 disables the duration timer."
+            },
             "max_sessions": {
               "type": "integer",
               "minimum": 1,

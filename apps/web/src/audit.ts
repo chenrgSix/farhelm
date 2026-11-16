@@ -121,6 +121,8 @@ const labels: Record<string, string> = {
   terminal_total: "平台终端总上限",
   ssh_total: "SSH 总连接上限",
   ssh_per_ip: "单 IP SSH 连接上限",
+  terminal_max_minutes: "终端最长连接分钟数（0 为不限时）",
+  max_duration_ms: "终端最长连接毫秒数（0 为不限时）",
   account_id: "登录账号 ID",
   subject_type: "授权对象类型",
   subject_id: "授权对象 ID",

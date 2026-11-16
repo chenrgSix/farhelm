@@ -43,6 +43,7 @@ interface Session {
   ticketHash: string | null;
   expires: number;
   created: number;
+  maxDurationMs: number;
   socket?: WebSocket;
   peer?: TerminalPeer;
   ready: boolean;
@@ -85,6 +86,7 @@ interface Dependencies {
     | {
         send(type: string, body: unknown): boolean;
         terminal: boolean;
+        configurableDuration?: boolean;
         policy?: boolean;
         sudo?: boolean;
         sudoNopasswd?: boolean;
@@ -346,6 +348,13 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     if (sudoAutoPassword && /[\r\n\0]/.test(sudoAutoPassword))
       fail(409, "INVALID_SUDO_PASSWORD");
     const limits = d.limits.current();
+    const maxDurationMs = limits.terminal_max_minutes * 60000;
+    if (
+      selectedBackend === "agent" &&
+      !d.agent(deviceId)?.configurableDuration &&
+      (maxDurationMs === 0 || maxDurationMs > 3600000)
+    )
+      fail(409, "TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT");
     if (sessions.size >= limits.terminal_total)
       fail(429, "TERMINAL_SESSION_LIMIT");
     if (
@@ -383,6 +392,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         });
         store.audit("terminal.created", user.id, deviceId, null, {
           session_id: id,
+          max_duration_ms: maxDurationMs,
           sudo_allowed: allowPrivilege,
           sudo_enforced: policyControlled,
           ...(sudoAuto ? { sudo_auto: true } : {}),
@@ -401,6 +411,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       ticketHash: hash(ticket),
       expires: now + 30000,
       created: now,
+      maxDurationMs,
       ready: false,
       backend: selectedBackend,
       sudoGranted,
@@ -565,11 +576,21 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
       }
       return;
     }
+    const agent = d.agent(s.deviceId);
     if (
-      !d.agent(s.deviceId)?.send("terminal.open", {
+      agent &&
+      !agent.configurableDuration &&
+      (s.maxDurationMs === 0 || s.maxDurationMs > 3600000)
+    )
+      return safeEnd(s, "TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT");
+    if (
+      !agent?.send("terminal.open", {
         session_id: s.id,
         cols,
         rows,
+        ...(agent.configurableDuration
+          ? { max_duration_ms: s.maxDurationMs }
+          : {}),
         ...(s.policyControlled
           ? {
               allow_sudo: s.allowPrivilege,
@@ -832,7 +853,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         if (!authorized(s)) safeEnd(s, "AUTHORIZATION_EXPIRED");
         else if (
           (!s.ready && Date.now() > s.expires) ||
-          Date.now() - s.created > 3600000
+          (s.maxDurationMs > 0 && Date.now() - s.created >= s.maxDurationMs)
         )
           safeEnd(s, "SESSION_EXPIRED");
       }

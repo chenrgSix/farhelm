@@ -44,7 +44,7 @@ API：`GET /api/v1/devices/:id/terminal-commands?from=<毫秒>&to=<毫秒>&q=<�
 - 浏览器通过已登录的 HTTPS API 创建会话，再使用有效期 30 秒、单次使用的票据，在 WebSocket 首帧绑定会话。票据不放 URL；服务端检查浏览器 Origin。开发代理需启用 WebSocket，并显式设置 `FLEET_CONSOLE_ORIGIN=https://localhost:5173`；`scripts/dev.sh` 已配置。
 - 会话创建先事务保存身份和初始窗口。每段输出先提交 SQLite WAL/FULL，再展示并 ACK；Agent 等 ACK 后读取下一段。窗口变化在下发前记录，关闭及查看/导出也写审计。录制失败、输出乱序、队列超限或空间不足立即停止输入并请求关闭 PTY，保留已录部分并标记中断。
 - 不保存原始按键，只保存 PTY 输出；关闭回显的密码输入不会进入录制。命令自行输出的敏感内容仍会出现在终端和记录中。
-- 每设备、每用户最多 4 个会话，全局最多 32 个；单会话最长 1 小时、最多 8 MiB 原始输出和 100000 个录制事件。输入/输出块最多 8192 字节，传输队列有界。没有自动清理历史记录，开发者需要自行维护存储容量。
+- 每设备、每用户最多 4 个会话，全局最多 32 个；单会话默认最长 60 分钟（可配置或不限时）、最多 8 MiB 原始输出和 100000 个录制事件。输入/输出块最多 8192 字节，传输队列有界。没有自动清理历史记录，开发者需要自行维护存储容量。
 - 「终端会话」提供按时序回放和 JSON 导出；界面将长停顿压缩至 2 秒，导出保留真实时间戳、字节和窗口事件。中断记录明确显示不完整。
 
 同 UID Shell 能够读取 Agent 身份和本地文件，不能宣称端点防篡改。关闭时清理同一 Linux session 下的普通前台/后台进程；主动 `setsid` 脱离的进程不在此范围，仍受 ADR-006 的边界约束。服务端重启只标记旧会话中断，不恢复或重放旧 Shell。
@@ -101,8 +101,16 @@ FLEET_TEST_BROWSER_CHANNEL=chromium node tests/e2e/target-accounts.mjs
 
 单用户计数跨登录令牌、网页和 SSH 共用：等待附着的网页票据占一个名额，认证完成的 SSH 连接（含设备选择菜单）占一个名额；SSH 选择设备后不会再次计数。单设备及平台终端数包含待连接和活动终端。SSH 总数与单 IP 数包含尚未完成认证的 TCP 连接，以限制握手资源。关闭、失败和票据过期后释放相应名额。
 
-保存后新连接立即使用新限额，降低上限不会断开已有连接；提高单设备上限需同步升级 Agent，以免仍受旧 Agent 的 4 会话限制。配置持久化且保存带版本校验和审计。API 为管理员专用 `GET/PUT /api/v1/settings/connections`；PUT 提交 `v`、`revision`、`per_user`、`per_device`、`terminal_total`、`ssh_total`、`ssh_per_ip`。此配置不修改目标机 sshd、监听端口、路由或网络策略。
+保存后新连接立即使用新限额，降低上限不会断开已有连接；提高单设备上限需同步升级 Agent，以免仍受旧 Agent 的 4 会话限制。配置持久化且保存带版本校验和审计。API 为管理员专用 `GET/PUT /api/v1/settings/connections`；PUT 提交 `v`、`revision`、`per_user`、`per_device`、`terminal_total`、`ssh_total`、`ssh_per_ip`，以及可选的 `terminal_max_minutes`（旧客户端省略时保留现值）。此配置不修改目标机 sshd、监听端口、路由或网络策略。
 
+
+### 终端最长连接时长
+
+同一「系统设置 → 连接限额」面板中可设置正整数分钟，默认 60 分钟，也可勾选「不限时」（API 为 `terminal_max_minutes: 0`）。适用于网页终端和 Farhelm SSH 入口，包括 Agent、纯 SSH 和备用 SSH 通道；每个会话在创建时保存时长，修改设置不改变已有会话。持续输入也计入总时长，到期以 `SESSION_EXPIRED` 关闭并记录审计。数值上限为 150119987579 分钟，以保证毫秒转换不超过安全整数；不是空闲超时。
+
+不限时只取消会话时长计时，登录凭据到期、权限撤销、设备断线、录制及存储限额仍会关闭会话。此配置不修改网页登录有效期、操作台脚本超时或纯 SSH TCP 转发的连接期限。
+
+Agent 通过控制 WebSocket 握手头 `x-farhelm-terminal-duration: configurable-v1` 声明支持；平台才在 `terminal.open` 中发送 `max_duration_ms`，0 表示不限时。新版 Agent 未收到字段时仍使用 60 分钟，因此可以连接旧平台。旧 Agent 可使用 1–60 分钟（由平台限时），但配置超过 60 分钟或不限时时，新建 Agent 终端会返回 `TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT`，须升级后再连接；纯 SSH 通道不需 Agent 升级。
 
 ### 每台设备独立覆盖
 

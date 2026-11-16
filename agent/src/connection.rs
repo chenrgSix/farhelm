@@ -147,6 +147,9 @@ async fn connect(
         request
             .headers_mut()
             .insert("x-farhelm-script-timeout", "extended-v1".parse()?);
+        request
+            .headers_mut()
+            .insert("x-farhelm-terminal-duration", "configurable-v1".parse()?);
     }
     let mut ws_config = WebSocketConfig::default();
     ws_config.max_message_size = Some(MAX_FRAME);

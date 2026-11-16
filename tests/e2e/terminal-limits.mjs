@@ -35,8 +35,8 @@ const port = server.app.server.address().port,
 let admin,
   device,
   started = false;
-async function until(fn, label) {
-  const end = Date.now() + 20000;
+async function until(fn, label, timeout = 20000) {
+  const end = Date.now() + timeout;
   while (Date.now() < end) {
     if (await fn()) return;
     await new Promise((r) => setTimeout(r, 30));
@@ -215,7 +215,7 @@ try {
       limit: value,
     });
   };
-  await settings({ per_user: 8, per_device: 2 });
+  await settings({ per_user: 8, per_device: 2, terminal_max_minutes: 120 });
   assert.equal((await api("GET", path)).effective_limit, 2);
   await limit(6);
   const terminals = [];
@@ -296,6 +296,34 @@ try {
     () => only.messages.some((m) => m.type === "terminal.closed"),
     "inherited release PTY closed",
   );
+  // Real Agent handshake and PTY: lowering/increasing settings must not
+  // change an existing session, including one running a foreground command.
+  await settings({ terminal_max_minutes: 1 });
+  const durationStarted = Date.now();
+  const timed = await open(auth);
+  await timed.ready();
+  timed.send("sleep 120\r");
+  await settings({ terminal_max_minutes: 0 });
+  await until(
+    () => timed.messages.some((m) => m.type === "terminal.closed"),
+    "configured one-minute terminal expires",
+    75000,
+  );
+  assert.equal(
+    timed.messages.find((m) => m.type === "terminal.closed").body.reason,
+    "SESSION_EXPIRED",
+  );
+  assert.ok(
+    Date.now() - durationStarted >= 59000,
+    "terminal must not expire early",
+  );
+  const unlimited = await open(auth);
+  await unlimited.ready();
+  unlimited.send("exit\r");
+  await until(
+    () => unlimited.messages.some((m) => m.type === "terminal.closed"),
+    "unlimited terminal closes normally",
+  );
   const { updated_at: ignored, ...current } = await api(
     "GET",
     "/settings/connections",
@@ -319,6 +347,10 @@ try {
       globalDefaultChanges: true,
       resetToInheritance: true,
       loweringKeepsExistingSessions: true,
+      configuredDurationWebAndSsh: true,
+      oneMinuteExpiryWhileRunning: true,
+      durationChangesAffectNewSessionsOnly: true,
+      unlimitedTerminal: true,
     },
   };
   writeFileSync(
@@ -326,7 +358,7 @@ try {
     JSON.stringify(report, null, 2) + "\n",
   );
   console.log(
-    "Real release connection limits passed: five web + one SSH, independent override, global changes, live lowering and inheritance reset.",
+    "Real Agent connection limits passed: five web + one SSH, independent override, global changes, inheritance reset, configured one-minute expiry and unlimited duration.",
   );
 } catch (error) {
   if (started)

@@ -1,5 +1,5 @@
 //! Ephemeral PTYs: a lost control connection closes shells, never replays input.
-use crate::{config::Config, now_ms};
+use crate::config::Config;
 use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
@@ -65,6 +65,8 @@ struct Open {
     allow_sudo: Option<bool>,
     #[serde(default)]
     max_sessions: Option<usize>,
+    #[serde(default)]
+    max_duration_ms: Option<u64>,
     #[serde(default)]
     username: Option<String>,
 }
@@ -147,6 +149,10 @@ impl Terminals {
                 "invalid terminal ID"
             );
             size(open.cols, open.rows)?;
+            ensure!(
+                open.max_duration_ms.unwrap_or(3_600_000) <= 9_007_199_254_740_991,
+                "invalid terminal duration"
+            );
             if !self.seen.insert(open.session_id.clone()) {
                 return Ok(());
             }
@@ -527,7 +533,8 @@ async fn run(
     let mut queue = VecDeque::<u8>::new();
     let mut seq = 0u64;
     let mut pending = None::<Instant>;
-    let start = now_ms();
+    let start = Instant::now();
+    let max_duration_ms = open.max_duration_ms.unwrap_or(3_600_000);
     let mut timer = tokio::time::interval(Duration::from_millis(250));
     loop {
         let writing: Vec<u8> = queue.iter().take(8192).copied().collect();
@@ -551,7 +558,7 @@ async fn run(
             _=timer.tick()=>{
                 if commands.as_ref().is_some_and(|task| task.0.is_finished()) { return Ok("SUDO_AUTH_FAILED"); }
                 if pending.is_some_and(|time| time.elapsed()>Duration::from_secs(10)) { return Ok("RECORDING_ACK_TIMEOUT"); }
-                if now_ms()-start>3_600_000 { return Ok("SESSION_EXPIRED"); }
+                if max_duration_ms > 0 && start.elapsed() >= Duration::from_millis(max_duration_ms) { return Ok("SESSION_EXPIRED"); }
             }
         }
     }
@@ -560,6 +567,69 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn configured_duration_closes_real_pty_and_unlimited_or_default_stay_open() {
+        for duration in [Some(250u64), Some(0), Some(7_200_000), None] {
+            let temp = tempfile::tempdir().unwrap();
+            let cfg = Config {
+                connect_ip: None,
+                server: url::Url::parse("https://localhost:8444").unwrap(),
+                state: temp.path().into(),
+                ca_pem: None,
+                enrollment_token: None,
+                name: "duration-test".into(),
+                execution_enabled: true,
+                terminal_allow_privilege_escalation: false,
+                heartbeat_ms: 1000,
+                fault: None,
+            };
+            let (output, mut events) = mpsc::channel(32);
+            let mut manager = Terminals::new(cfg, output);
+            let id = uuid::Uuid::new_v4().to_string();
+            let mut body = json!({"session_id":id,"cols":80,"rows":24});
+            if let Some(duration) = duration {
+                body["max_duration_ms"] = json!(duration);
+            }
+            manager.receive("terminal.open", body).await.unwrap();
+            let mut opened = false;
+            let mut stopped = false;
+            let deadline = tokio::time::sleep(Duration::from_millis(1000));
+            tokio::pin!(deadline);
+            loop {
+                tokio::select! {
+                    _ = &mut deadline => break,
+                    event = events.recv() => {
+                        let (kind, body) = event.unwrap();
+                        match kind.as_str() {
+                            "terminal.opened" => opened = true,
+                            "terminal.output" => manager.receive("terminal.ack", json!({"session_id":id,"seq":body["seq"]})).await.unwrap(),
+                            "terminal.closed" => {
+                                assert_eq!(body["reason"], "SESSION_EXPIRED");
+                                stopped = true;
+                                break;
+                            }
+                            _ => panic!("unexpected event: {kind}"),
+                        }
+                    }
+                }
+            }
+            assert!(opened);
+            assert_eq!(stopped, duration == Some(250));
+            manager
+                .receive("terminal.close", json!({"session_id":id}))
+                .await
+                .unwrap();
+            for invalid in [
+                json!(-1),
+                json!(1.5),
+                json!("60"),
+                json!(9_007_199_254_740_992u64),
+            ] {
+                assert!(manager.receive("terminal.open", json!({"session_id":uuid::Uuid::new_v4().to_string(),"cols":80,"rows":24,"max_duration_ms":invalid})).await.is_err());
+            }
+        }
+    }
 
     #[tokio::test]
     async fn sudo_cannot_bypass_the_local_opt_in_or_use_normal_terminal_frames() {

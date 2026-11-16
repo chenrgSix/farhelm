@@ -6,5 +6,6 @@
   "terminal_total": 32,
   "ssh_total": 64,
   "ssh_per_ip": 16,
+  "terminal_max_minutes": 60,
   "updated_at": null
 }

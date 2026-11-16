@@ -449,6 +449,22 @@ export class Store {
         ),
       );
     }
+    if (
+      !this.db
+        .prepare(
+          "SELECT 1 FROM pragma_table_info('connection_limits') WHERE name='terminal_max_minutes'",
+        )
+        .get()
+    ) {
+      this.transaction(() =>
+        this.db.exec(
+          readFileSync(
+            new URL("../migrations/050_terminal_duration.sql", import.meta.url),
+            "utf8",
+          ),
+        ),
+      );
+    }
     this.db
       .prepare(
         "INSERT OR IGNORE INTO meta(key,value) VALUES ('server_instance',?)",

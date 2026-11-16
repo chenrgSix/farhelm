@@ -38,6 +38,12 @@
       "minimum": 1,
       "maximum": 1024
     },
+    "terminal_max_minutes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 150119987579,
+      "description": "Maximum terminal lifetime in minutes; 0 disables this timer. Defaults to 60 for older servers."
+    },
     "updated_at": {
       "type": [
         "integer",

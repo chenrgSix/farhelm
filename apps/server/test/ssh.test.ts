@@ -27,7 +27,7 @@ async function until(fn: () => unknown, label: string) {
   }
   throw new Error("Timed out: " + label);
 }
-async function fixture() {
+async function fixture(configurableDuration = false) {
   const dataDir = mkdtempSync(join(root, "data-"));
   const config = {
     dataDir,
@@ -54,7 +54,12 @@ async function fixture() {
     `wss://localhost:${(s.app.server.address() as any).port}/agent/ws`,
     {
       ca: readFileSync(join(root, "tls/ca.crt")),
-      headers: { authorization: "Bearer " + access },
+      headers: {
+        authorization: "Bearer " + access,
+        ...(configurableDuration
+          ? { "x-farhelm-terminal-duration": "configurable-v1" }
+          : {}),
+      },
     },
   );
   const messages: any[] = [];
@@ -1207,5 +1212,43 @@ test("a per-device override shares admission between SSH menus and web tickets a
     assert.equal((await create()).status, 200);
   } finally {
     await f.close();
+  }
+});
+
+test("SSH terminal uses the configured lifetime and explains unsupported old Agents", async () => {
+  for (const supported of [true, false]) {
+    const f = await fixture(supported);
+    try {
+      f.store.db.exec(
+        "UPDATE connection_limits SET terminal_max_minutes=120 WHERE id=1",
+      );
+      const c = await f.connect();
+      const channel = await new Promise<ClientChannel>((resolve, reject) =>
+        c.shell({ cols: 80, rows: 24 }, (e, stream) =>
+          e ? reject(e) : resolve(stream),
+        ),
+      );
+      if (supported) {
+        const opening = await f.wait("terminal.open");
+        assert.equal(opening.max_duration_ms, 7200000);
+        f.send("terminal.opened", { session_id: opening.session_id });
+        await f.wait("terminal.resize");
+      } else {
+        let error = "";
+        channel.stderr.on("data", (chunk) => {
+          error += chunk;
+        });
+        await until(
+          () => error.includes("升级 Agent"),
+          "duration upgrade explanation",
+        );
+        assert.equal(
+          f.messages.some((m) => m.type === "terminal.open"),
+          false,
+        );
+      }
+    } finally {
+      await f.close();
+    }
   }
 });

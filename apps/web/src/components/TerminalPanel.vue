@@ -31,6 +31,8 @@ const sudoErrors: Record<string, string> = {
     "该用户的并发连接数已达上限，请关闭其他网页终端或 SSH 连接。",
   DEVICE_TERMINAL_LIMIT: "该设备的终端数已达上限，请关闭其他会话。",
   TERMINAL_SESSION_LIMIT: "平台终端总数已达上限，请稍后重试。",
+  TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT:
+    "当前终端时长超过旧 Agent 的支持范围，请升级 Agent，或请管理员将终端最长连接时长设为 60 分钟以内。",
   TERMINAL_POLICY_NOT_SUPPORTED_UPDATE_AGENT:
     "当前 Agent 无法落实单用户 sudo 限制，请升级 Agent。",
   SSH_PRIVILEGE_POLICY_NOT_SUPPORTED:

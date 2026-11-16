@@ -9,12 +9,14 @@ export const LIMIT_BOUNDS = {
   ssh_total: 1024,
   ssh_per_ip: 1024,
 } as const;
+export const MAX_TERMINAL_MINUTES = Math.floor(Number.MAX_SAFE_INTEGER / 60000);
 export type Limits = {
   per_user: number;
   per_device: number;
   terminal_total: number;
   ssh_total: number;
   ssh_per_ip: number;
+  terminal_max_minutes: number;
   revision: number;
   updated_at: number | null;
 };
@@ -119,7 +121,12 @@ export class ConnectionLimits {
       const user = admin(req),
         b = object(req.body);
       version(b);
-      keys(b, ["v", "revision", ...Object.keys(LIMIT_BOUNDS)]);
+      keys(b, [
+        "v",
+        "revision",
+        "terminal_max_minutes",
+        ...Object.keys(LIMIT_BOUNDS),
+      ]);
       const revision = integer(b.revision, 0, Number.MAX_SAFE_INTEGER - 1);
       const next = Object.fromEntries(
         Object.entries(LIMIT_BOUNDS).map(([key, max]) => [
@@ -132,6 +139,11 @@ export class ConnectionLimits {
         const before = this.current();
         if (before.revision !== revision)
           fail(409, "SETTINGS_REVISION_CONFLICT");
+        // Older clients editing counts must preserve the configured duration.
+        next.terminal_max_minutes =
+          b.terminal_max_minutes === undefined
+            ? before.terminal_max_minutes
+            : integer(b.terminal_max_minutes, 0, MAX_TERMINAL_MINUTES);
         if (
           Object.keys(next).every(
             (key) => next[key] === before[key as keyof Limits],
@@ -140,7 +152,7 @@ export class ConnectionLimits {
           return { v: 1, ...before };
         this.store.db
           .prepare(
-            "UPDATE connection_limits SET per_user=?,per_device=?,terminal_total=?,ssh_total=?,ssh_per_ip=?,revision=revision+1,updated_at=? WHERE id=1",
+            "UPDATE connection_limits SET per_user=?,per_device=?,terminal_total=?,ssh_total=?,ssh_per_ip=?,terminal_max_minutes=?,revision=revision+1,updated_at=? WHERE id=1",
           )
           .run(
             next.per_user!,
@@ -148,6 +160,7 @@ export class ConnectionLimits {
             next.terminal_total!,
             next.ssh_total!,
             next.ssh_per_ip!,
+            next.terminal_max_minutes!,
             Date.now(),
           );
         this.store.audit("settings.connections_updated", user.id, null, null, {
