@@ -120,6 +120,8 @@ FLEET_TEST_BROWSER_CHANNEL=chromium node tests/e2e/target-accounts.mjs
 
 单用户计数跨登录令牌、网页和 SSH 共用：等待附着的网页票据占一个名额，认证完成的 SSH 连接（含设备选择菜单）占一个名额；SSH 选择设备后不会再次计数。单设备及平台终端数包含待连接和活动终端。SSH 总数与单 IP 数包含尚未完成认证的 TCP 连接，以限制握手资源。关闭、失败和票据过期后释放相应名额。
 
+Agent 的终端并发计数包含尚在启动或清理的会话。已结束或拒绝的会话 ID 仅用于识别近期的重复打开请求，最多保留 1024 个，满后淘汰最旧记录。新会话仍按设备并发限额接纳。
+
 保存后新连接立即使用新限额，降低上限不会断开已有连接；提高单设备上限需同步升级 Agent，以免仍受旧 Agent 的 4 会话限制。配置持久化且保存带版本校验和审计。API 为管理员专用 `GET/PUT /api/v1/settings/connections`；PUT 提交 `v`、`revision`、`per_user`、`per_device`、`terminal_total`、`ssh_total`、`ssh_per_ip`，以及可选的 `terminal_max_minutes`（旧客户端省略时保留现值）。此配置不修改目标机 sshd、监听端口、路由或网络策略。
 
 

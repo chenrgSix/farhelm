@@ -5,7 +5,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     fs::File,
     io,
     os::{
@@ -24,6 +24,7 @@ use tokio::{
 };
 
 pub type Output = (String, Value);
+const RECENT_CLOSED_IDS: usize = 1024;
 enum Control {
     Input(Vec<u8>, Option<u64>),
     Resize(u16, u16),
@@ -52,7 +53,7 @@ impl Drop for Entry {
 pub struct Terminals {
     cfg: Config,
     entries: HashMap<String, Entry>,
-    seen: HashSet<String>,
+    recently_closed: VecDeque<String>,
     output: mpsc::Sender<Output>,
 }
 #[derive(Deserialize)]
@@ -98,9 +99,9 @@ struct Close {
 
 impl Terminals {
     pub fn connected(&mut self) {
-        // Keep the per-transport duplicate-open bound without accumulating every
-        // historical terminal for the lifetime of this Agent process.
-        self.seen = self.entries.keys().cloned().collect();
+        // Open requests are ordered on each transport. Retained sessions still
+        // reject duplicate opens through entries after reconnecting.
+        self.recently_closed.clear();
     }
     pub fn disconnected(&mut self) {
         self.entries.retain(|_, entry| {
@@ -129,13 +130,26 @@ impl Terminals {
         Self {
             cfg,
             entries: HashMap::new(),
-            seen: HashSet::new(),
+            recently_closed: VecDeque::new(),
             output,
         }
     }
+    fn remember_closed_id(ids: &mut VecDeque<String>, id: String) {
+        if ids.len() == RECENT_CLOSED_IDS {
+            let _ = ids.pop_front();
+        }
+        ids.push_back(id);
+    }
     pub async fn receive(&mut self, kind: &str, body: Value) -> Result<()> {
         if kind == "terminal.open" || kind == "terminal.sudo.open" {
-            self.entries.retain(|_, e| !e.task.is_finished());
+            let recently_closed = &mut self.recently_closed;
+            self.entries.retain(|id, entry| {
+                let finished = entry.task.is_finished();
+                if finished {
+                    Self::remember_closed_id(recently_closed, id.clone());
+                }
+                !finished
+            });
             let mut open: Open = serde_json::from_value(body)?;
             ensure!(
                 (kind == "terminal.sudo.open") == open.sudo_password.is_some(),
@@ -185,10 +199,13 @@ impl Terminals {
                 open.max_duration_ms.unwrap_or(3_600_000) <= 9_007_199_254_740_991,
                 "invalid terminal duration"
             );
-            if !self.seen.insert(open.session_id.clone()) {
+            if self.entries.contains_key(&open.session_id)
+                || self.recently_closed.contains(&open.session_id)
+            {
                 return Ok(());
             }
             if (privileged || auto_sudo) && !self.cfg.terminal_allow_privilege_escalation {
+                Self::remember_closed_id(&mut self.recently_closed, open.session_id.clone());
                 self.output
                     .send((
                         "terminal.closed".into(),
@@ -202,10 +219,8 @@ impl Terminals {
                 (1..=128).contains(&max_sessions),
                 "invalid terminal session limit"
             );
-            if !self.cfg.execution_enabled
-                || self.entries.len() >= max_sessions
-                || self.seen.len() > 1024
-            {
+            if !self.cfg.execution_enabled || self.entries.len() >= max_sessions {
+                Self::remember_closed_id(&mut self.recently_closed, open.session_id.clone());
                 self.output
                     .send((
                         "terminal.closed".into(),
@@ -315,11 +330,13 @@ impl Terminals {
         if let Some(entry) = self.entries.get(&id) {
             if kind == "terminal.close" && entry.task.is_finished() {
                 self.entries.remove(&id);
+                Self::remember_closed_id(&mut self.recently_closed, id);
                 return Ok(());
             }
             // A full input queue closes only this PTY; it must not block heartbeats.
             if entry.input.try_send(message).is_err() {
                 self.entries.remove(&id);
+                Self::remember_closed_id(&mut self.recently_closed, id.clone());
                 self.output
                     .send((
                         "terminal.closed".into(),
@@ -686,6 +703,7 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[tokio::test]
     async fn configured_duration_closes_real_pty_and_unlimited_or_default_stay_open() {
@@ -782,6 +800,81 @@ mod tests {
         assert_eq!(body["reason"], "SUDO_DISABLED");
     }
 
+    #[tokio::test]
+    async fn terminal_open_history_does_not_block_a_new_pty() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            connect_ip: None,
+            server: url::Url::parse("https://localhost:8444").unwrap(),
+            state: temp.path().into(),
+            ca_pem: None,
+            enrollment_token: None,
+            name: "terminal-history-test".into(),
+            execution_enabled: true,
+            terminal_allow_privilege_escalation: false,
+            heartbeat_ms: 1000,
+            fault: None,
+        };
+        let (output, mut events) = mpsc::channel(32);
+        let mut manager = Terminals::new(cfg, output);
+        let denied_open = |id: &str| json!({"session_id":id,"cols":80,"rows":24,"allow_sudo":true,"sudo_password":""});
+        for index in 1..=RECENT_CLOSED_IDS + 1 {
+            let id = uuid::Uuid::from_u128(index as u128).to_string();
+            manager
+                .receive("terminal.sudo.open", denied_open(&id))
+                .await
+                .unwrap();
+            let (kind, body) = events.try_recv().unwrap();
+            assert_eq!(kind, "terminal.closed");
+            assert_eq!(body["session_id"], id);
+            assert_eq!(body["reason"], "SUDO_DISABLED");
+        }
+        assert_eq!(manager.recently_closed.len(), RECENT_CLOSED_IDS);
+        let first_retained = uuid::Uuid::from_u128(2).to_string();
+        assert_eq!(manager.recently_closed.front(), Some(&first_retained));
+        manager
+            .receive("terminal.sudo.open", denied_open(&first_retained))
+            .await
+            .unwrap();
+        assert!(matches!(
+            events.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let open = json!({"session_id":id,"cols":80,"rows":24,"max_sessions":1});
+        manager
+            .receive("terminal.open", open.clone())
+            .await
+            .unwrap();
+        let (kind, body) = tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(kind, "terminal.opened", "{body}");
+        assert_eq!(body["session_id"], id);
+        manager
+            .receive("terminal.close", json!({"session_id":id}))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let (kind, body) = events.recv().await.unwrap();
+                assert_eq!(body["session_id"], id);
+                if kind == "terminal.closed" {
+                    assert_eq!(body["reason"], "CONTROL_CLOSED");
+                    break;
+                }
+                assert_eq!(kind, "terminal.output");
+            }
+        })
+        .await
+        .unwrap();
+        manager.receive("terminal.open", open).await.unwrap();
+        assert!(manager.entries.is_empty());
+        assert_eq!(manager.recently_closed.back(), Some(&id));
+    }
+
     async fn input(manager: &mut Terminals, id: &str, text: &str) {
         manager
             .receive(
@@ -857,11 +950,9 @@ mod tests {
             let (output, mut events) = mpsc::channel(32);
             let mut manager = Terminals::new(cfg, output);
             let id = uuid::Uuid::new_v4().to_string();
+            let open = json!({"session_id":id,"cols":80,"rows":24,"reconnect_grace_ms":60000});
             manager
-                .receive(
-                    "terminal.open",
-                    json!({"session_id":id,"cols":80,"rows":24,"reconnect_grace_ms":60000}),
-                )
+                .receive("terminal.open", open.clone())
                 .await
                 .unwrap();
             let original = tokio::time::timeout(Duration::from_secs(5), async {
@@ -887,9 +978,14 @@ mod tests {
             assert_eq!(body["seq"], 1);
             manager.disconnected();
             assert_eq!(manager.resumable_ids(), vec![id.clone()]);
-            manager.seen.insert("closed-on-previous-transport".into());
+            let task = manager.entries[&id].task.id();
+            manager
+                .recently_closed
+                .push_back("closed-on-previous-transport".into());
             manager.connected();
-            assert_eq!(manager.seen, HashSet::from([id.clone()]));
+            assert!(manager.recently_closed.is_empty());
+            manager.receive("terminal.open", open).await.unwrap();
+            assert_eq!(manager.entries[&id].task.id(), task);
             manager
                 .receive(
                     "terminal.resume",
