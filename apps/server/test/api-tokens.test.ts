@@ -672,11 +672,18 @@ test("API tokens: API document resolves references, Skill archive and actual Pyt
     assert.ok(tar.includes(Buffer.from("farhelm-api/scripts/farhelm.py")));
     const archivePath = join(root, "skill.tar.gz");
     writeFileSync(archivePath, archive.body);
-    assert.equal(
+    assert.deepEqual(
       execFileSync("tar", ["-tzf", archivePath], { encoding: "utf8" })
         .trim()
-        .split("\n").length,
-      3,
+        .split("\n")
+        .sort(),
+      [
+        "farhelm-api/SKILL.md",
+        "farhelm-api/references/api.md",
+        "farhelm-api/requirements-terminal.txt",
+        "farhelm-api/scripts/farhelm.py",
+        "farhelm-api/scripts/farhelm_terminal.py",
+      ],
     );
     await f.app.listen({ host: "127.0.0.1", port: 0 });
     const url = `https://localhost:${(f.app.server.address() as any).port}`;

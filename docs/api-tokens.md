@@ -48,6 +48,8 @@
 
 随后使用 `python3 <技能目录>/scripts/farhelm.py me` 验证有效权限，`devices` 查询设备。Skill 含 API 参考、任务幂等提交、有限等待、分页和录制读取说明。Python 客户端拒绝重定向转发凭据，不跳过 TLS 验证，不自动重试写操作，不将 Token 放命令行参数。
 
+需要连接终端时，在 Skill 目录使用 Python 3.11+ 安装 `requirements-terminal.txt`，再运行 `python3 scripts/farhelm.py terminal DEVICE_ID`。没有本地终端的 AI 客户端可加 `--command 'uptime' --seconds 30`。Agent 和纯 SSH 设备都沿用平台的终端授权和录制。见 [Skill 终端用法](../skills/farhelm-api/references/api.md#录制终端)。
+
 ## 本次验证（2026-10-19）
 
 本地 Node.js 24.21.0：服务端全量 146 项、随后补充的 4 项权限/审计/客户端边界测试、前端 156 项、契约 334 项通过；最终 Token 专项 9 项全部通过；前后端构建和格式检查通过。新增测试使用独立 SQLite、自建 CA 和真实 HTTPS，终端使用明确标记的 Agent 协议测试端，验证录制及 Token 撤销/到期后的票据失效。

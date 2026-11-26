@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Farhelm HTTP client; secrets are read inside the process and never printed."""
+"""Farhelm API and terminal client; secrets are read inside the process."""
 import argparse
 import json
 import os
@@ -46,10 +46,10 @@ class Client:
         if not re.fullmatch(r"fh_api_[A-Za-z0-9_-]{43}", self.secret):
             raise ClientError("请配置有效的 FARHELM_API_TOKEN_FILE 或 FARHELM_API_TOKEN")
         try:
-            context = ssl.create_default_context(cafile=os.environ.get("FARHELM_CA_FILE") or None)
+            self.context = ssl.create_default_context(cafile=os.environ.get("FARHELM_CA_FILE") or None)
         except (OSError, ssl.SSLError):
             raise ClientError("无法加载 FARHELM_CA_FILE") from None
-        self.opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context))
+        self.opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=self.context))
 
     def request(self, method, path, body=None, key=None, raw=False, timeout=30):
         parsed = urllib.parse.urlsplit(path)
@@ -117,6 +117,11 @@ def parser():
     execute.add_argument("--timeout-ms", type=int, default=30000)
     execute.add_argument("--ttl-seconds", type=int, default=300)
     execute.add_argument("--max-output-bytes", type=int, default=1048576)
+    terminal = sub.add_parser("terminal", help="通过 WebSocket 打开录制终端")
+    terminal.add_argument("device")
+    terminal.add_argument("--command", dest="shell_command", help="在录制终端执行一条 Shell 命令并退出")
+    terminal.add_argument("--seconds", type=int, choices=range(1, 601), metavar="1..600",
+                          help="终端就绪后的等待上限，单命令默认 60 秒")
     wait = sub.add_parser("wait")
     wait.add_argument("task")
     wait.add_argument("--seconds", type=int, default=30, choices=range(1, 601), metavar="1..600")
@@ -163,6 +168,15 @@ def main(argv=None):
             result = client.request("GET", "/" + args.kind + "?" + urllib.parse.urlencode(query))
         elif args.command == "exec":
             result = client.request("POST", "/commands", {"v": 1, "device_id": args.device, "argv": command_argv, "cwd": args.cwd, "timeout_ms": args.timeout_ms, "max_output_bytes": args.max_output_bytes, "ttl_seconds": args.ttl_seconds}, args.idempotency_key)
+        elif args.command == "terminal":
+            from farhelm_terminal import TerminalError, run_terminal
+
+            try:
+                return run_terminal(client, args.device, args.shell_command, args.seconds)
+            except TerminalError as error:
+                raise ClientError(str(error)) from None
+            except KeyboardInterrupt:
+                return 130
         elif args.command == "wait":
             end = time.monotonic() + args.seconds
             result = None

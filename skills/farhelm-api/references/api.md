@@ -28,7 +28,19 @@
 
 任务详情为顶层 `status` 和 `result`，成功状态为 `SUCCEEDED`；输出接口返回原始字节。`wait` 只做有时限的查询，超时返回最后观察到的状态，不会取消或重跑任务。
 
-终端创建体 `{v:1,device_id,cols:80,rows:24}` 返回 `session_id`、一次性 `ticket` 和票据到期时间。使用同源 `Origin` 连接 `/api/v1/terminal/ws`，发送 `{v:1,type:"terminal.attach",body:{session_id,ticket}}`，随后遵循 OpenAPI 文档中的 `terminal-envelope` 协议。不要在 URL 放 Token 或票据。平台自动选择 Agent/SSH 后端并录制，票据兑换、输入和周期检查会重新验证权限。
+## 录制终端
+
+在 Skill 目录中用 Python 3.11 或更新版本安装终端依赖，再用同一个 Python 运行脚本。
+
+```sh
+python3 -m pip install -r requirements-terminal.txt
+python3 scripts/farhelm.py terminal DEVICE_ID
+python3 scripts/farhelm.py terminal DEVICE_ID --command 'uptime' --seconds 30
+```
+
+交互模式需要 Linux 或 macOS 的本地终端。无本地终端时用 `--command` 执行单行 Shell 命令，标准输出是远端终端输出，可能含提示符、回显和控制字符。收到完整命令结果并且远端正常关闭时，脚本返回远端命令的退出码。`--seconds` 从终端就绪开始计时，单命令默认 60 秒。超时或中断时关闭会话，先核对输出或录制再决定是否重试。
+
+需要 `terminal.connect`、目标设备范围和该设备的普通连接授权。平台自动选择 Agent 或 SSH 后端并录制。客户端先用 Token 请求 `POST /api/v1/terminal-sessions`，请求体含 `v`、`device_id`、`cols` 和 `rows`。再使用同源 `Origin` 连接 `/api/v1/terminal/ws`，通过 `terminal.attach` 发送 `session_id` 和一次性 `ticket`。终端消息遵循 OpenAPI 文档中的 `terminal-envelope`。票据兑换、输入和周期检查都会重新验证权限。
 
 录制分页参数 `after` 是上次返回的 `next` 序号，每页最多 128 条。开放会话可继续轮询；会话结束且没有新事件后完成读取。输出事件数据为 Base64。`POST .../export` 登记导出审计，不返回文件；内容仍由 recording 接口分页读取。不要把终端输入密码写进本地日志。
 

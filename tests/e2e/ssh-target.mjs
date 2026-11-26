@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { startFrontendEntry } from "./platform-entry.mjs";
 import { installOnSshDevice } from "./ssh-agent-install.mjs";
 import { chromium } from "@playwright/test";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, execFile, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { buildServer } from "../../apps/server/dist/server.js";
 import { assertValid } from "../contracts/validate.mjs";
 
@@ -534,6 +535,108 @@ try {
   steps.push(
     "real SSH target command history covers web and gateway connections, with hidden password exclusion and recording links",
   );
+  const skillPython = process.env.FARHELM_SKILL_PYTHON;
+  if (skillPython && !backupMode && !installMode) {
+    const user = server.store.seedUser({
+      username: "skill-operator",
+      password,
+      role: "ops",
+      deviceScope: [device.id],
+    });
+    const post = async (path, payload, bearer) => {
+      const response = await server.app.inject({
+        method: "POST",
+        url: "/api/v1" + path,
+        payload,
+        headers: bearer ? { authorization: "Bearer " + bearer } : {},
+      });
+      assert.equal(response.statusCode, 200, path);
+      return response.json();
+    };
+    const login = await post("/login", { username: user.username, password });
+    const grant = await post(
+      "/api-tokens",
+      {
+        v: 1,
+        name: "Skill terminal E2E",
+        permissions: ["terminal.connect"],
+        device_scope: [device.id],
+        expires_at: Date.now() + 60000,
+      },
+      login.access_token,
+    );
+    const tokenFile = join(temp, "skill-token");
+    writeFileSync(tokenFile, grant.secret, { mode: 0o600 });
+    const bundle = await server.app.inject({
+      method: "GET",
+      url: "/api/v1/api-skill",
+      headers: { authorization: "Bearer " + login.access_token },
+    });
+    assert.equal(bundle.statusCode, 200);
+    const archive = join(temp, "farhelm-api-skill.tar.gz");
+    writeFileSync(archive, bundle.rawPayload);
+    execFileSync("tar", ["-xzf", archive, "-C", temp]);
+    const run = promisify(execFile);
+    const invoke = (id, command, seconds = "5") =>
+      run(
+        skillPython,
+        [
+          join(temp, "farhelm-api/scripts/farhelm.py"),
+          "terminal",
+          id,
+          "--command",
+          command,
+          "--seconds",
+          seconds,
+        ],
+        {
+          env: {
+            ...process.env,
+            FARHELM_URL: "https://localhost:" + port,
+            FARHELM_CA_FILE: join(tls, "ca.crt"),
+            FARHELM_API_TOKEN_FILE: tokenFile,
+            FARHELM_API_TOKEN: "",
+          },
+          timeout: 12000,
+        },
+      );
+    const { stdout } = await invoke(
+      device.id,
+      "printf '__SKILL_%s__\\n' \"$(id -un)\"",
+    );
+    assert.ok(stdout.includes("__SKILL_terminal__"));
+    assert.ok(!stdout.includes("\x1e"));
+    await assert.rejects(
+      invoke(device.id, "printf '__SKILL_%s__\\n' FAILED; exit 7"),
+      (error) => error.code === 7 && error.stdout.includes("__SKILL_FAILED__"),
+    );
+    await assert.rejects(
+      invoke("outside-token-scope", "true"),
+      (error) =>
+        error.code === 1 && error.stderr.includes("DEVICE_SCOPE_DENIED"),
+    );
+    await assert.rejects(
+      invoke(device.id, "sleep 10", "1"),
+      (error) =>
+        error.code === 1 && error.stderr.includes("等待终端会话结束超时"),
+    );
+    const skillSessions = (await api("/terminal-sessions")).sessions.filter(
+      (session) => session.actor_id === user.id,
+    );
+    assert.equal(skillSessions.length, 3);
+    assert.ok(
+      skillSessions.every(
+        (session) => session.backend === "ssh" && session.ended_at,
+      ),
+    );
+    const successful = skillSessions.filter(
+      (session) => session.audit_complete,
+    );
+    assert.equal(successful.length, 2);
+    steps.push(
+      "Python Skill and personal API Token: real SSH PTY over trusted WSS, output, exit status, scope denial and timeout cleanup",
+    );
+  }
   if (!installMode)
     assert.equal(
       server.store.db.prepare("SELECT COUNT(*) n FROM device_tokens").get().n,

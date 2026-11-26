@@ -1,6 +1,6 @@
 ---
 name: farhelm-api
-description: 通过 Farhelm API 查询服务器、健康与网络状态、任务、终端录制和审计，或按用户要求执行受授权的运维操作。适用于已配置 Farhelm 平台和 API Token 的环境。
+description: 使用 Farhelm API Token 查询设备和审计、提交 Agent 命令任务或打开录制的交互终端。适用于已获授权的 Agent 和纯 SSH 设备。
 ---
 
 # Farhelm API
@@ -22,11 +22,12 @@ python3 <技能目录>/scripts/farhelm.py request GET /devices/DEVICE_ID/health-
 python3 <技能目录>/scripts/farhelm.py exec DEVICE_ID --cwd /tmp --idempotency-key UNIQUE_REQUEST_ID -- /usr/bin/uptime
 python3 <技能目录>/scripts/farhelm.py wait TASK_ID --seconds 30
 python3 <技能目录>/scripts/farhelm.py output TASK_ID stdout
+python3 <技能目录>/scripts/farhelm.py terminal DEVICE_ID --command 'uptime' --seconds 30
 ```
 
 执行、修改配置、取消任务或关闭终端，应符合用户本次授权的目标与范围；用户已经明确授权的操作无需重复确认。任务提交成功仅表示已受理，读取最终结果与输出后再报告执行结论。`UNKNOWN` 不代表可安全重试。
 
-命令任务当前需要 Agent。纯 SSH 设备可以查询状态、查看录制，交互操作使用平台已有终端接口；不要将 `AGENT_REQUIRED_FOR_TASKS` 解释为 SSH 失效。终端接入沿用权限和录制，HTTP 调用脚本本身不提供交互终端客户端。
+使用 `terminal` 前检查 `terminal.connect` 和目标设备范围，并按[终端用法](references/api.md#录制终端)安装可选依赖。它通过 Farhelm WebSocket 接入 Agent 或纯 SSH 设备。命令任务 `exec` 需要 Farhelm Agent，收到 `AGENT_REQUIRED_FOR_TASKS` 时可在用户已授权的范围内选择录制终端。
 
 创建任务必须使用独立的幂等键。同一请求网络超时后，先用同一幂等键核实；不要换键盲目重发，也不要自动重试其他写操作。遇到 401 停止并提示凭据失效，403 按权限不足处理，不尝试切换账号或绕过限制。Token 撤销或到期会停止后续访问并关闭其终端，但不会撤销已受理的命令任务。
 

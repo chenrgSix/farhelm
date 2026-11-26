@@ -526,7 +526,13 @@ export function openApiDocument() {
 // Fixed source files only; the archive contains no deployment configuration or credentials.
 export function skillArchive() {
   const chunks: Buffer[] = [];
-  for (const file of ["SKILL.md", "scripts/farhelm.py", "references/api.md"]) {
+  for (const file of [
+    "SKILL.md",
+    "requirements-terminal.txt",
+    "scripts/farhelm.py",
+    "scripts/farhelm_terminal.py",
+    "references/api.md",
+  ]) {
     const data = readFileSync(
       new URL("../../../skills/farhelm-api/" + file, import.meta.url),
     );
