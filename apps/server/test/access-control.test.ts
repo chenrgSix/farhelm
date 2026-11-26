@@ -263,12 +263,7 @@ test("only admin and read-only ordinary user are defaults; operational and audit
       ),
       ["one"],
     );
-    for (const path of [
-      "/commands",
-      "/terminal-sessions",
-      "/roles",
-      "/api-tokens",
-    ])
+    for (const path of ["/commands", "/terminal-sessions", "/roles"])
       assert.equal((await f.api("POST", path, {}, auth)).status, 403, path);
     const audit = (await f.api("GET", "/audit", undefined, auth)).body.audit;
     assert.ok(audit.every((event: any) => event.actor_id === user.id));

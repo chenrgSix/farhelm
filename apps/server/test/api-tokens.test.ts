@@ -72,8 +72,8 @@ async function fixture() {
     expires_at: Date.now() + 3600000,
     ...extra,
   });
-  async function create(extra: any = {}) {
-    const r = await api("POST", "/api-tokens", input(extra));
+  async function create(extra: any = {}, auth = admin) {
+    const r = await api("POST", "/api-tokens", input(extra), auth);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assertValid("api-token-response", r.body);
     return r.body as { secret: string; token: any };
@@ -112,24 +112,9 @@ const command = (device = "one") => ({
 test("API tokens: admin management, secret hashing, persistence, expiry, revocation and strict validation", async () => {
   const f = await fixture();
   try {
-    f.store.seedUser({
-      username: "ops",
-      password,
-      role: "ops",
-      deviceScope: "*",
-    });
-    const ops = await f.login("ops");
     assert.equal(
       (await f.api("GET", "/api-tokens", undefined, "")).status,
       401,
-    );
-    assert.equal(
-      (await f.api("GET", "/api-tokens", undefined, ops)).status,
-      403,
-    );
-    assert.equal(
-      (await f.api("POST", "/api-tokens", f.input(), ops)).status,
-      403,
     );
     for (const bad of [
       { permissions: ["admin"] },
@@ -174,17 +159,6 @@ test("API tokens: admin management, secret hashing, persistence, expiry, revocat
       200,
     );
     assert.equal(
-      (
-        await f.api(
-          "POST",
-          `/api-tokens/${grant.token.id}/revoke`,
-          { v: 1 },
-          ops,
-        )
-      ).status,
-      403,
-    );
-    assert.equal(
       (await f.api("POST", `/api-tokens/${grant.token.id}/revoke`, { v: 1 }))
         .status,
       200,
@@ -226,6 +200,120 @@ test("API tokens: admin management, secret hashing, persistence, expiry, revocat
           a.detail.status_code === 401 &&
           a.context.api_token_id === grant.token.id,
       ),
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("API tokens: regular users can self-manage only their own grants within their access", async () => {
+  const f = await fixture();
+  try {
+    const reader = f.store.seedUser({
+      username: "reader",
+      password,
+      role: "business",
+      deviceScope: ["one"],
+    });
+    f.store.seedUser({
+      username: "other",
+      password,
+      role: "business",
+      deviceScope: ["two"],
+    });
+    const auth = await f.login(reader.username);
+    const otherAuth = await f.login("other");
+    const otherGrant = await f.create({ device_scope: ["two"] }, otherAuth);
+    const adminGrant = await f.create();
+    for (const [extra, error] of [
+      [
+        { permissions: ["devices.read", "tasks.execute"] },
+        "TOKEN_PERMISSION_EXCEEDS_OWNER",
+      ],
+      [{ device_scope: "*" }, "TOKEN_SCOPE_EXCEEDS_OWNER"],
+      [{ device_scope: ["two"] }, "TOKEN_SCOPE_EXCEEDS_OWNER"],
+      [{ device_scope: ["missing"] }, "TOKEN_SCOPE_EXCEEDS_OWNER"],
+    ] as const) {
+      const denied = await f.api("POST", "/api-tokens", f.input(extra), auth);
+      assert.equal(denied.status, 403);
+      assert.equal(denied.body.error, error);
+    }
+
+    const grant = await f.create({ name: "只读巡检" }, auth);
+    assert.equal(grant.token.owner_id, reader.id);
+    const list = await f.api("GET", "/api-tokens", undefined, auth);
+    assert.equal(list.status, 200);
+    assertValid("api-tokens-response", list.body);
+    assert.deepEqual(list.body.tokens, [grant.token]);
+    assert.deepEqual(
+      list.body.permissions.map((p: any) => p.id).sort(),
+      [...reader.permissions!].sort(),
+    );
+    assert.equal(
+      (await f.api("GET", "/api-skill", undefined, auth)).status,
+      200,
+    );
+    assert.deepEqual(
+      (
+        await f.api("GET", "/devices", undefined, grant.secret)
+      ).body.devices.map((device: any) => device.id),
+      ["one"],
+    );
+    assert.equal(
+      (await f.api("GET", "/devices/two", undefined, grant.secret)).status,
+      403,
+    );
+    const path = `/api-tokens/${grant.token.id}`;
+    const update = f.input({
+      name: "新的用途",
+      revision: grant.token.revision,
+    });
+    for (const [method, endpoint, body] of [
+      ["PUT", path, update],
+      ["POST", path + "/revoke", { v: 1 }],
+    ] as const) {
+      const denied = await f.api(method, endpoint, body, otherAuth);
+      assert.equal(denied.status, 404);
+      assert.equal(denied.body.error, "API_TOKEN_NOT_FOUND");
+      assert.equal(
+        (await f.api(method, endpoint, body, grant.secret)).status,
+        403,
+      );
+    }
+    assert.equal(
+      (await f.api("PUT", path, update)).body.error,
+      "TOKEN_OWNER_REQUIRED",
+    );
+    assert.equal(
+      (await f.api("PUT", path, { ...update, device_scope: "*" }, auth)).body
+        .error,
+      "TOKEN_SCOPE_EXCEEDS_OWNER",
+    );
+    const edited = await f.api("PUT", path, update, auth);
+    assert.equal(edited.status, 200);
+    assert.equal(edited.body.token.name, "新的用途");
+    assert.equal(edited.body.token.owner_id, reader.id);
+    assert.deepEqual(
+      (await f.api("GET", "/api-tokens")).body.tokens
+        .map((t: any) => t.id)
+        .sort(),
+      [grant.token.id, otherGrant.token.id, adminGrant.token.id].sort(),
+    );
+    assert.equal(
+      (
+        await f.api("POST", `/api-tokens/${otherGrant.token.id}/revoke`, {
+          v: 1,
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await f.api("POST", path + "/revoke", { v: 1 }, auth)).status,
+      200,
+    );
+    assert.equal(
+      (await f.api("GET", "/devices", undefined, grant.secret)).status,
+      401,
     );
   } finally {
     await f.close();
@@ -534,9 +622,17 @@ test("API tokens: owner roles, groups, device grants, disabled accounts and forc
 test("API tokens: API document resolves references, Skill archive and actual Python client work over trusted HTTPS", async () => {
   const f = await fixture();
   try {
-    const grant = await f.create({
-      permissions: ["devices.read", "tasks.execute", "tasks.read"],
+    const operator = f.store.seedUser({
+      username: "automation",
+      password,
+      role: "ops",
+      deviceScope: ["one"],
     });
+    const auth = await f.login(operator.username);
+    const grant = await f.create(
+      { permissions: ["devices.read", "tasks.execute", "tasks.read"] },
+      auth,
+    );
     const spec = await f.api("GET", "/openapi.json", undefined, grant.secret);
     assert.equal(spec.status, 200, JSON.stringify(spec.body));
     assert.equal(spec.body.openapi, "3.1.0");
@@ -570,7 +666,7 @@ test("API tokens: API document resolves references, Skill archive and actual Pyt
       for (const child of Object.values(value)) refs(child);
     }
     refs(spec.body);
-    const archive = await f.api("GET", "/api-skill");
+    const archive = await f.api("GET", "/api-skill", undefined, auth);
     assert.equal(archive.status, 200);
     const tar = gunzipSync(archive.body);
     assert.ok(tar.includes(Buffer.from("farhelm-api/scripts/farhelm.py")));
@@ -597,6 +693,7 @@ test("API tokens: API document resolves references, Skill archive and actual Pyt
     const invoke = (args: string[]) =>
       run("python3", [script, ...args], { env, timeout: 15000 });
     const me = JSON.parse((await invoke(["me"])).stdout);
+    assert.equal(me.id, operator.id);
     assert.equal(me.api_token_id, grant.token.id);
     assert.equal(
       JSON.parse((await invoke(["devices"])).stdout).devices.length,
@@ -974,7 +1071,7 @@ function socket(url: string, headers: Record<string, string>) {
   }
   return { ws, send, wait, messages };
 }
-test("API tokens: terminal tickets, recorded output, immediate revocation and expiry preserve authorization", async () => {
+test("API tokens: non-admin operator tickets, recorded output, immediate revocation and expiry preserve authorization", async () => {
   const f = await fixture();
   const sockets: WebSocket[] = [];
   try {
@@ -1005,10 +1102,26 @@ test("API tokens: terminal tickets, recorded output, immediate revocation and ex
         break;
       await new Promise((r) => setTimeout(r, 10));
     }
-    const grant = await f.create({
-      permissions: ["terminal.connect", "recordings.read"],
+    const operator = f.store.seedUser({
+      username: "operator",
+      password,
+      role: "ops",
+      deviceScope: ["one"],
     });
+    const auth = await f.login(operator.username);
+    const grant = await f.create(
+      { permissions: ["terminal.connect", "recordings.read"] },
+      auth,
+    );
     const body = { v: 1, device_id: "one", cols: 80, rows: 24 };
+    const denied = await f.api(
+      "POST",
+      "/terminal-sessions",
+      { ...body, device_id: "two" },
+      grant.secret,
+    );
+    assert.equal(denied.status, 403);
+    assert.equal(denied.body.error, "DEVICE_SCOPE_DENIED");
     const removed = await f.api(
       "POST",
       "/terminal-sessions",
@@ -1055,8 +1168,14 @@ test("API tokens: terminal tickets, recorded output, immediate revocation and ex
       grant.secret,
     );
     assert.equal(
-      (await f.api("POST", `/api-tokens/${grant.token.id}/revoke`, { v: 1 }))
-        .status,
+      (
+        await f.api(
+          "POST",
+          `/api-tokens/${grant.token.id}/revoke`,
+          { v: 1 },
+          auth,
+        )
+      ).status,
       200,
     );
     await agent.wait("terminal.close");
@@ -1085,7 +1204,10 @@ test("API tokens: terminal tickets, recorded output, immediate revocation and ex
         await f.api("GET", `/terminal-sessions/${id}/recording`)
       ).body.events.some((e: any) => e.kind === "output"),
     );
-    const expiring = await f.create({ permissions: ["terminal.connect"] });
+    const expiring = await f.create(
+      { permissions: ["terminal.connect"] },
+      auth,
+    );
     const pending = await f.api(
       "POST",
       "/terminal-sessions",

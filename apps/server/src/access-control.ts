@@ -17,7 +17,11 @@ import {
   type RateLimiter,
 } from "./util.js";
 
-export const permissionCatalog = [
+export const permissionCatalog: {
+  id: Permission;
+  label: string;
+  description: string;
+}[] = [
   {
     id: "devices.read",
     label: "查看设备",

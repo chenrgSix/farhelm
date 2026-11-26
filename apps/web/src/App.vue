@@ -279,8 +279,10 @@ const navigation = computed(
               : []),
             { id: "settings", label: "系统设置", icon: "⚙" } as const,
             { id: "access", label: "访问控制", icon: "♙" } as const,
-            { id: "api", label: "API Token", icon: "⌘" } as const,
           ]
+        : []),
+      ...(user.value && !user.value.api_token_id
+        ? [{ id: "api", label: "API Token", icon: "⌘" } as const]
         : []),
     ] as const,
 );
@@ -1172,9 +1174,10 @@ onBeforeUnmount(() => {
           当前账号尚未分配操作权限，请联系管理员配置角色和设备范围。
         </p>
         <ApiTokensPanel
-          v-if="view === 'api' && user.role === 'admin'"
+          v-if="view === 'api' && !user.api_token_id"
           :key="authorizationKey"
           :current-user-id="user.id"
+          :device-scope="user.device_scope"
           :devices="devices"
         />
         <AccessControlPanel

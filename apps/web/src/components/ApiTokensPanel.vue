@@ -2,14 +2,20 @@
 import DevicePicker from "./DevicePicker.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "../api/client";
-import type { Device, Permission } from "../api/types";
+import type { Device, Permission, User } from "../api/types";
 import type { ApiToken, ApiTokenList } from "../api/tokens";
 import { copyText } from "../clipboard";
 import { formatTime } from "../model";
 
 const windowOrigin = window.location.origin;
-const props = defineProps<{ currentUserId: string; devices: Device[] }>();
+const props = defineProps<{
+  currentUserId: string;
+  deviceScope: User["device_scope"];
+  devices: Device[];
+}>();
+const maxDevices = 1000;
 const data = ref<ApiTokenList>();
+const grantablePermissions = computed(() => data.value?.permissions ?? []);
 const loading = ref(false),
   busy = ref(false),
   downloading = ref(false);
@@ -20,12 +26,13 @@ const error = ref(""),
 const search = ref(""),
   open = ref(false),
   editing = ref<ApiToken>();
+const grantsAdjusted = ref(false);
 const revoked = ref<ApiToken>();
 const secret = ref(""),
   createdName = ref("");
 const initial = () => ({
   name: "",
-  permissions: ["devices.read"] as Permission[],
+  permissions: [] as Permission[],
   all: false,
   device_ids: [] as string[],
   days: "30",
@@ -88,21 +95,40 @@ async function load() {
   }
 }
 function show(item?: ApiToken) {
-  if (busy.value) return;
+  if (busy.value || !grantablePermissions.value.length) return;
   editing.value = item;
   draft.value = initial();
   formError.value = "";
   uncertain.value = false;
   notice.value = "";
-  if (item)
+  grantsAdjusted.value = false;
+  const permissions: Permission[] = item?.permissions ?? ["devices.read"];
+  draft.value.permissions = permissions.filter((id) =>
+    grantablePermissions.value.some((p) => p.id === id),
+  );
+  if (item) {
+    const ownerScope = props.deviceScope;
+    const storedScope = item.device_scope;
+    const scope =
+      storedScope === "*"
+        ? ownerScope
+        : storedScope.filter(
+            (id) => ownerScope === "*" || ownerScope.includes(id),
+          );
+    const all = scope === "*";
+    const device_ids =
+      scope !== "*" && scope.length <= maxDevices ? [...scope] : [];
+    grantsAdjusted.value =
+      draft.value.permissions.length !== permissions.length ||
+      (storedScope === "*" ? !all : device_ids.length !== storedScope.length);
     Object.assign(draft.value, {
       name: item.name,
-      permissions: [...item.permissions],
-      all: item.device_scope === "*",
-      device_ids: item.device_scope === "*" ? [] : [...item.device_scope],
+      all,
+      device_ids,
       days: "custom",
       expires: localDate(item.expires_at),
     });
+  }
   open.value = true;
 }
 async function save() {
@@ -270,7 +296,7 @@ onBeforeUnmount(() => {
         </button>
         <button
           class="button primary"
-          :disabled="!data || busy"
+          :disabled="!grantablePermissions.length || busy"
           @click="show()"
         >
           创建 Token
@@ -279,6 +305,9 @@ onBeforeUnmount(() => {
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice && !secret" class="notice" role="status">{{ notice }}</p>
+    <p v-if="data && !grantablePermissions.length" class="notice" role="status">
+      当前账号没有可授予的 API 权限。
+    </p>
     <div class="integration-help">
       <p>
         API 地址：<code>{{ windowOrigin }}/api/v1</code>
@@ -349,7 +378,7 @@ onBeforeUnmount(() => {
                     item.owner_id === currentUserId && status(item) === 'active'
                   "
                   class="text-button"
-                  :disabled="busy"
+                  :disabled="busy || !grantablePermissions.length"
                   @click="show(item)"
                 >
                   编辑</button
@@ -389,7 +418,10 @@ onBeforeUnmount(() => {
         <h2 id="api-token-title">
           {{ editing ? "编辑 Token" : "创建 Token" }}
         </h2>
-        <form @submit.prevent="save">
+        <form aria-labelledby="api-token-title" @submit.prevent="save">
+          <p v-if="grantsAdjusted" class="muted">
+            账号授权已变化，请核对当前选中的权限和设备再保存。
+          </p>
           <label
             >用途名称<input
               v-model="draft.name"
@@ -402,7 +434,7 @@ onBeforeUnmount(() => {
           <fieldset :disabled="busy">
             <legend>权限</legend>
             <label
-              v-for="p in data?.permissions"
+              v-for="p in grantablePermissions"
               :key="p.id"
               class="token-check"
               ><input
@@ -415,16 +447,19 @@ onBeforeUnmount(() => {
               ></label
             >
           </fieldset>
-          <fieldset :disabled="busy">
+          <fieldset
+            :disabled="busy"
+            :aria-describedby="draft.all ? undefined : 'api-token-scope-help'"
+          >
             <legend>设备范围</legend>
-            <label class="token-check"
+            <label v-if="deviceScope === '*'" class="token-check"
               ><input
                 v-model="draft.all"
                 type="checkbox"
               />全部设备（包含将来新增的设备）</label
             >
             <template v-if="!draft.all"
-              ><p class="muted">
+              ><p id="api-token-scope-help" class="muted">
                 已选
                 {{ draft.device_ids.length }}
                 台。未选设备时无设备访问权限。可按设备组筛选，保存后不会随标签变化。
@@ -434,6 +469,7 @@ onBeforeUnmount(() => {
                 label="授权设备"
                 :seed="devices"
                 :disabled="busy"
+                :max="maxDevices"
               />
             </template>
           </fieldset>

@@ -580,7 +580,6 @@ export async function buildServer(config: ServerConfig) {
       fail(507, "AUDIT_STORAGE_LOW");
   }
   apiTokens.register(app, {
-    admin,
     userAuth,
     availableStorage,
     rate,

@@ -432,6 +432,34 @@ try {
   await expect(
     page.locator('tbody input[type="checkbox"]:checked'),
   ).toHaveCount(0);
+  await page.getByRole("button", { name: /API Token/ }).click();
+  const createToken = page.getByRole("button", {
+    name: "创建 Token",
+    exact: true,
+  });
+  await expect(createToken).toBeEnabled();
+  await expect(page.getByText("分页权限测试", { exact: true })).toHaveCount(0);
+  await createToken.click();
+  const tokenEditor = page.getByRole("dialog", { name: "创建 Token" });
+  await expect(tokenEditor.getByLabel(/全部设备/)).toHaveCount(0);
+  await expect(
+    tokenEditor.getByLabel("查看他人任务", { exact: true }),
+  ).toHaveCount(0);
+  await tokenEditor.getByPlaceholder("例如：每日巡检").fill("普通用户的巡检");
+  await tokenEditor.getByRole("button", { name: "选择授权设备" }).click();
+  await expect(tokenEditor.locator(".picker-options input")).toHaveCount(1);
+  await tokenEditor.getByLabel("授权设备 服务器-000", { exact: true }).check();
+  await tokenEditor.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Token 已创建：普通用户的巡检" }),
+  ).toBeVisible();
+  const ownToken = db
+    .prepare("SELECT owner_id,device_scope FROM api_tokens WHERE name=?")
+    .get("普通用户的巡检");
+  assert.equal(ownToken.owner_id, reader.id);
+  assert.deepEqual(JSON.parse(ownToken.device_scope), ["device-000"]);
+  await page.getByRole("button", { name: "已保存，关闭", exact: true }).click();
+  await expect(page.getByText("普通用户的巡检", { exact: true })).toBeVisible();
   assert.deepEqual(errors, []);
   writeFileSync(
     join(out, "device-pagination-e2e.json"),

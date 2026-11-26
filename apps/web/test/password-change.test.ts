@@ -105,6 +105,7 @@ it("an account without assigned permissions can open the form and returns to log
   const request = vi.spyOn(api, "request").mockImplementation(async (path) => {
     if (path === "/login") return { access_token: "token", user };
     if (path === "/me") return user;
+    if (path === "/api-tokens") return { v: 1, tokens: [], permissions: [] };
     if (path === "/me/password") return { v: 1, ok: true };
     throw Error("unexpected " + path);
   });
@@ -113,7 +114,14 @@ it("an account without assigned permissions can open the form and returns to log
   await wrapper.get('[name="password"]').setValue("old-personal-password1");
   await wrapper.get("form").trigger("submit");
   await flushPromises();
-  expect(wrapper.text()).toContain("尚未分配操作权限");
+  const tokens = wrapper.get(".tokens-panel");
+  expect(tokens.text()).toContain("当前账号没有可授予的 API 权限");
+  expect(
+    tokens
+      .findAll("button")
+      .find((button) => button.text() === "创建 Token")
+      ?.attributes("disabled"),
+  ).toBeDefined();
   await wrapper.get(".account-password").trigger("click");
   await fill();
   await wrapper.get("dialog form").trigger("submit");

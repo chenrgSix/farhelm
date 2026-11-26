@@ -48,7 +48,10 @@ afterEach(() => {
   mounted.splice(0).forEach((w) => w.unmount());
   vi.restoreAllMocks();
 });
-async function setup(handler?: (path: string, options: any) => any) {
+async function setup(
+  handler?: (path: string, options: any) => any,
+  deviceScope: ApiToken["device_scope"] = "*",
+) {
   const request = vi
     .spyOn(api, "request")
     .mockImplementation(async (path, options) =>
@@ -71,7 +74,7 @@ async function setup(handler?: (path: string, options: any) => any) {
           : structuredClone(data),
     );
   const wrapper = mount(ApiTokensPanel, {
-    props: { currentUserId: "admin", devices },
+    props: { currentUserId: "admin", deviceScope, devices },
     global: { stubs: { Teleport: true } },
   });
   mounted.push(wrapper);
@@ -155,6 +158,38 @@ it("edits grants with revision control and revokes only after the concrete dialo
     body: { v: 1 },
   });
   expect(wrapper.text()).toContain("令牌已撤销");
+});
+it("lets a former administrator edit an existing token with current permissions and device scope", async () => {
+  const owned: ApiToken = {
+    ...grant,
+    device_scope: "*",
+    permissions: ["devices.read", "tasks.execute"],
+  };
+  const { wrapper, request, button } = await setup(
+    (_path, options) =>
+      options
+        ? { v: 1, token: owned }
+        : { v: 1, tokens: [owned], permissions: data.permissions.slice(0, 1) },
+    ["one"],
+  );
+  await button("编辑").trigger("click");
+  const form = wrapper.get("form");
+  expect(form.text()).toContain("账号授权已变化");
+  expect(form.text()).not.toContain("全部设备");
+  expect(form.find('[aria-label="执行命令"]').exists()).toBe(false);
+  await form.trigger("submit");
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith(
+    "/api-tokens/grant",
+    expect.objectContaining({
+      method: "PUT",
+      body: expect.objectContaining({
+        permissions: ["devices.read"],
+        device_scope: ["one"],
+        revision: 3,
+      }),
+    }),
+  );
 });
 it("does not retry an uncertain token creation or expose a fabricated secret", async () => {
   const { wrapper, request, button } = await setup((_path, options) => {

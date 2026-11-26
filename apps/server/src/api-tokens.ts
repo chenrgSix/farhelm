@@ -1,5 +1,8 @@
 import { deviceSudo } from "./device-sudo.js";
-import { AccountAuthorizations } from "./account-authorizations.js";
+import {
+  AccountAuthorizations,
+  MATCH_SUBJECT,
+} from "./account-authorizations.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext, auditText } from "./audit-context.js";
@@ -56,17 +59,21 @@ export class ApiTokens {
   }
   private ownerCan(user: User, permission: Permission) {
     if (permission !== "terminal.sudo") return hasPermission(user, permission);
+    if (!hasPermission(user, "terminal.connect")) return false;
     const policy = new AccountAuthorizations(this.store.db);
     return this.store.db
-      .prepare("SELECT id FROM devices WHERE revoked_at IS NULL")
-      .all()
+      .prepare(
+        `SELECT DISTINCT d.id FROM device_sudo_rules a JOIN devices d ON d.id=a.device_id
+        WHERE d.revoked_at IS NULL AND ${MATCH_SUBJECT}`,
+      )
+      .all(user.id, user.id, user.id, user.id)
       .some((row) => {
         const id = row.id as string;
         return (
           (user.device_scope === "*" || user.device_scope.includes(id)) &&
-          policy.allowed(user, id, null) &&
           // Token capabilities follow explicit grants, not the owner's admin default.
-          deviceSudo(this.store.db, { ...user, role: "ops" }, id).allowed
+          deviceSudo(this.store.db, { ...user, role: "ops" }, id).allowed &&
+          policy.allowed(user, id, null)
         );
       });
   }
@@ -121,7 +128,6 @@ export class ApiTokens {
   register(
     app: FastifyInstance,
     d: {
-      admin(req: FastifyRequest): User;
       userAuth(req: FastifyRequest): User;
       availableStorage(): void;
       rate: RateLimiter;
@@ -288,40 +294,50 @@ export class ApiTokens {
         )
           fail(400, "INVALID_TOKEN_SCOPE");
         scope = b.device_scope.map((id: unknown) => str(id, 1, 128)).sort();
-        for (const id of scope) {
-          if (!db.prepare("SELECT id FROM devices WHERE id=?").get(id))
-            fail(400, "UNKNOWN_DEVICE");
-          if (owner.device_scope !== "*" && !owner.device_scope.includes(id))
-            fail(403, "TOKEN_SCOPE_EXCEEDS_OWNER");
-        }
+        const ownerScope = owner.device_scope;
+        if (ownerScope !== "*" && scope.some((id) => !ownerScope.includes(id)))
+          fail(403, "TOKEN_SCOPE_EXCEEDS_OWNER");
+        const findDevice = db.prepare("SELECT id FROM devices WHERE id=?");
+        if (scope.some((id) => !findDevice.get(id)))
+          fail(400, "UNKNOWN_DEVICE");
       }
       const now = Date.now(),
         expires_at = integer(b.expires_at, now + 1000, now + MAX_LIFETIME);
       return { name, permissions, device_scope: scope, expires_at };
     };
-    const findId = (req: FastifyRequest) => {
+    const findId = (req: FastifyRequest, actor: User) => {
       const row = db
-        .prepare("SELECT * FROM api_tokens WHERE id=?")
-        .get(str((req.params as any).id, 1, 128)) as TokenRow | undefined;
+        .prepare("SELECT * FROM api_tokens WHERE id=? AND (owner_id=? OR ?)")
+        .get(
+          str((req.params as any).id, 1, 128),
+          actor.id,
+          Number(actor.role === "admin"),
+        ) as TokenRow | undefined;
       if (!row) fail(404, "API_TOKEN_NOT_FOUND");
       return row;
     };
     const management = (req: FastifyRequest) => {
-      const actor = d.admin(req);
+      const actor = d.userAuth(req);
       if (actor.api_token_id) fail(403, "INTERACTIVE_LOGIN_REQUIRED");
       return actor;
     };
     app.get("/api/v1/api-tokens", async (req) => {
-      management(req);
+      const actor = management(req);
+      const rows =
+        actor.role === "admin"
+          ? db
+              .prepare("SELECT * FROM api_tokens ORDER BY created_at DESC,id")
+              .all()
+          : db
+              .prepare(
+                "SELECT * FROM api_tokens WHERE owner_id=? ORDER BY created_at DESC,id",
+              )
+              .all(actor.id);
       return {
         v: 1,
-        tokens: (
-          db
-            .prepare("SELECT * FROM api_tokens ORDER BY created_at DESC,id")
-            .all() as unknown as TokenRow[]
-        ).map(view),
+        tokens: (rows as unknown as TokenRow[]).map(view),
         permissions: permissionCatalog.filter(
-          (p) => !p.id.startsWith("scripts."),
+          (p) => !p.id.startsWith("scripts.") && this.ownerCan(actor, p.id),
         ),
       };
     });
@@ -366,7 +382,7 @@ export class ApiTokens {
     });
     app.put("/api/v1/api-tokens/:id", async (req) => {
       const actor = management(req),
-        row = findId(req);
+        row = findId(req, actor);
       // Administrators can revoke all tokens, but only modify their own grants.
       if (row.owner_id !== actor.id) fail(403, "TOKEN_OWNER_REQUIRED");
       const input = parse(req.body, actor, true);
@@ -396,11 +412,11 @@ export class ApiTokens {
         });
       });
       d.changed();
-      return { v: 1, token: view(findId(req)) };
+      return { v: 1, token: view(findId(req, actor)) };
     });
     app.post("/api/v1/api-tokens/:id/revoke", async (req) => {
       const actor = management(req),
-        row = findId(req),
+        row = findId(req, actor),
         b = object(req.body);
       keys(b, ["v"]);
       version(b);
