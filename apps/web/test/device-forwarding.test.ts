@@ -76,15 +76,13 @@ it.each([
 it.each(["agent", "ssh"])(
   "offers forwarding settings separately from credentials for %s devices",
   async (kind) => {
-    const request = vi
-      .spyOn(api, "request")
-      .mockResolvedValue({
-        v: 1,
-        device_id: "one",
-        kind,
-        revision: 1,
-        ssh: null,
-      });
+    const request = vi.spyOn(api, "request").mockResolvedValue({
+      v: 1,
+      device_id: "one",
+      kind,
+      revision: 1,
+      ssh: null,
+    });
     const wrapper = mount(Connection, {
       props: {
         device: { id: "one", name: "test", connection_kind: kind } as any,
