@@ -299,6 +299,74 @@ test("SSH shares durable recording, raw input privacy, resize, web close and pri
     await f.close();
   }
 });
+test("web and SSH opens share the per-account warning and SSH can continue after it", async () => {
+  const f = await fixture();
+  let browser: WebSocket | undefined;
+  try {
+    const login = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/login",
+      payload: { username: "admin", password: "ssh-test-password1" },
+    });
+    const ticket = await f.app.inject({
+      method: "POST",
+      url: "/api/v1/terminal-sessions",
+      headers: { authorization: "Bearer " + login.json().access_token },
+      payload: { v: 1, device_id: "device", cols: 80, rows: 24 },
+    });
+    assert.equal(ticket.statusCode, 200);
+    const { session_id, ticket: access } = ticket.json();
+    const origin = `https://localhost:${(f.app.server.address() as any).port}`;
+    browser = new WebSocket(
+      origin.replace("https:", "wss:") + "/api/v1/terminal/ws",
+      {
+        ca: readFileSync(join(root, "tls/ca.crt")),
+        headers: { origin },
+      },
+    );
+    browser.on("error", () => {});
+    await once(browser, "open");
+    browser.send(
+      JSON.stringify({
+        v: 1,
+        type: "terminal.attach",
+        body: { session_id, ticket: access },
+      }),
+    );
+    assert.equal((await f.wait("terminal.open")).session_id, session_id);
+    browser.terminate();
+    assert.equal((await f.wait("terminal.close")).session_id, session_id);
+
+    for (let index = 0; index < 3; index++) {
+      const opened = await f.open();
+      opened.client.destroy();
+      assert.equal((await f.wait("terminal.close")).session_id, opened.id);
+    }
+
+    const client = await f.connect();
+    const channel = await new Promise<ClientChannel>((resolve, reject) =>
+      client.shell({ cols: 80, rows: 24 }, (error, stream) =>
+        error ? reject(error) : resolve(stream),
+      ),
+    );
+    let warning = "";
+    channel.stderr.on("data", (data) => (warning += data.toString()));
+    const request = await f.wait("terminal.open");
+    await until(
+      () => warning.includes("频繁打开、关闭或断开终端"),
+      "SSH warning",
+    );
+    f.send("terminal.opened", { session_id: request.session_id });
+    await f.wait("terminal.resize");
+    channel.write("echo still connected\n");
+    const input = await f.wait("terminal.input");
+    assert.equal(input.session_id, request.session_id);
+  } finally {
+    browser?.terminate();
+    await f.close();
+  }
+});
+
 test("SSH refuses exec, SFTP, forwarding and shells without PTY; cleans auth sessions and persists host key", async () => {
   const f = await fixture();
   const fingerprint = f.ssh!.info().fingerprint;

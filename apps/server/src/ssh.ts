@@ -311,6 +311,8 @@ export function createSshGateway(
               ready = true;
               if (size) handle?.input("terminal.resize", size);
               channel.stderr.write("\r\n[Farhelm] 已恢复原终端连接。\r\n");
+            } else if (type === "terminal.activity_warning") {
+              channel.stderr.write(`\r\n[Farhelm] ${body.message}\r\n`);
             } else if (type === "terminal.output") {
               if (channel.writableLength > 262144) return false;
               channel.write(Buffer.from(body.data, "base64"));

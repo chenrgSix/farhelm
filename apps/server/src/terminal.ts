@@ -11,6 +11,10 @@ import {
 import type { Store } from "./store.js";
 import { historyPage } from "./history.js";
 import { CommandStream, commandHistory } from "./terminal-commands.js";
+import {
+  TerminalActivityWarnings,
+  terminalActivityWarning,
+} from "./terminal-activity.js";
 import type { User } from "./types.js";
 import type { TargetTerminal } from "./ssh-target.js";
 import type { registerConnectionAuthorizations } from "./connection-authorizations.js";
@@ -132,6 +136,7 @@ export function terminalBackend(
 export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   const { store, rate } = d,
     db = store.db;
+  const activityWarnings = new TerminalActivityWarnings();
   const sessions = new Map<string, Session>();
   // A server restart cannot resume an unaudited shell. Never reopen it automatically.
   store.transaction(() => {
@@ -240,6 +245,27 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
     s.socket.send(JSON.stringify({ v: 1, type, body }));
     return true;
   }
+  function sendActivityWarning(s: Session, clientClosing = false) {
+    function write(target: Session) {
+      try {
+        return sendClient(
+          target,
+          "terminal.activity_warning",
+          terminalActivityWarning,
+        );
+      } catch {
+        // Keep the warning pending if the transport closes while sending it.
+        return false;
+      }
+    }
+    activityWarnings.deliver(s.actorId, () => {
+      if (!clientClosing && write(s)) return true;
+      for (const other of sessions.values())
+        if (other !== s && other.actorId === s.actorId && write(other))
+          return true;
+      return false;
+    });
+  }
   function end(s: Session, reason: string, complete = false) {
     if (!sessions.delete(s.id)) return;
     d.limits.release("web:" + s.id);
@@ -269,6 +295,15 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         });
       });
       persisted = true;
+      if (s.socket || s.peer) {
+        // A session that was already suspended counts the interruption once.
+        if (!s.reconnectUntil) activityWarnings.record(s.actorId, "close");
+        const clientClosing =
+          reason === "USER_DISCONNECTED" ||
+          reason === "SSH_DISCONNECTED" ||
+          reason === "BROWSER_DISCONNECTED";
+        sendActivityWarning(s, clientClosing);
+      }
     } finally {
       sendClient(s, "terminal.closed", {
         reason: persisted ? reason : "AUDIT_STORAGE_FAILURE",
@@ -301,12 +336,14 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
           grace_ms: RECONNECT_GRACE_MS,
         }),
       );
+      activityWarnings.record(s.actorId, "close");
       if (
         !sendClient(s, "terminal.reconnecting", {
           retry_until: s.reconnectUntil,
         })
       )
         safeEnd(s, s.peer ? "SSH_UNAVAILABLE" : "BROWSER_UNAVAILABLE");
+      else sendActivityWarning(s);
     } catch {
       safeEnd(s, "AUDIT_STORAGE_FAILURE");
     }
@@ -631,6 +668,8 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
   }
   function openTarget(s: Session, cols: number, rows: number) {
     if (!authorized(s)) return safeEnd(s, "AUTHORIZATION_EXPIRED");
+    activityWarnings.record(s.actorId, "open");
+    sendActivityWarning(s);
     if (s.backend === "ssh") {
       try {
         s.target = d.connections.open(
@@ -1013,6 +1052,7 @@ export function registerTerminals(app: FastifyInstance, d: Dependencies) {
         if (s.userSession === sessionHash) safeEnd(s, "USER_LOGOUT");
     },
     tick() {
+      activityWarnings.prune();
       for (const s of [...sessions.values()]) {
         if (s.resumeId && !d.agent(s.deviceId)) suspend(s);
         if (!sessions.has(s.id)) continue;

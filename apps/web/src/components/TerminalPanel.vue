@@ -22,6 +22,7 @@ const sudoAuto = ref(false);
 const sudoAllowed = ref<boolean>();
 const backend = ref<"agent" | "ssh" | undefined>(props.recording?.backend);
 const error = ref("");
+const activityWarning = ref("");
 const records = ref<
   { seq: number; at: number; kind: string; data: Record<string, any> }[]
 >([]);
@@ -178,6 +179,7 @@ async function connect() {
   terminal.options.disableStdin = true;
   terminal.reset();
   error.value = "";
+  activityWarning.value = "";
   state.value = "正在连接…";
   sudoAuto.value = false;
   sudoAllowed.value = undefined;
@@ -240,6 +242,9 @@ async function connect() {
           });
           terminal.focus();
           emit("changed");
+        } else if (message.type === "terminal.activity_warning") {
+          if (typeof message.body?.message === "string")
+            activityWarning.value = message.body.message;
         } else if (message.type === "terminal.reconnecting") {
           connected.value = false;
           reconnecting.value = true;
@@ -462,6 +467,11 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </header>
+      <div v-if="!recording" role="status">
+        <div v-if="activityWarning" class="terminal-warning">
+          {{ activityWarning }}
+        </div>
+      </div>
       <div v-if="error" class="terminal-error" role="alert">{{ error }}</div>
       <div
         ref="host"
@@ -559,11 +569,19 @@ onBeforeUnmount(() => {
   color: #9baabb;
   font-size: 12px;
 }
-.terminal-error {
+.terminal-error,
+.terminal-warning {
   padding: 12px 20px;
+  font-size: 13px;
+}
+.terminal-error {
   color: #ffb2a5;
   background: #4a272b;
-  font-size: 13px;
+}
+.terminal-warning {
+  color: #f5d898;
+  background: #3d3324;
+  overflow-wrap: anywhere;
 }
 .terminal-actions select {
   width: 80px;

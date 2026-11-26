@@ -41,7 +41,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-it("preserves the existing socket while reconnecting, blocks input and restores it only after resume", async () => {
+async function mountTerminal() {
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -79,6 +79,35 @@ it("preserves the existing socket while reconnecting, blocks input and restores 
     await flushPromises();
   };
   ws.onopen();
+  return { wrapper, ws, receive };
+}
+
+it("shows a frequency warning before the terminal opens and keeps it visible after disconnect", async () => {
+  const { wrapper, ws, receive } = await mountTerminal();
+  try {
+    const status = wrapper.get('[role="status"]');
+    expect(status.text()).toBe("");
+    const message = "你的账号在 1 分钟内频繁打开、关闭或断开终端。";
+    await receive("terminal.activity_warning", { message });
+    expect(status.text()).toBe(message);
+    expect(ws.close).not.toHaveBeenCalled();
+    await receive("terminal.ready", { backend: "agent" });
+    expect(mocks.term.options.disableStdin).toBe(false);
+    await receive("terminal.closed", {
+      reason: "SSH_DISCONNECTED",
+      audit_complete: false,
+    });
+    ws.onclose();
+    await flushPromises();
+    expect(status.text()).toBe(message);
+    expect(wrapper.text()).toContain("连接已断开");
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it("preserves the existing socket while reconnecting, blocks input and restores it only after resume", async () => {
+  const { wrapper, ws, receive } = await mountTerminal();
   await receive("terminal.ready", { backend: "agent" });
   mocks.term.data("first");
   expect(ws.send).toHaveBeenCalled();

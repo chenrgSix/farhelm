@@ -172,6 +172,23 @@ test("resume preserves recording, reconciles input acknowledgements and discards
   assert.equal(JSON.parse(String(audit[1].detail_json)).disconnected_ms, 22000);
 });
 
+test("five interruptions warn the attached user while the original terminal can still resume", async (t) => {
+  const f = await fixture(t);
+  const notices = () =>
+    f.events.filter((event) => event.type === "terminal.activity_warning");
+  for (let index = 1; index <= 5; index++) {
+    f.disconnect();
+    f.disconnect();
+    assert.equal(notices().length, index === 5 ? 1 : 0);
+    f.state.now += 3_000;
+    f.reconnect();
+    f.receive("terminal.resumed", { input_seq: 0 });
+  }
+  assert.equal(f.closed(), undefined);
+  f.input("still connected\n");
+  assert.equal(f.requests.at(-1).type, "terminal.input");
+});
+
 test("repeated disconnects cannot extend the grace deadline", async (t) => {
   const f = await fixture(t);
   f.disconnect();
