@@ -315,11 +315,18 @@ test(
           device = (
             await until(
               devices,
-              (d) => d.some((x) => x.name === "agent-main" && x.control_online),
-              "agent heartbeat",
+              (d) =>
+                d.some(
+                  (x) =>
+                    x.name === "agent-main" &&
+                    x.control_online &&
+                    x.network_route.agent?.connected,
+                ),
+              "agent heartbeat and route report",
             )
           ).find((x) => x.name === "agent-main");
-          assert.equal(device.private_data_reachable, null);
+          assert.equal(device.network_route.agent.channel, "configured");
+          assert.equal(device.private_data_reachable, false);
           assert.equal(device.business_healthy, null);
         },
       );
