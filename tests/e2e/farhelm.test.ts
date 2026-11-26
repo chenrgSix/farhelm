@@ -150,6 +150,31 @@ test(
       deviceTokenTtlMs: 10_000,
       testMode: true,
     });
+    let artifactRateLimit:
+      { rejectedAt: number; retriedAt: number } | undefined;
+    const listener = server.app.server;
+    const [handleRequest] = listener.listeners("request");
+    listener.removeListener("request", handleRequest);
+    listener.on("request", (req, res) => {
+      if (
+        artifactRateLimit &&
+        req.method === "PUT" &&
+        /^\/api\/agent\/tasks\/[^/]+\/artifacts\//.test(req.url ?? "")
+      ) {
+        if (!artifactRateLimit.rejectedAt) {
+          artifactRateLimit.rejectedAt = performance.now();
+          req.resume();
+          res.writeHead(429, {
+            "content-type": "application/json",
+            "retry-after": "2",
+          });
+          res.end(JSON.stringify({ v: 1, error: "RATE_LIMIT" }));
+          return;
+        }
+        artifactRateLimit.retriedAt ||= performance.now();
+      }
+      handleRequest.call(listener, req, res);
+    });
     await server.app.listen({ host: "127.0.0.1", port: 0 });
     port = (server.app.server.address() as any).port;
     const children: ChildProcess[] = [];
@@ -328,6 +353,66 @@ test(
           const failed = await done(fail.id);
           assert.equal(failed.status, "FAILED");
           assert.equal(failed.result.exit_code, 7);
+        },
+      );
+      await t.test(
+        "artifact rate limiting delays replay while heartbeats and terminal admission continue",
+        async () => {
+          const limit = { rejectedAt: 0, retriedAt: 0 };
+          const logOffset = readFileSync(logFile, "utf8").length;
+          const marker = path.join(runDir, "artifact-retry-side-effect");
+          artifactRateLimit = limit;
+          try {
+            const task = await command([
+              "/bin/sh",
+              "-c",
+              `printf once >> '${marker}'; printf artifact-replayed`,
+            ]);
+            await until(
+              () => limit.rejectedAt,
+              (value) => value > 0,
+              "first artifact upload rejected with 429",
+            );
+            const getDevice = async () =>
+              (await devices()).find((item) => item.id === device.id);
+            const baseline = (await getDevice()).last_seen;
+            await until(
+              getDevice,
+              (item) => item.control_online && item.last_seen > baseline,
+              "heartbeat while waiting to retry the artifact upload",
+            );
+            const terminal = await api(
+              "POST",
+              "/api/v1/terminal-sessions",
+              { v: 1, device_id: device.id, cols: 80, rows: 24 },
+              admin,
+            );
+            assert.equal(terminal.status, 200, JSON.stringify(terminal.body));
+            assert.equal(
+              (
+                await api(
+                  "POST",
+                  `/api/v1/terminal-sessions/${terminal.body.session_id}/close`,
+                  { v: 1 },
+                  admin,
+                )
+              ).status,
+              200,
+            );
+            assert.equal((await done(task.id)).status, "SUCCEEDED");
+            assert.ok(limit.retriedAt - limit.rejectedAt >= 2000);
+            assert.equal(
+              (await output(task.id)).toString(),
+              "artifact-replayed",
+            );
+            assert.equal(readFileSync(marker, "utf8"), "once");
+            assert.doesNotMatch(
+              readFileSync(logFile, "utf8").slice(logOffset),
+              /control connection unavailable|control connected;/,
+            );
+          } finally {
+            artifactRateLimit = undefined;
+          }
         },
       );
       await t.test(

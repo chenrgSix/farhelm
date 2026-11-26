@@ -15,6 +15,7 @@ use rand::Rng;
 use serde::Deserialize;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
+use tokio::time::Instant;
 use tokio_tungstenite::{
     connect_async_tls_with_config,
     tungstenite::{
@@ -23,6 +24,9 @@ use tokio_tungstenite::{
     },
     Connector,
 };
+
+const ARTIFACT_RETRY_DELAY: Duration = Duration::from_secs(10);
+const ARTIFACT_RATE_LIMIT_DELAY: Duration = Duration::from_secs(60);
 
 enum SessionEnd {
     AddressChange,
@@ -47,6 +51,7 @@ pub async fn run(
     terminal_cfg.terminal_allow_privilege_escalation =
         crate::terminal_privilege::State::load(&cfg, &journal)?.enabled();
     let mut terminals = crate::terminal::Terminals::new(terminal_cfg, terminal_output);
+    let mut artifact_retry_at = Instant::now();
     loop {
         let route = crate::routes::Settings::load(&journal)?;
         let base = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
@@ -85,6 +90,7 @@ pub async fn run(
                 resume_id: &resume_id,
                 terminals: &mut terminals,
                 terminal_events: &mut terminal_events,
+                artifact_retry_at: &mut artifact_retry_at,
             })
             .await
         };
@@ -275,6 +281,7 @@ struct Session<'a> {
     resume_id: &'a str,
     terminals: &'a mut crate::terminal::Terminals,
     terminal_events: &'a mut tokio::sync::mpsc::Receiver<crate::terminal::Output>,
+    artifact_retry_at: &'a mut Instant,
 }
 async fn session(context: Session<'_>) -> Result<SessionEnd> {
     let Session {
@@ -294,6 +301,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         resume_id,
         terminals,
         terminal_events,
+        artifact_retry_at,
     } = context;
     let mut access = access.clone();
     let mut http = http.clone();
@@ -354,9 +362,10 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
     let mut reported_probe = 0;
     let mut network_events = tokio::time::interval(Duration::from_secs(1));
     let mut outbox = tokio::time::interval(Duration::from_millis(250));
+    outbox.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // Artifact transfer must not block incoming cancellations or heartbeats.
     // JoinSet aborts pending uploads when this authenticated session closes.
-    let mut uploads = tokio::task::JoinSet::<Result<Event>>::new();
+    let mut uploads = tokio::task::JoinSet::new();
     let (tcp_output, mut tcp_events) = tokio::sync::mpsc::channel(64);
     let mut forwards = crate::tcp_forward::Forwards::new(tcp_output);
     let mut terminal_privilege = crate::terminal_privilege::State::load(cfg, journal)?;
@@ -508,15 +517,33 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                     return Ok(SessionEnd::AddressChange);
                 }
                 if let Some(event)=journal.first_outbox()?{
+                    if event.kind == "finished" && Instant::now() < *artifact_retry_at {
+                        continue;
+                    }
                     let cfg=cfg.clone();let journal=journal.clone();let http=http.clone();let access=access.clone();
                     uploads.spawn(async move {
-                        if event.kind=="finished"{upload_artifacts(&cfg,&journal,&http,&access,&event).await?;}
-                        Ok(event)
+                        let result = if event.kind == "finished" {
+                            upload_artifacts(&cfg, &journal, &http, &access, &event).await
+                        } else {
+                            Ok(())
+                        };
+                        (event, result)
                     });
                 }
             }
             Some(prepared)=uploads.join_next(), if !uploads.is_empty()=>{
-                let event=prepared??;
+                let (event, result) = prepared?;
+                if let Err(error) = result {
+                    let delay = error.downcast_ref::<ArtifactRateLimited>()
+                        .map_or(ARTIFACT_RETRY_DELAY, |limit| limit.0);
+                    let now = Instant::now();
+                    let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=1000));
+                    *artifact_retry_at = now.checked_add(delay.saturating_add(jitter))
+                        .unwrap_or(now + ARTIFACT_RATE_LIMIT_DELAY);
+                    let seconds = (*artifact_retry_at - now).as_secs();
+                    eprintln!("task {} artifact upload deferred for {seconds}s: {error:#}", event.task_id);
+                    continue;
+                }
                 socket.send(Message::Text(envelope("task.event",&event)?.into())).await?;
             }
             incoming=socket.next()=>{
@@ -644,6 +671,22 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         }
     }
 }
+
+#[derive(Debug)]
+struct ArtifactRateLimited(Duration);
+
+impl std::fmt::Display for ArtifactRateLimited {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "artifact upload rejected ({})",
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        )
+    }
+}
+
+impl std::error::Error for ArtifactRateLimited {}
+
 async fn upload_artifacts(
     cfg: &Config,
     journal: &Journal,
@@ -687,6 +730,16 @@ async fn upload_artifacts(
             .body(bytes)
             .send()
             .await?;
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let delay = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(|seconds| Duration::from_secs(seconds.max(1)))
+                .unwrap_or(ARTIFACT_RATE_LIMIT_DELAY);
+            return Err(ArtifactRateLimited(delay).into());
+        }
         ensure!(
             response.status().is_success(),
             "artifact upload rejected ({})",
