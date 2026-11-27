@@ -189,7 +189,11 @@ async fn run_same_uid(
     };
     let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(_) => {
+        Err(error) => {
+            eprintln!(
+                "task {} spawn failed: cwd={:?}, error={error}",
+                task.task_id, task.cwd
+            );
             out.sync_all()?;
             err.sync_all()?;
             let payload = json!({"status":"FAILED","exit_code":null,"reason":"SPAWN_FAILED","audit_complete":true,"stdout":seal(&stdout)?,"stderr":seal(&stderr)?,"started_at":started_at,"finished_at":now_ms(),"cleanup":"not_started"});

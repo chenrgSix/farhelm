@@ -6,6 +6,7 @@ import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { createRequire } from "node:module";
 import {
+  chmodSync,
   mkdtempSync,
   readFileSync,
   existsSync,
@@ -368,6 +369,30 @@ test(
           const failed = await done(fail.id);
           assert.equal(failed.status, "FAILED");
           assert.equal(failed.result.exit_code, 7);
+        },
+      );
+      await t.test(
+        "spawn failure logs the inaccessible directory and OS error",
+        async () => {
+          const cwd = path.join(runDir, "inaccessible-working-directory");
+          mkdirSync(cwd, { mode: 0o000 });
+          try {
+            const task = await command(["/usr/bin/pwd"], { cwd });
+            const failed = await done(task.id);
+            assert.equal(failed.status, "FAILED");
+            assert.equal(failed.result.reason, "SPAWN_FAILED");
+            assert.equal(failed.result.cleanup, "not_started");
+            assert.equal(failed.result.started_at, null);
+            const line = readFileSync(logFile, "utf8")
+              .split("\n")
+              .find((entry) =>
+                entry.startsWith(`task ${task.id} spawn failed`),
+              );
+            assert.ok(line?.includes(`cwd=${JSON.stringify(cwd)}`), line);
+            assert.match(line, /os error 13\)/);
+          } finally {
+            chmodSync(cwd, 0o700);
+          }
         },
       );
       await t.test(
