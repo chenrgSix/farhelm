@@ -88,7 +88,16 @@ class Client:
                     code = value
             except (ValueError, AttributeError):
                 pass
-            raise ClientError(f"HTTP {e.code}: {code}") from None
+            message = f"HTTP {e.code}: {code}"
+            if e.code == 429 and code == "TERMINAL_CREATION_COOLDOWN":
+                retry_after = e.headers.get("Retry-After", "")
+                wait = (
+                    f"请在 {retry_after} 秒后重试。"
+                    if re.fullmatch(r"[1-9][0-9]{0,2}", retry_after)
+                    else "请稍后重试。"
+                )
+                message += f"。禁止频繁创建和关闭连接会话。{wait}"
+            raise ClientError(message) from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise ClientError("网络或证书校验失败；写操作结果可能未知，请核实后再操作，勿盲目重试") from None
         except (ValueError, UnicodeError):

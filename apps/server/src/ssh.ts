@@ -11,6 +11,7 @@ import type { ServerConfig, User } from "./types.js";
 import type { registerTerminals, TerminalPeer } from "./terminal.js";
 import { createDeviceMenu, type SshDevicePage } from "./ssh-menu.js";
 import { ApiError, integer, str } from "./util.js";
+import { TerminalCreationCooldownError } from "./terminal-activity.js";
 
 export interface SshLogin {
   user: User;
@@ -391,10 +392,13 @@ export function createSshGateway(
             connect(authenticated.deviceId);
           } catch (error) {
             channel.stderr.end(
-              error instanceof ApiError &&
-                error.code === "TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT"
-                ? "当前终端时长超过旧 Agent 的支持范围，请升级 Agent。\r\n"
-                : "Farhelm terminal unavailable; check device status and permissions in the console.\r\n",
+              error instanceof TerminalCreationCooldownError
+                ? `${error.message}\r\n`
+                : error instanceof ApiError &&
+                    error.code ===
+                      "TERMINAL_DURATION_NOT_SUPPORTED_UPDATE_AGENT"
+                  ? "当前终端时长超过旧 Agent 的支持范围，请升级 Agent。\r\n"
+                  : "Farhelm terminal unavailable; check device status and permissions in the console.\r\n",
             );
             channel.exit(1);
             peer.close();
@@ -429,9 +433,15 @@ export function createSshGateway(
                   TERMINAL_NOT_AUTHORIZED:
                     "该设备已撤销或访问权限已变更，请重新选择。",
                 };
-                if (error instanceof ApiError && messages[error.code]) {
+                const message =
+                  error instanceof TerminalCreationCooldownError
+                    ? error.message
+                    : error instanceof ApiError
+                      ? messages[error.code]
+                      : undefined;
+                if (message) {
                   channel!.resume();
-                  return messages[error.code];
+                  return message;
                 }
                 throw error;
               }

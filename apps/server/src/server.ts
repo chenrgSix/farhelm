@@ -67,6 +67,7 @@ import {
   type Permission,
 } from "./permissions.js";
 import { registerTerminals, terminalBackend } from "./terminal.js";
+import { TerminalCreationCooldownError } from "./terminal-activity.js";
 import { registerConnectionAuthorizations } from "./connection-authorizations.js";
 import { registerAccessAuthorizations } from "./access-authorizations-api.js";
 import { SSH_MENU_PAGE_SIZE } from "./ssh-menu.js";
@@ -442,6 +443,8 @@ export async function buildServer(config: ServerConfig) {
         return reply.code(503).send({ v: 1, error: "AUDIT_STORAGE_FAILURE" });
       }
     }
+    if (err instanceof TerminalCreationCooldownError)
+      reply.header("Retry-After", String(err.retryAfterSeconds));
     if (err instanceof ApiError)
       return reply.code(err.statusCode).send({
         v: 1,

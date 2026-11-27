@@ -145,7 +145,12 @@ export class ApiClient {
       } catch {
         /* Untrusted error body is optional. */
       }
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
       const upgradeHints: Record<string, string> = {
+        TERMINAL_CREATION_COOLDOWN:
+          Number.isSafeInteger(retryAfterSeconds) && retryAfterSeconds > 0
+            ? `禁止频繁创建和关闭连接会话。请在 ${retryAfterSeconds} 秒后重试。`
+            : "禁止频繁创建和关闭连接会话。请稍后重试。",
         PASSWORD_CHANGE_REQUIRED:
           "请先在网页完成首次密码修改，再使用平台功能或 SSH 入口。",
         DEPLOYMENT_REVISION_CONFLICT:

@@ -96,6 +96,7 @@ async function fixture(t: any, resumable = true) {
     rmSync(dir, { recursive: true, force: true });
   });
   return {
+    app,
     state,
     store,
     manager,
@@ -172,14 +173,11 @@ test("resume preserves recording, reconciles input acknowledgements and discards
   assert.equal(JSON.parse(String(audit[1].detail_json)).disconnected_ms, 22000);
 });
 
-test("five interruptions warn the attached user while the original terminal can still resume", async (t) => {
+test("resuming the original terminal does not consume new-session quota", async (t) => {
   const f = await fixture(t);
-  const notices = () =>
-    f.events.filter((event) => event.type === "terminal.activity_warning");
-  for (let index = 1; index <= 5; index++) {
+  for (let index = 1; index <= 20; index++) {
     f.disconnect();
     f.disconnect();
-    assert.equal(notices().length, index === 5 ? 1 : 0);
     f.state.now += 3_000;
     f.reconnect();
     f.receive("terminal.resumed", { input_seq: 0 });
@@ -187,6 +185,13 @@ test("five interruptions warn the attached user while the original terminal can 
   assert.equal(f.closed(), undefined);
   f.input("still connected\n");
   assert.equal(f.requests.at(-1).type, "terminal.input");
+  const opened = await f.app.inject({
+    method: "POST",
+    url: "/api/v1/terminal-sessions",
+    headers: { authorization: "Bearer login" },
+    payload: { v: 1, device_id: f.device, cols: 80, rows: 24 },
+  });
+  assert.equal(opened.statusCode, 200, opened.body);
 });
 
 test("repeated disconnects cannot extend the grace deadline", async (t) => {

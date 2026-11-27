@@ -299,22 +299,68 @@ test("SSH shares durable recording, raw input privacy, resize, web close and pri
     await f.close();
   }
 });
-test("web and SSH opens share the per-account warning and SSH can continue after it", async () => {
+test("web, API tokens and SSH share a per-account terminal creation cooldown", async () => {
   const f = await fixture();
   let browser: WebSocket | undefined;
   try {
-    const login = await f.app.inject({
-      method: "POST",
-      url: "/api/v1/login",
-      payload: { username: "admin", password: "ssh-test-password1" },
+    const user = f.store.seedUser({
+      username: "cooldown-user",
+      password: "ssh-test-password1",
+      role: "ops",
+      deviceScope: ["device"],
     });
-    const ticket = await f.app.inject({
-      method: "POST",
-      url: "/api/v1/terminal-sessions",
-      headers: { authorization: "Bearer " + login.json().access_token },
-      payload: { v: 1, device_id: "device", cols: 80, rows: 24 },
-    });
-    assert.equal(ticket.statusCode, 200);
+    const post = (
+      url: string,
+      payload: Record<string, unknown>,
+      bearer?: string,
+    ) =>
+      f.app.inject({
+        method: "POST",
+        url: `/api/v1${url}`,
+        headers: bearer ? { authorization: "Bearer " + bearer } : {},
+        payload,
+      });
+    const login = async (username: string) => {
+      const result = await post("/login", {
+        username,
+        password: "ssh-test-password1",
+      });
+      assert.equal(result.statusCode, 200, result.body);
+      return result.json().access_token as string;
+    };
+    const session = await login(user.username);
+    const token = await post(
+      "/api-tokens",
+      {
+        v: 1,
+        name: "terminal cooldown test",
+        permissions: ["terminal.connect"],
+        device_scope: ["device"],
+        expires_at: Date.now() + 60_000,
+      },
+      session,
+    );
+    assert.equal(token.statusCode, 200, token.body);
+    const secret: string = token.json().secret;
+    const create = (bearer: string) =>
+      post(
+        "/terminal-sessions",
+        { v: 1, device_id: "device", cols: 80, rows: 24 },
+        bearer,
+      );
+    const createAndClose = async (bearer: string) => {
+      const opened = await create(bearer);
+      assert.equal(opened.statusCode, 200, opened.body);
+      const closed = await post(
+        `/terminal-sessions/${opened.json().session_id}/close`,
+        { v: 1 },
+        bearer,
+      );
+      assert.equal(closed.statusCode, 200, closed.body);
+    };
+
+    const ticket = await create(session);
+    assert.equal(ticket.statusCode, 200, ticket.body);
     const { session_id, ticket: access } = ticket.json();
     const origin = `https://localhost:${(f.app.server.address() as any).port}`;
     browser = new WebSocket(
@@ -334,33 +380,63 @@ test("web and SSH opens share the per-account warning and SSH can continue after
       }),
     );
     assert.equal((await f.wait("terminal.open")).session_id, session_id);
-    browser.terminate();
-    assert.equal((await f.wait("terminal.close")).session_id, session_id);
+    f.send("terminal.opened", { session_id });
+    for (let index = 0; index < 17; index++) await createAndClose(session);
+    await createAndClose(secret);
 
-    for (let index = 0; index < 3; index++) {
-      const opened = await f.open();
-      opened.client.destroy();
-      assert.equal((await f.wait("terminal.close")).session_id, opened.id);
-    }
-
-    const client = await f.connect();
-    const channel = await new Promise<ClientChannel>((resolve, reject) =>
-      client.shell({ cols: 80, rows: 24 }, (error, stream) =>
-        error ? reject(error) : resolve(stream),
-      ),
-    );
+    const shell = async (client: ssh2.Client) =>
+      new Promise<ClientChannel>((resolve, reject) =>
+        client.shell({ cols: 80, rows: 24 }, (error, stream) =>
+          error ? reject(error) : resolve(stream),
+        ),
+      );
+    const channel = await shell(await f.connect(`${user.username}:device`));
     let warning = "";
     channel.stderr.on("data", (data) => (warning += data.toString()));
     const request = await f.wait("terminal.open");
     await until(
-      () => warning.includes("频繁打开、关闭或断开终端"),
-      "SSH warning",
+      () =>
+        warning.includes(
+          "禁止频繁创建和关闭连接会话。该账号暂停新建终端 2 分钟。",
+        ),
+      "SSH cooldown warning",
     );
     f.send("terminal.opened", { session_id: request.session_id });
     await f.wait("terminal.resize");
+
+    for (const bearer of [session, secret]) {
+      const blocked = await create(bearer);
+      assert.equal(blocked.statusCode, 429, blocked.body);
+      assert.deepEqual(blocked.json(), {
+        v: 1,
+        error: "TERMINAL_CREATION_COOLDOWN",
+      });
+      const remaining = Number(blocked.headers["retry-after"]);
+      assert.ok(remaining > 0 && remaining <= 120);
+    }
+    const rejected = await shell(await f.connect(`${user.username}:device`));
+    let stderr = "";
+    rejected.stderr.on("data", (data) => (stderr += data.toString()));
+    await until(
+      () => /禁止频繁创建和关闭连接会话。请在 \d+ 秒后重试。/.test(stderr),
+      "direct SSH cooldown error",
+    );
+    const menu = await f.menu(user.username);
+    menu.channel.write("1\r");
+    await menu.waitText("禁止频繁创建和关闭连接会话。请在");
+    assert.equal(
+      f.store.db
+        .prepare("SELECT COUNT(*) AS n FROM terminal_sessions WHERE actor_id=?")
+        .get(user.id)!.n,
+      20,
+    );
+    assert.equal(browser.readyState, WebSocket.OPEN);
     channel.write("echo still connected\n");
-    const input = await f.wait("terminal.input");
-    assert.equal(input.session_id, request.session_id);
+    assert.equal(
+      (await f.wait("terminal.input")).session_id,
+      request.session_id,
+    );
+    await createAndClose(await login("admin"));
   } finally {
     browser?.terminate();
     await f.close();

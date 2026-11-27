@@ -52,6 +52,23 @@ describe("same-origin in-memory API client", () => {
     await client.request("/login");
     expect(fetch.mock.calls[1]![1]!.headers.has("Authorization")).toBe(false);
   });
+  it.each([
+    ["75", "请在 75 秒后重试。"],
+    [null, "请稍后重试。"],
+  ])(
+    "shows the terminal cooldown message with Retry-After %s",
+    async (seconds, hint) => {
+      const response = json({ v: 1, error: "TERMINAL_CREATION_COOLDOWN" }, 429);
+      if (seconds) response.headers.set("Retry-After", seconds);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+      await expect(
+        new ApiClient().request("/terminal-sessions", { method: "POST" }),
+      ).rejects.toMatchObject({
+        status: 429,
+        message: `禁止频繁创建和关闭连接会话。${hint}`,
+      });
+    },
+  );
   it("refuses external and protocol-relative paths", async () => {
     const client = new ApiClient();
     await expect(client.request("//evil.test")).rejects.toThrow("无效");
