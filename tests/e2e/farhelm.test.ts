@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { request as httpsRequest } from "node:https";
 import { generateKeyPairSync, sign, randomUUID, createHash } from "node:crypto";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { createRequire } from "node:module";
 import {
   mkdtempSync,
   readFileSync,
@@ -16,6 +18,8 @@ import path from "node:path";
 import { assertValid } from "../contracts/validate.mjs";
 import { buildServer } from "../../apps/server/src/server.ts";
 
+const require = createRequire(import.meta.url);
+const { WebSocket } = require("../../apps/server/node_modules/ws");
 const root = path.resolve(import.meta.dirname, "../..");
 const runDir = mkdtempSync(path.join(tmpdir(), "fleet-e2e-"));
 const logsDir = path.join(root, ".test-output");
@@ -150,28 +154,32 @@ test(
       deviceTokenTtlMs: 10_000,
       testMode: true,
     });
-    let artifactRateLimit:
-      { rejectedAt: number; retriedAt: number } | undefined;
+    let rejectArtifact:
+      | ((
+          id: string,
+        ) => { status: number; code: string; retryAfter?: string } | undefined)
+      | undefined;
     const listener = server.app.server;
     const [handleRequest] = listener.listeners("request");
     listener.removeListener("request", handleRequest);
     listener.on("request", (req, res) => {
-      if (
-        artifactRateLimit &&
-        req.method === "PUT" &&
-        /^\/api\/agent\/tasks\/[^/]+\/artifacts\//.test(req.url ?? "")
-      ) {
-        if (!artifactRateLimit.rejectedAt) {
-          artifactRateLimit.rejectedAt = performance.now();
-          req.resume();
-          res.writeHead(429, {
-            "content-type": "application/json",
-            "retry-after": "2",
-          });
-          res.end(JSON.stringify({ v: 1, error: "RATE_LIMIT" }));
-          return;
-        }
-        artifactRateLimit.retriedAt ||= performance.now();
+      const upload = /^\/api\/agent\/tasks\/([^/]+)\/artifacts\//.exec(
+        req.url ?? "",
+      );
+      const rejection =
+        req.method === "PUT" && upload
+          ? rejectArtifact?.(upload[1])
+          : undefined;
+      if (rejection) {
+        req.resume();
+        res.writeHead(rejection.status, {
+          "content-type": "application/json",
+          ...(rejection.retryAfter
+            ? { "retry-after": rejection.retryAfter }
+            : {}),
+        });
+        res.end(JSON.stringify({ v: 1, error: rejection.code }));
+        return;
       }
       handleRequest.call(listener, req, res);
     });
@@ -363,12 +371,18 @@ test(
         },
       );
       await t.test(
-        "artifact rate limiting delays replay while heartbeats and terminal admission continue",
+        "artifact rate limiting pauses uploads while task events and an interactive terminal continue",
         async () => {
           const limit = { rejectedAt: 0, retriedAt: 0 };
           const logOffset = readFileSync(logFile, "utf8").length;
           const marker = path.join(runDir, "artifact-retry-side-effect");
-          artifactRateLimit = limit;
+          rejectArtifact = () => {
+            if (!limit.rejectedAt) {
+              limit.rejectedAt = performance.now();
+              return { status: 429, code: "RATE_LIMIT", retryAfter: "5" };
+            }
+            limit.retriedAt ||= performance.now();
+          };
           try {
             const task = await command([
               "/bin/sh",
@@ -379,6 +393,16 @@ test(
               () => limit.rejectedAt,
               (value) => value > 0,
               "first artifact upload rejected with 429",
+            );
+            const following = await command([
+              "/bin/sh",
+              "-c",
+              "printf following",
+            ]);
+            await until(
+              () => getTask(following.id),
+              (task) => task.status === "RUNNING",
+              "subsequent task started during artifact cooldown",
             );
             const getDevice = async () =>
               (await devices()).find((item) => item.id === device.id);
@@ -395,19 +419,78 @@ test(
               admin,
             );
             assert.equal(terminal.status, 200, JSON.stringify(terminal.body));
-            assert.equal(
-              (
-                await api(
-                  "POST",
-                  `/api/v1/terminal-sessions/${terminal.body.session_id}/close`,
-                  { v: 1 },
-                  admin,
-                )
-              ).status,
-              200,
+            const origin = `https://localhost:${port}`;
+            const ws = new WebSocket(
+              `wss://localhost:${port}/api/v1/terminal/ws`,
+              {
+                ca,
+                headers: { origin },
+              },
             );
+            try {
+              let ready = false;
+              let terminalOutput = "";
+              ws.on("error", () => {});
+              ws.on("message", (raw: Buffer) => {
+                const message = JSON.parse(raw.toString());
+                if (message.type === "terminal.ready") ready = true;
+                if (message.type === "terminal.output") {
+                  terminalOutput += Buffer.from(
+                    message.body.data,
+                    "base64",
+                  ).toString();
+                }
+              });
+              await once(ws, "open");
+              ws.send(
+                JSON.stringify({
+                  v: 1,
+                  type: "terminal.attach",
+                  body: {
+                    session_id: terminal.body.session_id,
+                    ticket: terminal.body.ticket,
+                  },
+                }),
+              );
+              await until(
+                () => ready,
+                Boolean,
+                "terminal ready during artifact cooldown",
+              );
+              ws.send(
+                JSON.stringify({
+                  v: 1,
+                  type: "terminal.input",
+                  body: {
+                    data: Buffer.from(
+                      "printf '%s%s\\n' farhelm-terminal- alive\n",
+                    ).toString("base64"),
+                  },
+                }),
+              );
+              await until(
+                () => terminalOutput.includes("farhelm-terminal-alive"),
+                Boolean,
+                "terminal command output during artifact cooldown",
+              );
+              assert.equal(limit.retriedAt, 0);
+              assert.equal(
+                (
+                  await api(
+                    "POST",
+                    `/api/v1/terminal-sessions/${terminal.body.session_id}/close`,
+                    { v: 1 },
+                    admin,
+                  )
+                ).status,
+                200,
+              );
+            } finally {
+              ws.terminate();
+            }
+            assert.equal((await done(following.id)).status, "SUCCEEDED");
             assert.equal((await done(task.id)).status, "SUCCEEDED");
-            assert.ok(limit.retriedAt - limit.rejectedAt >= 2000);
+            assert.ok(limit.retriedAt - limit.rejectedAt >= 5000);
             assert.equal(
               (await output(task.id)).toString(),
               "artifact-replayed",
@@ -418,7 +501,54 @@ test(
               /control connection unavailable|control connected;/,
             );
           } finally {
-            artifactRateLimit = undefined;
+            rejectArtifact = undefined;
+          }
+        },
+      );
+      await t.test(
+        "a rejected artifact only defers its own task and replays the original result",
+        async () => {
+          const marker = path.join(runDir, "artifact-rejection-side-effect");
+          let rejectedTaskId: string | undefined;
+          rejectArtifact = (id) => {
+            rejectedTaskId ??= id;
+            if (id === rejectedTaskId)
+              return { status: 409, code: "ARTIFACT_CONFLICT" };
+          };
+          try {
+            const blocked = await command([
+              "/bin/sh",
+              "-c",
+              `printf once >> '${marker}'; printf recovered`,
+            ]);
+            await until(
+              () => rejectedTaskId,
+              (id) => id === blocked.id,
+              "first task artifact rejected",
+            );
+            const following = await command([
+              "/bin/sh",
+              "-c",
+              "printf healthy",
+            ]);
+            assert.equal((await done(following.id, 8000)).status, "SUCCEEDED");
+            assert.equal((await output(following.id)).toString(), "healthy");
+            assert.equal((await getTask(blocked.id)).status, "RUNNING");
+
+            rejectArtifact = undefined;
+            assert.equal((await done(blocked.id)).status, "SUCCEEDED");
+            assert.equal((await output(blocked.id)).toString(), "recovered");
+            assert.equal(readFileSync(marker, "utf8"), "once");
+            assert.equal(
+              server.store.db
+                .prepare(
+                  "SELECT count(*) AS n FROM events WHERE task_id=? AND kind='finished'",
+                )
+                .get(blocked.id)?.n,
+              1,
+            );
+          } finally {
+            rejectArtifact = undefined;
           }
         },
       );
@@ -431,6 +561,16 @@ test(
             "/bin/sh",
             "-c",
             `printf once\\n >> '${marker}'; sleep 0.3`,
+          ]);
+          await until(
+            () => getTask(c.id),
+            (task) => task.status === "ACCEPTED",
+            "first task accepted with its ACK dropped",
+          );
+          const following = await command([
+            "/bin/sh",
+            "-c",
+            "printf independent",
           ]);
           const duplicate = await api(
             "POST",
@@ -452,6 +592,22 @@ test(
           server.testHooks.replayTask(c.id);
           server.testHooks.replayTask(c.id);
           assert.equal((await done(c.id)).status, "SUCCEEDED");
+          assert.equal((await done(following.id)).status, "SUCCEEDED");
+          const events = server.store.db
+            .prepare(
+              "SELECT task_id,kind FROM events WHERE task_id IN (?,?) ORDER BY rowid",
+            )
+            .all(c.id, following.id);
+          assert.ok(
+            events.findIndex(
+              (event) =>
+                event.task_id === following.id && event.kind === "accepted",
+            ) <
+              events.findIndex(
+                (event) => event.task_id === c.id && event.kind === "started",
+              ),
+            "the later task was accepted while the first task waited for its ACK",
+          );
           await pause(300);
           assert.equal(readFileSync(marker, "utf8").match(/once/g)?.length, 1);
         },

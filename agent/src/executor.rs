@@ -525,7 +525,7 @@ mod execution_tests {
     }
     fn result(j: &Journal) -> Value {
         loop {
-            let e = j.first_outbox().unwrap().unwrap();
+            let e = j.next_outbox(|_| true).unwrap().unwrap();
             j.ack(&e.event_id, &e.task_id, e.seq).unwrap();
             if e.kind == "finished" {
                 return e.payload;

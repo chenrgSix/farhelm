@@ -14,7 +14,7 @@ use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use serde::Deserialize;
 use serde_json::json;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::time::Instant;
 use tokio_tungstenite::{
     connect_async_tls_with_config,
@@ -27,6 +27,66 @@ use tokio_tungstenite::{
 
 const ARTIFACT_RETRY_DELAY: Duration = Duration::from_secs(10);
 const ARTIFACT_RATE_LIMIT_DELAY: Duration = Duration::from_secs(60);
+const EVENT_ACK_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_EVENT_RETRY_DELAY: Duration = Duration::from_secs(60);
+
+struct EventRetry {
+    at: Instant,
+    delay: Duration,
+}
+
+struct OutboxReplay {
+    retries: HashMap<String, EventRetry>,
+    artifact_retry_at: Instant,
+}
+
+impl OutboxReplay {
+    fn new() -> Self {
+        Self {
+            retries: HashMap::new(),
+            artifact_retry_at: Instant::now(),
+        }
+    }
+
+    fn ready(&self, event: &Event, now: Instant, upload_idle: bool) -> bool {
+        self.retries
+            .get(&event.event_id)
+            .is_none_or(|retry| retry.at <= now)
+            && (!requires_upload(event) || (upload_idle && self.artifact_retry_at <= now))
+    }
+
+    fn defer(&mut self, event_id: &str, after: Instant, minimum: Duration) -> Instant {
+        let delay = self.retries.get(event_id).map_or(minimum, |retry| {
+            retry
+                .delay
+                .saturating_mul(2)
+                .clamp(minimum, MAX_EVENT_RETRY_DELAY)
+        });
+        let at = after.checked_add(delay).unwrap_or(after);
+        self.retries
+            .insert(event_id.into(), EventRetry { at, delay });
+        at
+    }
+
+    fn upload_failed(&mut self, event: &Event, error: &anyhow::Error) {
+        let now = Instant::now();
+        let retry_at = if let Some(limit) = error.downcast_ref::<ArtifactRateLimited>() {
+            let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=1000));
+            self.artifact_retry_at = now
+                .checked_add(limit.0.saturating_add(jitter))
+                .unwrap_or(now + ARTIFACT_RATE_LIMIT_DELAY);
+            // Give other pending uploads a turn after the shared pause ends.
+            self.defer(&event.event_id, self.artifact_retry_at, EVENT_ACK_TIMEOUT)
+        } else {
+            self.defer(&event.event_id, now, ARTIFACT_RETRY_DELAY)
+        };
+        let seconds = (retry_at - now).as_secs();
+        eprintln!(
+            "task {} artifact upload deferred for {seconds}s: {error:#}",
+            event.task_id
+        );
+    }
+}
 
 enum SessionEnd {
     AddressChange,
@@ -51,7 +111,7 @@ pub async fn run(
     terminal_cfg.terminal_allow_privilege_escalation =
         crate::terminal_privilege::State::load(&cfg, &journal)?.enabled();
     let mut terminals = crate::terminal::Terminals::new(terminal_cfg, terminal_output);
-    let mut artifact_retry_at = Instant::now();
+    let mut replay = OutboxReplay::new();
     loop {
         let route = crate::routes::Settings::load(&journal)?;
         let base = AddressState::load(&cfg, &journal)?.candidate(&cfg)?;
@@ -90,7 +150,7 @@ pub async fn run(
                 resume_id: &resume_id,
                 terminals: &mut terminals,
                 terminal_events: &mut terminal_events,
-                artifact_retry_at: &mut artifact_retry_at,
+                replay: &mut replay,
             })
             .await
         };
@@ -281,8 +341,21 @@ struct Session<'a> {
     resume_id: &'a str,
     terminals: &'a mut crate::terminal::Terminals,
     terminal_events: &'a mut tokio::sync::mpsc::Receiver<crate::terminal::Output>,
-    artifact_retry_at: &'a mut Instant,
+    replay: &'a mut OutboxReplay,
 }
+
+async fn send_task_event(
+    socket: &mut Socket,
+    replay: &mut OutboxReplay,
+    event: &Event,
+) -> Result<()> {
+    socket
+        .send(Message::Text(envelope("task.event", event)?.into()))
+        .await?;
+    replay.defer(&event.event_id, Instant::now(), EVENT_ACK_TIMEOUT);
+    Ok(())
+}
+
 async fn session(context: Session<'_>) -> Result<SessionEnd> {
     let Session {
         cfg,
@@ -301,7 +374,7 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
         resume_id,
         terminals,
         terminal_events,
-        artifact_retry_at,
+        replay,
     } = context;
     let mut access = access.clone();
     let mut http = http.clone();
@@ -490,15 +563,16 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
             }
             Some(body)=health_events.recv()=>{socket.send(Message::Text(envelope("health.result",body)?.into())).await?;}
             _=heartbeat.tick()=>{socket.send(Message::Text(envelope("agent.heartbeat",json!({"agent_version":env!("CARGO_PKG_VERSION")}))?.into())).await?;}
-            _=outbox.tick(), if uploads.is_empty()=>{
+            _=outbox.tick()=>{
+                let upload_idle = uploads.is_empty();
                 if trust_receipt.is_some() {
                     // Wait for HTTP work using the previous client to finish before
                     // authorizing a cutover; PTYs continue to run throughout.
-                    if downloads.is_empty() && renewal.is_empty() && address_probes.is_empty() {
+                    if upload_idle && downloads.is_empty() && renewal.is_empty() && address_probes.is_empty() {
                         socket.send(Message::Text(envelope("agent.trust.result",trust_receipt.take().unwrap())?.into())).await?;
                     } else { continue; }
                 }
-                if upgrade::supervised() && downloads.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() && journal.upgrade_idle()? {
+                if upload_idle && upgrade::supervised() && downloads.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() && journal.upgrade_idle()? {
                     if let Some(mut state)=UpgradeState::load(journal)? {
                         if state.status=="WAITING_IDLE" {
                             state.status="RESTARTING".into();state.save(journal)?;
@@ -508,43 +582,37 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                         }
                     }
                 }
-                if route_pending && downloads.is_empty() && renewal.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() && journal.upgrade_idle()? {
+                if upload_idle && route_pending && downloads.is_empty() && renewal.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() && journal.upgrade_idle()? {
                     network.planned()?;let _=socket.close(None).await;return Ok(SessionEnd::AddressChange);
                 }
-                if route.policy.is_none() && address.pending.is_some() && address_probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() {
+                if upload_idle && route.policy.is_none() && address.pending.is_some() && address_probes.is_empty() && terminals.is_idle() && terminal_events.is_empty() && forwards.is_idle() && tcp_events.is_empty() {
                     network.planned()?;
                     let _=socket.close(None).await;
                     return Ok(SessionEnd::AddressChange);
                 }
-                if let Some(event)=journal.first_outbox()?{
-                    if event.kind == "finished" && Instant::now() < *artifact_retry_at {
-                        continue;
+                let now = Instant::now();
+                if let Some(event) = journal.next_outbox(|event| replay.ready(event, now, upload_idle))? {
+                    if requires_upload(&event) {
+                        let cfg = cfg.clone();
+                        let journal = journal.clone();
+                        let http = http.clone();
+                        let access = access.clone();
+                        uploads.spawn(async move {
+                            let result = upload_artifacts(&cfg, &journal, &http, &access, &event).await;
+                            (event, result)
+                        });
+                    } else {
+                        send_task_event(&mut socket, replay, &event).await?;
                     }
-                    let cfg=cfg.clone();let journal=journal.clone();let http=http.clone();let access=access.clone();
-                    uploads.spawn(async move {
-                        let result = if event.kind == "finished" {
-                            upload_artifacts(&cfg, &journal, &http, &access, &event).await
-                        } else {
-                            Ok(())
-                        };
-                        (event, result)
-                    });
                 }
             }
             Some(prepared)=uploads.join_next(), if !uploads.is_empty()=>{
                 let (event, result) = prepared?;
                 if let Err(error) = result {
-                    let delay = error.downcast_ref::<ArtifactRateLimited>()
-                        .map_or(ARTIFACT_RETRY_DELAY, |limit| limit.0);
-                    let now = Instant::now();
-                    let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=1000));
-                    *artifact_retry_at = now.checked_add(delay.saturating_add(jitter))
-                        .unwrap_or(now + ARTIFACT_RATE_LIMIT_DELAY);
-                    let seconds = (*artifact_retry_at - now).as_secs();
-                    eprintln!("task {} artifact upload deferred for {seconds}s: {error:#}", event.task_id);
+                    replay.upload_failed(&event, &error);
                     continue;
                 }
-                socket.send(Message::Text(envelope("task.event",&event)?.into())).await?;
+                send_task_event(&mut socket, replay, &event).await?;
             }
             incoming=socket.next()=>{
                 let message=incoming.context("server closed control connection")??;
@@ -648,7 +716,15 @@ async fn session(context: Session<'_>) -> Result<SessionEnd> {
                             }
                             "task.assign"=>{let task:Task=serde_json::from_value(envelope.body)?;task.validate(&access.device_id)?;let fresh=journal.accept(&task)?;if fresh{cfg.fault("after_accept")?;}}
                             "task.cancel"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Cancel{task_id:String}let body:Cancel=serde_json::from_value(envelope.body)?;journal.cancel(&body.task_id)?;}
-                            "event.ack"=>{#[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Ack{event_id:String,task_id:String,seq:i64}let ack:Ack=serde_json::from_value(envelope.body)?;journal.ack(&ack.event_id,&ack.task_id,ack.seq)?;}
+                            "event.ack" => {
+                                #[derive(Deserialize)]
+                                #[serde(deny_unknown_fields)]
+                                struct Ack { event_id: String, task_id: String, seq: i64 }
+                                let ack: Ack = serde_json::from_value(envelope.body)?;
+                                if journal.ack(&ack.event_id, &ack.task_id, ack.seq)? {
+                                    replay.retries.remove(&ack.event_id);
+                                }
+                            }
                             kind if kind.starts_with("tcp.")=>{forwards.receive(kind,envelope.body)?;}
                             kind if kind.starts_with("terminal.")=>{terminals.receive(kind,envelope.body).await?;}
                             "health.config"=>{health.configure(serde_json::from_value(envelope.body)?)?;}
@@ -687,6 +763,19 @@ impl std::fmt::Display for ArtifactRateLimited {
 
 impl std::error::Error for ArtifactRateLimited {}
 
+fn artifact_reference<'a>(event: &'a Event, stream: &str) -> Option<&'a serde_json::Value> {
+    event.payload.get(stream).filter(|reference| {
+        !reference.is_null() && !reference.as_object().is_some_and(|r| r.is_empty())
+    })
+}
+
+fn requires_upload(event: &Event) -> bool {
+    event.kind == "finished"
+        && ["stdout", "stderr"]
+            .into_iter()
+            .any(|stream| artifact_reference(event, stream).is_some())
+}
+
 async fn upload_artifacts(
     cfg: &Config,
     journal: &Journal,
@@ -696,12 +785,9 @@ async fn upload_artifacts(
 ) -> Result<()> {
     let (out, err) = journal.artifacts(&event.task_id)?;
     for (stream, path) in [("stdout", out), ("stderr", err)] {
-        let Some(reference) = event.payload.get(stream) else {
+        let Some(reference) = artifact_reference(event, stream) else {
             continue;
         };
-        if reference.is_null() || reference.as_object().map(|x| x.is_empty()).unwrap_or(false) {
-            continue;
-        }
         let expected: Artifact = serde_json::from_value(reference.clone())?;
         let path =
             PathBuf::from(path.context("finished event references missing local artifact path")?);

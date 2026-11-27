@@ -305,14 +305,24 @@ impl Journal {
         tx.commit()?;
         Ok(())
     }
-    pub fn first_outbox(&self) -> Result<Option<Event>> {
+    pub fn next_outbox(&self, eligible: impl Fn(&Event) -> bool) -> Result<Option<Event>> {
         let c = self.0.lock().unwrap();
-        let e: Option<String> = c
-            .query_row("SELECT event FROM outbox ORDER BY rowid LIMIT 1", [], |r| {
-                r.get(0)
-            })
-            .optional()?;
-        Ok(e.map(|x| serde_json::from_str(&x)).transpose()?)
+        let mut statement = c.prepare_cached(
+            "SELECT candidate.event FROM outbox AS candidate
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM outbox AS earlier
+                 WHERE earlier.task_id=candidate.task_id AND earlier.seq<candidate.seq
+             ) ORDER BY candidate.rowid",
+        )?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let serialized: String = row.get(0)?;
+            let event = serde_json::from_str(&serialized)?;
+            if eligible(&event) {
+                return Ok(Some(event));
+            }
+        }
+        Ok(None)
     }
     pub fn ack(&self, event_id: &str, task_id: &str, seq: i64) -> Result<bool> {
         Ok(self.0.lock().unwrap().execute(
@@ -400,13 +410,13 @@ mod tests {
         let t = crate::protocol::test_task();
         assert!(j.accept(&t).unwrap());
         assert!(!j.accept(&t).unwrap());
-        let e = j.first_outbox().unwrap().unwrap();
+        let e = j.next_outbox(|_| true).unwrap().unwrap();
         assert!(!j.ack(&e.event_id, "wrong", e.seq).unwrap());
         assert!(j.ack(&e.event_id, &t.task_id, e.seq).unwrap());
         drop(j);
         let j = Journal::open(&path).unwrap();
         assert!(!j.accept(&t).unwrap());
-        assert!(j.first_outbox().unwrap().is_none());
+        assert!(j.next_outbox(|_| true).unwrap().is_none());
         let mut altered = t.clone();
         altered.cwd = "/".into();
         altered.payload_hash = altered.hash();
@@ -424,8 +434,19 @@ mod tests {
         assert!(j
             .start(&t.task_id, Path::new("/a"), Path::new("/b"))
             .is_err());
+        let mut other = t.clone();
+        other.task_id = uuid::Uuid::new_v4().to_string();
+        other.payload_hash = other.hash();
+        j.accept(&other).unwrap();
+        let other_head = j
+            .next_outbox(|event| event.task_id != t.task_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(other_head.task_id, other.task_id);
+        assert!(j.next_outbox(|event| event.seq > 1).unwrap().is_none());
         for seq in 1..=3 {
-            let e = j.first_outbox().unwrap().unwrap();
+            let e = j.next_outbox(|_| true).unwrap().unwrap();
+            assert_eq!(e.task_id, t.task_id);
             assert_eq!(e.seq, seq);
             j.ack(&e.event_id, &e.task_id, e.seq).unwrap();
         }
