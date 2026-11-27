@@ -463,6 +463,126 @@ test("durable Ed25519 enrollment, scoped RBAC, HTTPS objects, WSS ACK/replay and
     await s.close();
   }
 });
+test("Agent spawn failures finish started tasks and can replay the original event", async () => {
+  const s = await fixture({ dataDir: join(root, "spawn-failure") });
+  let ws: WebSocket | undefined;
+  try {
+    const admin = await login(s);
+    const device = await enroll(s, admin);
+    const auth = await api(
+      s,
+      "POST",
+      "/api/agent/auth",
+      await device.proof("auth"),
+    );
+    assert.equal(auth.status, 200);
+    const accessToken = auth.body.access_token;
+    const client = websocketClient(s.url, accessToken);
+    ws = client.ws;
+    await once(ws, "open");
+    client.send("agent.hello", { agent_version: "0.2.21" });
+    const command = await api(
+      s,
+      "POST",
+      "/api/v1/commands",
+      {
+        v: 1,
+        device_id: device.device_id,
+        argv: ["/usr/bin/pwd"],
+        cwd: "/missing-directory",
+        timeout_ms: 1000,
+        max_output_bytes: 0,
+        ttl_seconds: 60,
+      },
+      admin,
+      { "idempotency-key": "spawn-failure" },
+    );
+    assert.equal(command.status, 200);
+    const { task_id } = await client.wait("task.assign");
+    const startedAt = Date.now();
+    for (const [seq, kind] of [
+      [1, "accepted"],
+      [2, "started"],
+    ] as const) {
+      client.send("task.event", {
+        event_id: randomUUID(),
+        task_id,
+        seq,
+        kind,
+        at: startedAt,
+        payload: {},
+      });
+      await client.wait("event.ack");
+    }
+    const empty = Buffer.alloc(0);
+    const artifact = { sha256: hash(empty), size: 0 };
+    const finished = {
+      event_id: randomUUID(),
+      task_id,
+      seq: 3,
+      kind: "finished",
+      at: startedAt,
+      payload: {
+        status: "FAILED",
+        exit_code: null,
+        reason: "SPAWN_FAILED",
+        audit_complete: true,
+        stdout: artifact,
+        stderr: artifact,
+        started_at: startedAt,
+        finished_at: startedAt,
+        cleanup: "not_started",
+      },
+    };
+    client.send("task.event", {
+      ...finished,
+      payload: { ...finished.payload, reason: "NONZERO_EXIT" },
+    });
+    assert.equal((await client.wait("error")).code, "STARTED_CLEANUP_CONFLICT");
+    client.send("task.event", finished);
+    assert.equal((await client.wait("error")).code, "ARTIFACT_NOT_DURABLE");
+    assert.equal(s.store.task(task_id).status, "RUNNING");
+
+    const upload = await httpsPut(
+      s,
+      `/api/agent/tasks/${task_id}/artifacts/${artifact.sha256}`,
+      empty,
+      accessToken,
+    );
+    assert.equal(upload.status, 200);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      client.send("task.event", finished);
+      assert.deepEqual(await client.wait("event.ack"), {
+        event_id: finished.event_id,
+        task_id,
+        seq: 3,
+      });
+    }
+
+    const task = await api(
+      s,
+      "GET",
+      `/api/v1/tasks/${task_id}`,
+      undefined,
+      admin,
+    );
+    assert.equal(task.body.status, "FAILED");
+    assert.deepEqual(task.body.result, {
+      ...finished.payload,
+      started_at: null,
+    });
+    const audit = await api(s, "GET", "/api/v1/audit", undefined, admin);
+    const finishedAudit = audit.body.audit.filter(
+      (entry: any) =>
+        entry.action === "task.finished" && entry.task_id === task_id,
+    );
+    assert.equal(finishedAudit.length, 1);
+    assert.deepEqual(finishedAudit[0].detail.payload, task.body.result);
+  } finally {
+    ws?.terminate();
+    await s.close();
+  }
+});
 test("strict bounds, authentication, short token expiry and contiguous events", async () => {
   const s = await fixture({
     dataDir: join(root, "bounds"),

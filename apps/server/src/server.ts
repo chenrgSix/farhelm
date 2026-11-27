@@ -2372,11 +2372,25 @@ export async function buildServer(config: ServerConfig) {
         !["ACCEPTED", "RUNNING"].includes(row.status)
       )
         fail(409, "INVALID_TRANSITION");
+      let resultPayload = event.payload;
       if (event.kind === "finished") {
         const p = event.payload;
         const task = JSON.parse(row.task_json) as Task;
-        if (row.status === "RUNNING" && p.cleanup === "not_started")
-          fail(409, "STARTED_CLEANUP_CONFLICT");
+        if (row.status === "RUNNING" && p.cleanup === "not_started") {
+          // The Agent persists the start attempt before spawning the process.
+          if (
+            p.status !== "FAILED" ||
+            p.reason !== "SPAWN_FAILED" ||
+            p.exit_code !== null ||
+            !p.audit_complete ||
+            [p.stdout, p.stderr].some(
+              (ref) => (ref as { size?: number } | null)?.size !== 0,
+            )
+          )
+            fail(409, "STARTED_CLEANUP_CONFLICT");
+          // Keep the original event for replay and report no process start.
+          resultPayload = { ...p, started_at: null };
+        }
         if (row.status === "ACCEPTED" && p.started_at !== null)
           fail(409, "START_TIME_WITHOUT_EVENT");
         if (p.status === "SUCCEEDED" && !p.audit_complete)
@@ -2436,7 +2450,7 @@ export async function buildServer(config: ServerConfig) {
       ).run(
         status,
         event.seq,
-        event.kind === "finished" ? canonical(event.payload) : null,
+        event.kind === "finished" ? canonical(resultPayload) : null,
         Date.now(),
         event.task_id,
       );
@@ -2444,7 +2458,7 @@ export async function buildServer(config: ServerConfig) {
         event_id: event.event_id,
         seq: event.seq,
         at: event.at,
-        payload: event.payload,
+        payload: resultPayload,
       });
       return event;
     });
